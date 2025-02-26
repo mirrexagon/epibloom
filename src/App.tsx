@@ -12,7 +12,7 @@ function App() {
     return (
         <div className="container">
             <header>
-                <h1>AI Chat Assistant</h1>
+                <h1>Epibloom</h1>
             </header>
             <main>
                 <textarea
@@ -21,9 +21,7 @@ function App() {
                     placeholder="Enter your prompt here..."
                     rows={10}
                 />
-                <button onClick={handleSubmit}>
-                    Submit
-                </button>
+                <button onClick={handleSubmit}>Submit</button>
             </main>
         </div>
     );
