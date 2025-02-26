@@ -10,18 +10,19 @@ function App() {
     };
 
     return (
-        <div className="container">
-            <header>
-                <h1>Epibloom</h1>
+        <div id="app-container" className="container">
+            <header id="app-header">
+                <h1 id="app-title">Epibloom</h1>
             </header>
-            <main>
+            <main id="app-main">
                 <textarea
+                    id="prompt-input"
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                     placeholder="Enter your prompt here..."
                     rows={10}
                 />
-                <button onClick={handleSubmit}>Submit</button>
+                <button id="submit-button" onClick={handleSubmit}>Submit</button>
             </main>
         </div>
     );
