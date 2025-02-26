@@ -20,9 +20,10 @@ function App() {
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                     placeholder="Enter your prompt here..."
-                    rows={10}
                 />
-                <button id="submit-button" onClick={handleSubmit}>Submit</button>
+                <button id="submit-button" onClick={handleSubmit}>
+                    Submit
+                </button>
             </main>
         </div>
     );
