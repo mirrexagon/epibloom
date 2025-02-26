@@ -16,5 +16,11 @@
 body {
     margin: 0;
     min-width: 800px;
+
+    /*
+        TODO: this might mean all height including chrome: https://dev.to/fenok/stretching-body-to-full-viewport-height-the-missing-way-2ghd
+        how did this work before in the template?
+    */
+
     min-height: 100vh;
 }
