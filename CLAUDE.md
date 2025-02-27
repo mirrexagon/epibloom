@@ -1,12 +1,14 @@
 # Epibloom Development Guide
 
 ## Commands
-- `npm run res:dev` - Watch ReScript files and rebuild on changes
-- `npm run dev` - Start development server with hot reloading
 - `npm run res:build` - Build ReScript files
 - `npm run res:clean` - Clean ReScript build artifacts
 - `npm run build` - Build for production
+- `npm run res:dev` - Watch ReScript files and rebuild on changes
+- `npm run dev` - Start development server with hot reloading
 - `npm run preview` - Preview production build locally
+
+Note: Don't use commands like `npm run res:dev` and `npm run dev` as the user will have this running already separately. Just `npm run res:build` to check for errors after making changes to ReScript files.
 
 ## Code Style Guidelines
 - **File Naming**: PascalCase for components (Button.res, App.res)
