@@ -1,0 +1,2 @@
+[language-servers]
+rescript-language-server = [ "nix-shell", "-p", "nodejs", "--run", "npx @rescript/language-server --stdio"]
