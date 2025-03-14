@@ -4,6 +4,8 @@ use uuid::Uuid;
 
 use rocket::serde::{Deserialize, Serialize};
 
+// TODO: Assistant personas (characters) - chats live under assistant personas
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
 pub enum Role {
@@ -23,8 +25,17 @@ pub struct Message {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
 pub struct Chat {
-    pub system_prompt: String,
+    pub name: String,
     pub messages: Vec<Message>,
+}
+
+impl Chat {
+    pub fn new(name: &str) -> Self {
+        Chat {
+            name: name.to_owned(),
+            messages: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -17,3 +17,7 @@ features = [ "v4", "serde" ]
 [dependencies.serde]
 version = "1.0.145"
 features = [ "derive" ]
+
+[dependencies.time]
+version = "0.3.39"
+features = [ "formatting", "local-offset" ]
