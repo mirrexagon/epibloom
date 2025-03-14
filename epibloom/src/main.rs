@@ -8,6 +8,7 @@ mod api {
 
     use rocket::serde::{Deserialize, Serialize};
     use rocket::{get, http::Status, response::status, serde::json::Json, State};
+    use serde_json::json;
     use time::macros::format_description;
     use time::OffsetDateTime;
     use uuid::Uuid;
@@ -23,7 +24,7 @@ mod api {
     #[post("/chat")]
     pub fn new_chat(
         chats: &State<Mutex<Chats>>,
-    ) -> Result<Json<NewChatResponse>, status::Custom<()>> {
+    ) -> Result<status::Created<Json<NewChatResponse>>, status::Custom<()>> {
         let mut chats = chats.lock().unwrap();
 
         let new_chat_id = Uuid::new_v4();
@@ -36,7 +37,11 @@ mod api {
         let new_chat_name = current_datetime.format(&dtfmt).unwrap();
         chats.0.insert(new_chat_id, Chat::new(&new_chat_name));
 
-        Ok(Json(NewChatResponse { id: new_chat_id }))
+        let response = NewChatResponse { id: new_chat_id };
+        let response =
+            status::Created::new(format!("/chat/{id}", id = new_chat_id)).body(Json(response));
+
+        Ok(response)
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
