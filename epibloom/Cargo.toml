@@ -1,0 +1,19 @@
+[package]
+name = "epibloom"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde_json = "1.0.85"
+
+[dependencies.rocket]
+version = "0.5.1"
+features = [ "json", "uuid" ]
+
+[dependencies.uuid]
+version = "1.16.0"
+features = [ "v4", "serde" ]
+
+[dependencies.serde]
+version = "1.0.145"
+features = [ "derive" ]

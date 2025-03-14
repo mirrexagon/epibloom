@@ -40,7 +40,16 @@
           packages.default = pkgs.hello;
 
           devShells.default = pkgs.mkShell {
-            nativeBuildInputs = with pkgs; [ nodejs ];
+            nativeBuildInputs = with pkgs; [
+              nodejs
+
+              rustc
+              cargo
+              cargo-edit
+
+              httpie
+            ];
+
             NODE_ENV = "development";
           };
         };

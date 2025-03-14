@@ -1,5 +1,14 @@
 # Epibloom Development Guide
 
+## Interface Backend
+
+In `epibloom/`, Rust + Rocket.
+
+### Commands
+
+- `cargo build` - Build Rust project
+- `cargo run` - Run Rust project
+
 ## Interface Frontend
 
 In `epibloom/ui/`, ReScript + React + TailwindCSS.
@@ -32,6 +41,3 @@ Note: Don't use commands like `npm run res:dev` and `npm run dev` as the user wi
 
 Remember to run `npm run res:build` after making changes to ReScript files.
 
-## Interface Backend
-
-To be added.
