@@ -47,10 +47,14 @@
               cargo
               cargo-edit
 
+              pkg-config
+              openssl.dev
+
               httpie
             ];
 
             NODE_ENV = "development";
+            RUST_LOG = "debug";
           };
         };
       flake = {

@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate rocket;
 
+mod anthropic;
 mod chat;
 
 mod api {
@@ -13,7 +14,10 @@ mod api {
     use time::OffsetDateTime;
     use uuid::Uuid;
 
+    use crate::anthropic;
     use crate::chat::{Chat, Chats};
+
+    // TODO: Move Rocket-agnostic logic to impl functions on the chat structs.
 
     #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
     #[serde(crate = "rocket::serde")]
@@ -24,12 +28,15 @@ mod api {
     #[post("/chat")]
     pub fn new_chat(
         chats: &State<Mutex<Chats>>,
-    ) -> Result<status::Created<Json<NewChatResponse>>, status::Custom<()>> {
+    ) -> Result<status::Created<Json<NewChatResponse>>, status::Custom<&'static str>> {
         let mut chats = chats.lock().unwrap();
 
         let new_chat_id = Uuid::new_v4();
         if chats.0.contains_key(&new_chat_id) {
-            return Err(status::Custom(Status::InternalServerError, ()));
+            return Err(status::Custom(
+                Status::InternalServerError,
+                "Generated a duplicate chat ID",
+            ));
         }
 
         let current_datetime = OffsetDateTime::now_local().unwrap();
@@ -88,6 +95,20 @@ mod api {
         Err(status::NotFound(()))
     }
 
+    #[get("/anthropic/models")]
+    pub async fn list_anthropic_models(
+        anthropic_api: &State<anthropic::AnthropicApi>,
+    ) -> Result<Json<Vec<anthropic::ModelInfo>>, status::Custom<String>> {
+        let model_list = anthropic_api.list_models().await.map_err(|err| {
+            status::Custom(
+                Status::BadGateway,
+                format!("Failed to get model list from Anthropic: {err}"),
+            )
+        })?;
+
+        Ok(Json(model_list))
+    }
+
     //#[post("/chat/<id>/message")]
     //pub fn add_message() {}
 }
@@ -100,13 +121,24 @@ use chat::{Chat, Chats, Message, Role};
 
 #[launch]
 fn rocket() -> _ {
+    env_logger::init();
+    dotenvy::dotenv().unwrap();
+
     let chats = Chats::new();
     let chats = Mutex::new(chats);
+
+    let anthropic_api = anthropic::AnthropicApi::new_with_key_from_env();
 
     rocket::build()
         .mount(
             "/api",
-            routes![api::get_chats, api::get_chat_by_id, api::new_chat],
+            routes![
+                api::get_chats,
+                api::get_chat_by_id,
+                api::new_chat,
+                api::list_anthropic_models
+            ],
         )
         .manage(chats)
+        .manage(anthropic_api)
 }
