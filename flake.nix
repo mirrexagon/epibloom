@@ -46,6 +46,7 @@
               rustc
               cargo
               cargo-edit
+              clippy
 
               pkg-config
               openssl.dev

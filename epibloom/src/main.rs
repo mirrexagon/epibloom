@@ -72,7 +72,7 @@ mod api {
 
         for (chat_id, chat) in chats.0.iter() {
             response.chats.push(GetChatsResponseChat {
-                id: chat_id.clone(),
+                id: chat_id.to_owned(),
                 name: chat.name.to_owned(),
             });
         }
