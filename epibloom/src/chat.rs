@@ -1,15 +1,13 @@
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
 use time::macros::format_description;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use rocket::serde::{Deserialize, Serialize};
-
 // TODO: Assistant personas (characters) - chats live under assistant personas
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
 pub enum Role {
     #[serde(rename = "assistant")]
     Assistant,
@@ -18,7 +16,6 @@ pub enum Role {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
 pub struct Message {
     role: Role,
     message: String,
@@ -35,7 +32,6 @@ impl Message {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
 pub struct Chat {
     name: String,
     messages: Vec<Message>,
@@ -56,10 +52,21 @@ impl Chat {
     pub fn messages(&self) -> &[Message] {
         &self.messages
     }
+
+    /// Append a message to the end of the chat.
+    ///
+    /// Returns the index of the newly-pushed message.
+    pub fn push_message(&mut self, role: Role, message: &str) -> usize {
+        self.messages.push(Message {
+            role,
+            message: message.to_owned(),
+        });
+
+        self.messages.len() - 1
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
 pub struct Chats {
     chats: HashMap<Uuid, Chat>,
 }
@@ -73,6 +80,10 @@ impl Chats {
 
     pub fn chats(&self) -> &HashMap<Uuid, Chat> {
         &self.chats
+    }
+
+    pub fn chats_mut(&mut self) -> &mut HashMap<Uuid, Chat> {
+        &mut self.chats
     }
 
     pub fn new_chat(&mut self, name: Option<&str>) -> Uuid {

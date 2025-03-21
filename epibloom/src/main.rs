@@ -7,7 +7,6 @@ mod chat;
 
 use std::sync::Mutex;
 
-
 use chat::Chats;
 
 #[launch]
@@ -22,14 +21,15 @@ fn rocket() -> _ {
 
     rocket::build()
         .mount(
-            "/api",
+            "/api/chat",
             routes![
-                api::get_chats,
-                api::get_chat_by_id,
-                api::new_chat,
-                api::list_anthropic_models
+                api::chat::get_chats,
+                api::chat::get_chat_by_id,
+                api::chat::new_chat,
+                api::chat::push_message,
             ],
         )
+        .mount("/api/anthropic", routes![api::list_anthropic_models])
         .manage(chats)
         .manage(anthropic_api)
 }

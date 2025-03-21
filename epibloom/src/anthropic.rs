@@ -1,7 +1,7 @@
 use std::env;
 
 use log::info;
-use rocket::serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 // https://docs.anthropic.com/en/api/versioning
@@ -13,7 +13,6 @@ pub struct AnthropicApi {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
 pub struct ModelInfo {
     r#type: String,
     id: String,
@@ -23,7 +22,6 @@ pub struct ModelInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
 struct ModelInfoPage {
     data: Vec<ModelInfo>,
     has_more: bool,
