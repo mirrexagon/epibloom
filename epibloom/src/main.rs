@@ -7,9 +7,8 @@ mod chat;
 
 use std::sync::Mutex;
 
-use uuid::{uuid, Uuid};
 
-use chat::{Chat, Chats, Message, Role};
+use chat::Chats;
 
 #[launch]
 fn rocket() -> _ {

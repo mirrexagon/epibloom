@@ -1,4 +1,4 @@
-use std::{env, error::Error};
+use std::env;
 
 use log::info;
 use rocket::serde::{Deserialize, Serialize};
