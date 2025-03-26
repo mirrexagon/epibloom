@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 
+use rusqlite::{Connection, Result, Row};
 use serde::{Deserialize, Serialize};
 use time::macros::format_description;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-// TODO: Assistant personas (characters) - chats live under assistant personas
+// TODO: Assistant personas (characters) - chats can be associated with a
+// character and inherit data from them
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub enum Role {
@@ -17,73 +19,106 @@ pub enum Role {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
-    role: Role,
-    message: String,
+    pub role: Role,
+    pub message: String,
 }
 
-impl Message {
-    pub fn role(&self) -> Role {
-        self.role
-    }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMetadata {
+    id: Uuid,
+    name: String,
+}
 
-    pub fn message(&self) -> &str {
-        &self.message
+impl ChatMetadata {
+    fn from_row(row: &Row) -> Result<Self> {
+        let id: String = row.get(0)?;
+        let name = row.get(1)?;
+
+        Ok(ChatMetadata {
+            id: Uuid::parse_str(&id).unwrap(),
+            name,
+        })
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Chat {
-    name: String,
-    messages: Vec<Message>,
+    #[serde(flatten)]
+    pub metadata: ChatMetadata,
+
+    pub messages: Vec<Message>,
 }
 
-impl Chat {
-    pub fn new(name: &str) -> Self {
-        Chat {
-            name: name.to_owned(),
-            messages: Vec::new(),
-        }
-    }
-
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn messages(&self) -> &[Message] {
-        &self.messages
-    }
-
-    /// Append a message to the end of the chat.
-    ///
-    /// Returns the index of the newly-pushed message.
-    pub fn push_message(&mut self, role: Role, message: &str) -> usize {
-        self.messages.push(Message {
-            role,
-            message: message.to_owned(),
-        });
-
-        self.messages.len() - 1
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct Chats {
-    chats: HashMap<Uuid, Chat>,
+    db_conn: Connection,
 }
 
 impl Chats {
-    pub fn new() -> Self {
-        Chats {
-            chats: HashMap::new(),
-        }
+    pub fn new(db_conn: Connection) -> Result<Self> {
+        db_conn.execute(
+            "CREATE TABLE IF NOT EXISTS chats (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        db_conn.execute(
+            "CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                message TEXT NOT NULL,
+                FOREIGN KEY (chat_id) REFERENCES chats (id)
+            )",
+            [],
+        )?;
+
+        Ok(Chats { db_conn })
     }
 
-    pub fn chats(&self) -> &HashMap<Uuid, Chat> {
-        &self.chats
+    // TODO: Inserting a message in the middle:
+    // https://softwareengineering.stackexchange.com/a/304597
+
+    pub fn list_chats(&self) -> Result<Vec<ChatMetadata>> {
+        let mut statement = self
+            .db_conn
+            .prepare("SELECT id, name FROM chats ORDER BY name")?;
+
+        /*
+        let mut rows = statement.query([])?;
+        let mut chats = Vec::new();
+        while let Some(row) = rows.next()? {
+            let id: String = row.get(0)?;
+            let name = row.get(1)?;
+
+            chats.push(ChatMetadata {
+                id: Uuid::parse_str(&id).unwrap(),
+                name,
+            });
+        }*/
+
+        let chats = statement.query_map([], ChatMetadata::from_row)?;
+        let chats = chats.collect::<Result<Vec<_>, _>>()?;
+        Ok(chats)
     }
 
-    pub fn chats_mut(&mut self) -> &mut HashMap<Uuid, Chat> {
-        &mut self.chats
+    pub fn get_chat_by_id(&self, id: Uuid) -> Result<Chat> {
+        let chat_metadata = {
+            let mut statement = self
+                .db_conn
+                .prepare("SELECT id, name FROM chats WHERE id = ?1")?;
+
+            statement.query_row([&id.to_string()], ChatMetadata::from_row)?
+        };
+
+        let chat_messages = {
+            let mut statement = self
+                .db_conn
+                .prepare("SELECT role, message FROM messages WHERE chat_id = ?1 ORDER BY")?;
+        };
     }
 
     pub fn new_chat(&mut self, name: Option<&str>) -> Uuid {
