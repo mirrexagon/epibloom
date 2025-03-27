@@ -4,7 +4,28 @@ use rocket::{get, http::Status, response::status, serde::json::Json, State};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::chat::{Chat, Chats, Message, Role};
+use crate::chat::{self, Chat, Chats, Message, Role};
+
+#[derive(Debug, Clone, Responder)]
+pub enum ApiError {
+    #[response(status = 404, content_type = "text")]
+    NotFound(String),
+    #[response(status = 500, content_type = "text")]
+    DatabaseError(String),
+}
+
+impl From<chat::Error> for ApiError {
+    fn from(value: chat::Error) -> Self {
+        match value {
+            chat::Error::ChatNotFound(chat_id) => {
+                ApiError::NotFound(format!("chat not found: {chat_id}"))
+            }
+            chat::Error::Database(db_err) => {
+                ApiError::DatabaseError(format!("database error: {}", db_err))
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct NewChatResponse {
@@ -12,19 +33,23 @@ pub struct NewChatResponse {
 }
 
 #[post("/")]
-pub fn new_chat(chats: &State<Mutex<Chats>>) -> status::Created<Json<NewChatResponse>> {
+pub fn new_chat(
+    chats: &State<Mutex<Chats>>,
+) -> Result<status::Created<Json<NewChatResponse>>, String> {
     let mut chats = chats.lock().unwrap();
 
-    let new_chat_id = chats.new_chat(None);
+    let new_chat_id = chats.new_chat(None).map_err(|err| err.to_string())?;
 
-    status::Created::new(format!("/chat/{id}", id = new_chat_id)).body(Json(NewChatResponse {
-        chat_id: new_chat_id,
-    }))
+    Ok(
+        status::Created::new(format!("/chat/{id}", id = new_chat_id)).body(Json(NewChatResponse {
+            chat_id: new_chat_id,
+        })),
+    )
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetChatsResponseChat {
-    chat_id: Uuid,
+    id: Uuid,
     name: String,
 }
 
@@ -34,64 +59,50 @@ pub struct GetChatsResponse {
 }
 
 #[get("/")]
-pub fn get_chats(chats: &State<Mutex<Chats>>) -> Json<GetChatsResponse> {
+pub fn get_chats(chats: &State<Mutex<Chats>>) -> Result<Json<GetChatsResponse>, String> {
     let chats = chats.lock().unwrap();
 
-    let mut response = GetChatsResponse { chats: Vec::new() };
+    let chats_list = chats.list_chats().map_err(|err| err.to_string())?;
 
-    for (chat_id, chat) in chats.chats().iter() {
+    let mut response = GetChatsResponse { chats: Vec::new() };
+    for chat_metadata in chats_list.iter() {
         response.chats.push(GetChatsResponseChat {
-            chat_id: chat_id.to_owned(),
-            name: chat.name().to_owned(),
+            id: chat_metadata.id,
+            name: chat_metadata.name.to_owned(),
         });
     }
 
-    Json(response)
+    Ok(Json(response))
 }
 
 #[get("/<chat_id>")]
-pub fn get_chat_by_id(
-    chats: &State<Mutex<Chats>>,
-    chat_id: Uuid,
-) -> Result<Json<Chat>, status::NotFound<()>> {
+pub fn get_chat_by_id(chats: &State<Mutex<Chats>>, chat_id: Uuid) -> Result<Json<Chat>, ApiError> {
     let chats = chats.lock().unwrap();
 
-    if let Some(chat) = chats.chats().get(&chat_id) {
-        let chat = chat.clone();
-        return Ok(Json(chat));
-    }
-
-    Err(status::NotFound(()))
+    chats.get_chat_by_id(chat_id).map(Json).map_err(From::from)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PushMessageRequest<'a> {
     role: Role,
-    message: &'a str,
+    text: &'a str,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PushMessageResponse {
-    message_index: usize,
-}
+pub struct PushMessageResponse {}
 
 #[post("/<chat_id>/message", data = "<message>")]
 pub fn push_message(
     chats: &State<Mutex<Chats>>,
     chat_id: Uuid,
     message: Json<PushMessageRequest>,
-) -> Result<Json<PushMessageResponse>, status::NotFound<()>> {
+) -> Result<Json<PushMessageResponse>, ApiError> {
     let mut chats = chats.lock().unwrap();
 
-    if let Some(chat) = chats.chats_mut().get_mut(&chat_id) {
-        let new_message_index = chat.push_message(message.role, message.message);
-
-        return Ok(Json(PushMessageResponse {
-            message_index: new_message_index,
-        }));
-    }
-
-    Err(status::NotFound(()))
+    chats
+        .push_message(chat_id, message.role, message.text)
+        .map(|_| Json(PushMessageResponse {}))
+        .map_err(From::from)
 }
 
 //#[post("/<chat_id>/message/<message_index>")]
