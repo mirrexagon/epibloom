@@ -20,7 +20,22 @@ pub enum Role {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: Role,
-    pub message: String,
+    pub text: String,
+}
+
+impl Message {
+    fn from_row(row: &Row) -> Result<Self> {
+        let role: String = row.get("role")?;
+        let role = match role.as_str() {
+            "assistant" => Role::Assistant,
+            "user" => Role::User,
+            r => panic!("Unknown role in database: {}", r),
+        };
+
+        let text = row.get("text")?;
+
+        Ok(Message { role, text })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,13 +46,11 @@ pub struct ChatMetadata {
 
 impl ChatMetadata {
     fn from_row(row: &Row) -> Result<Self> {
-        let id: String = row.get(0)?;
-        let name = row.get(1)?;
+        let id: String = row.get("id")?;
+        let id = Uuid::parse_str(&id).unwrap();
+        let name = row.get("name")?;
 
-        Ok(ChatMetadata {
-            id: Uuid::parse_str(&id).unwrap(),
-            name,
-        })
+        Ok(ChatMetadata { id, name })
     }
 }
 
@@ -45,7 +58,6 @@ impl ChatMetadata {
 pub struct Chat {
     #[serde(flatten)]
     pub metadata: ChatMetadata,
-
     pub messages: Vec<Message>,
 }
 
@@ -70,7 +82,7 @@ impl Chats {
                 chat_id TEXT NOT NULL,
                 position INTEGER NOT NULL,
                 role TEXT NOT NULL,
-                message TEXT NOT NULL,
+                text TEXT NOT NULL,
                 FOREIGN KEY (chat_id) REFERENCES chats (id)
             )",
             [],
@@ -87,44 +99,50 @@ impl Chats {
             .db_conn
             .prepare("SELECT id, name FROM chats ORDER BY name")?;
 
-        /*
-        let mut rows = statement.query([])?;
-        let mut chats = Vec::new();
-        while let Some(row) = rows.next()? {
-            let id: String = row.get(0)?;
-            let name = row.get(1)?;
-
-            chats.push(ChatMetadata {
-                id: Uuid::parse_str(&id).unwrap(),
-                name,
-            });
-        }*/
-
         let chats = statement.query_map([], ChatMetadata::from_row)?;
-        let chats = chats.collect::<Result<Vec<_>, _>>()?;
-        Ok(chats)
+        chats.collect::<Result<Vec<_>, _>>()
     }
 
     pub fn get_chat_by_id(&self, id: Uuid) -> Result<Chat> {
-        let chat_metadata = {
+        let id_string = id.to_string();
+
+        let metadata = {
             let mut statement = self
                 .db_conn
                 .prepare("SELECT id, name FROM chats WHERE id = ?1")?;
 
-            statement.query_row([&id.to_string()], ChatMetadata::from_row)?
+            statement.query_row([&id_string], ChatMetadata::from_row)?
         };
 
-        let chat_messages = {
-            let mut statement = self
-                .db_conn
-                .prepare("SELECT role, message FROM messages WHERE chat_id = ?1 ORDER BY")?;
+        let messages = {
+            let mut statement = self.db_conn.prepare(
+                "SELECT role, message FROM messages WHERE chat_id = ?1 ORDER BY position ASC",
+            )?;
+
+            let messages = statement.query_map([&id_string], Message::from_row)?;
+            messages.collect::<Result<Vec<_>, _>>()?
         };
+
+        Ok(Chat { metadata, messages })
     }
 
-    pub fn new_chat(&mut self, name: Option<&str>) -> Uuid {
-        let new_chat_id = Uuid::new_v4();
+    pub fn new_chat(&self, name: Option<&str>) -> Result<Uuid> {
+        let mut new_chat_id;
 
-        assert!(!self.chats.contains_key(&new_chat_id));
+        loop {
+            new_chat_id = Uuid::new_v4();
+
+            match self.get_chat_by_id(new_chat_id) {
+                Err(rusqlite::Error::QueryReturnedNoRows) => break,
+                Ok(_) => continue,
+
+                // Note that `res` should always be `Err` at this point, so the
+                // `map()` is just to satisfy the type checker.
+                res => return res.map(|chat| chat.metadata.id),
+            }
+        }
+
+        let new_chat_id_string = new_chat_id.to_string();
 
         let new_chat_name = if let Some(name) = name {
             name.to_owned()
@@ -135,8 +153,11 @@ impl Chats {
             current_datetime.format(&dtfmt).unwrap()
         };
 
-        self.chats.insert(new_chat_id, Chat::new(&new_chat_name));
+        self.db_conn.execute(
+            "INSERT INTO chats (id, name) VALUES (?1, ?2)",
+            [&new_chat_id_string, &new_chat_name],
+        )?;
 
-        new_chat_id
+        Ok(new_chat_id)
     }
 }
