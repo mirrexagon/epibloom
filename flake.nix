@@ -43,15 +43,14 @@
             nativeBuildInputs = with pkgs; [
               nodejs
 
-              rustc
-              cargo
+              rustup
               cargo-edit
-              clippy
 
               pkg-config
               openssl.dev
 
               httpie
+              sqlitebrowser
             ];
 
             NODE_ENV = "development";

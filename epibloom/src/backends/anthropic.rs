@@ -61,7 +61,10 @@ impl AnthropicApi {
         Ok(body.data)
     }
 
-    //pub async fn generate(&self, chat: chat::Chat) -> chat::Message {}
+    // TODO: Expose streaming outside of this
+    pub async fn generate(&self, chat: chat::Chat) -> String {
+        let client = reqwest::Client::new();
+    }
 }
 
 pub mod api {
