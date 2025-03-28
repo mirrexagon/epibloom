@@ -151,7 +151,7 @@ impl Chats {
     fn get_chat_metadata_by_id(&self, chat_id: Uuid) -> Result<ChatMetadata> {
         let mut statement = self
             .db_conn
-            .prepare("SELECT id, name FROM chats WHERE id = ?1")?;
+            .prepare("SELECT id, name, created, modified FROM chats WHERE id = ?1")?;
 
         match statement.query_row([chat_id], ChatMetadata::from_row) {
             Err(rusqlite::Error::QueryReturnedNoRows) => Err(Error::ChatNotFound(chat_id)),
@@ -183,7 +183,7 @@ impl Chats {
 
         let messages = {
             let mut statement = self.db_conn.prepare(
-                "SELECT role, message FROM messages WHERE chat_id = ?1 ORDER BY position ASC",
+                "SELECT role, text FROM messages WHERE chat_id = ?1 ORDER BY position ASC",
             )?;
 
             let messages = statement.query_map([chat_id], Message::from_row)?;
@@ -246,7 +246,8 @@ impl Chats {
             [chat_id],
             |row| row.get(0),
         ) {
-            Ok(max_position) => Ok(max_position),
+            Ok(Some(max_position)) => Ok(max_position),
+            Ok(None) => Ok(0),
             Err(rusqlite::Error::QueryReturnedNoRows) => Err(Error::ChatNotFound(chat_id)),
             Err(err) => Err(Error::Database(err)),
         }
