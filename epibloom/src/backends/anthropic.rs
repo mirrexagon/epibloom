@@ -4,6 +4,8 @@ use log::info;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
+use crate::chat;
+
 // https://docs.anthropic.com/en/api/versioning
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 const ANTHROPIC_API_URL_BASE: &str = "https://api.anthropic.com/v1";
@@ -17,7 +19,7 @@ pub struct ModelInfo {
     r#type: String,
     id: String,
     display_name: String,
-    #[serde(with = "time::serde::iso8601")]
+    #[serde(with = "time::serde::rfc3339")]
     created_at: OffsetDateTime,
 }
 
@@ -57,5 +59,27 @@ impl AnthropicApi {
 
         // TODO: Concatenate all pages in the model list.
         Ok(body.data)
+    }
+
+    //pub async fn generate(&self, chat: chat::Chat) -> chat::Message {}
+}
+
+pub mod api {
+    use rocket::{get, http::Status, response::status, serde::json::Json, State};
+
+    use super::*;
+
+    #[get("/models")]
+    pub async fn list_models(
+        anthropic_api: &State<AnthropicApi>,
+    ) -> Result<Json<Vec<ModelInfo>>, status::Custom<String>> {
+        let model_list = anthropic_api.list_models().await.map_err(|err| {
+            status::Custom(
+                Status::BadGateway,
+                format!("Failed to get model list from Anthropic: {err}"),
+            )
+        })?;
+
+        Ok(Json(model_list))
     }
 }

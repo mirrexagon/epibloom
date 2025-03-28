@@ -1,8 +1,8 @@
 #[macro_use]
 extern crate rocket;
 
-mod anthropic;
 mod api;
+mod backends;
 mod chat;
 mod util;
 
@@ -14,6 +14,18 @@ use chat::Chats;
 use rusqlite::Connection;
 
 const DATABASE_FILENAME: &str = "epibloom.db";
+
+// TODO: Each backend has functions that take a Chat and send it to the backend
+// and return the response message.
+// System prompt in Chat should be separate, like Anthropic API, not a message
+// in the chat.
+// How would this interact with lorebooks and other injections? Probably
+// post-processed chat that includes relevant lorebook info.
+// How would this interact with tool use? Needs to call back into Epibloom to
+// run the tool. See
+// https://docs.anthropic.com/en/docs/build-with-claude/tool-use/overview,
+// Claude will stop generating and say to use the tool, then you run a
+// continuation.
 
 #[launch]
 fn rocket() -> _ {
@@ -47,7 +59,7 @@ fn rocket() -> _ {
         Mutex::new(chats)
     };
 
-    let anthropic_api = anthropic::AnthropicApi::new_with_key_from_env();
+    let anthropic_api = backends::anthropic::AnthropicApi::new_with_key_from_env();
 
     rocket::build()
         .mount(
@@ -59,7 +71,10 @@ fn rocket() -> _ {
                 api::chat::push_message,
             ],
         )
-        .mount("/api/anthropic", routes![api::list_anthropic_models])
+        .mount(
+            "/api/anthropic",
+            routes![backends::anthropic::api::list_models],
+        )
         .manage(chats)
         .manage(anthropic_api)
 }

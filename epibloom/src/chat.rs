@@ -44,6 +44,10 @@ impl fmt::Display for Role {
 pub struct Message {
     pub role: Role,
     pub text: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub modified: OffsetDateTime,
 }
 
 impl Message {
@@ -57,7 +61,15 @@ impl Message {
 
         let text = row.get("text")?;
 
-        Ok(Message { role, text })
+        let created = OffsetDateTime::from_unix_timestamp(row.get("created")?).unwrap();
+        let modified = OffsetDateTime::from_unix_timestamp(row.get("modified")?).unwrap();
+
+        Ok(Message {
+            role,
+            text,
+            created,
+            modified,
+        })
     }
 }
 
@@ -116,6 +128,8 @@ impl Chats {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 chat_id TEXT NOT NULL,
                 position INTEGER NOT NULL,
+                created INTEGER NOT NULL, -- Unix timestamp
+                modified INTEGER NOT NULL, -- Unix timestamp
                 role TEXT NOT NULL,
                 text TEXT NOT NULL,
                 FOREIGN KEY (chat_id) REFERENCES chats (id)
@@ -257,9 +271,11 @@ impl Chats {
         // This will as a side effect confirm that the chat exists.
         let next_position = self.get_next_message_position_for_chat(chat_id)?;
 
+        let current_unix_timestamp = util::get_current_unix_timestamp();
+
         self.db_conn.execute(
-            "INSERT INTO messages (chat_id, position, role, text) VALUES (?1, ?2, ?3, ?4)",
-            params![chat_id, next_position, role.to_string(), text],
+            "INSERT INTO messages (chat_id, position, created, modified, role, text) VALUES (?1, ?2, ?3, ?4)",
+            params![chat_id, next_position, current_unix_timestamp, current_unix_timestamp, role.to_string(), text],
         )?;
 
         self.update_chat_last_modified_time(chat_id)?;
