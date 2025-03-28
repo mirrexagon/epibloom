@@ -3,8 +3,10 @@ use std::fmt;
 use rusqlite::{params, Connection, Row};
 use serde::{Deserialize, Serialize};
 use time::macros::format_description;
-use time::OffsetDateTime;
+use time::{OffsetDateTime, UtcDateTime};
 use uuid::Uuid;
+
+use crate::util;
 
 // TODO: Assistant personas (characters) - chats can be associated with a
 // character and inherit data from them
@@ -13,7 +15,7 @@ use uuid::Uuid;
 pub enum Error {
     #[error("chat not found")]
     ChatNotFound(Uuid),
-    #[error("database error")]
+    #[error("database error: {0}")]
     Database(#[from] rusqlite::Error),
 }
 
@@ -63,15 +65,23 @@ impl Message {
 pub struct ChatMetadata {
     pub id: Uuid,
     pub name: String,
+    pub created: UtcDateTime,
+    pub modified: UtcDateTime,
 }
 
 impl ChatMetadata {
     fn from_row(row: &Row) -> rusqlite::Result<Self> {
-        let id: String = row.get("id")?;
-        let id = Uuid::parse_str(&id).unwrap();
+        let id: Uuid = row.get("id")?;
         let name = row.get("name")?;
+        let created = UtcDateTime::from_unix_timestamp(row.get("created")?).unwrap();
+        let modified = UtcDateTime::from_unix_timestamp(row.get("modified")?).unwrap();
 
-        Ok(ChatMetadata { id, name })
+        Ok(ChatMetadata {
+            id,
+            name,
+            created,
+            modified,
+        })
     }
 }
 
@@ -92,7 +102,9 @@ impl Chats {
         db_conn.execute(
             "CREATE TABLE IF NOT EXISTS chats (
                 id TEXT PRIMARY KEY,
-                name TEXT NOT NULL
+                name TEXT NOT NULL,
+                created INTEGER NOT NULL, -- Unix timestamp
+                modified INTEGER NOT NULL -- Unix timestamp
             )",
             [],
         )?;
@@ -115,7 +127,7 @@ impl Chats {
     pub fn list_chats(&self) -> Result<Vec<ChatMetadata>> {
         let mut statement = self
             .db_conn
-            .prepare("SELECT id, name FROM chats ORDER BY name")?;
+            .prepare("SELECT id, name FROM chats ORDER BY created DESC")?;
 
         let chats = statement.query_map([], ChatMetadata::from_row)?;
         chats
@@ -123,14 +135,24 @@ impl Chats {
             .map_err(From::from)
     }
 
+    fn chat_exists(&self, chat_id: Uuid) -> Result<bool> {
+        self.db_conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM chats WHERE id = ?1);",
+                [chat_id],
+                |row| row.get(0).map(|v: bool| v),
+            )
+            .map_err(From::from)
+    }
+
     /// Returns `None` if there is no chat with the given ID.
-    fn get_chat_metadata_by_id(&self, id: Uuid) -> Result<ChatMetadata> {
+    fn get_chat_metadata_by_id(&self, chat_id: Uuid) -> Result<ChatMetadata> {
         let mut statement = self
             .db_conn
             .prepare("SELECT id, name FROM chats WHERE id = ?1")?;
 
-        match statement.query_row([id], ChatMetadata::from_row) {
-            Err(rusqlite::Error::QueryReturnedNoRows) => Err(Error::ChatNotFound(id)),
+        match statement.query_row([chat_id], ChatMetadata::from_row) {
+            Err(rusqlite::Error::QueryReturnedNoRows) => Err(Error::ChatNotFound(chat_id)),
             Ok(metadata) => Ok(metadata),
 
             // Note that `res` should always be `Err` at this point, so the
@@ -139,15 +161,30 @@ impl Chats {
         }
     }
 
-    pub fn get_chat_by_id(&self, id: Uuid) -> Result<Chat> {
-        let metadata = self.get_chat_metadata_by_id(id)?;
+    fn update_chat_last_modified_time(&self, chat_id: Uuid) -> Result<()> {
+        let current_unix_timestamp = util::get_current_unix_timestamp();
+
+        let num_rows_affected = self.db_conn.execute(
+            "UPDATE chats SET modified = ?1 WHERE id = ?2",
+            params![current_unix_timestamp, chat_id],
+        )?;
+
+        if num_rows_affected == 0 {
+            return Err(Error::ChatNotFound(chat_id));
+        }
+
+        Ok(())
+    }
+
+    pub fn get_chat_by_id(&self, chat_id: Uuid) -> Result<Chat> {
+        let metadata = self.get_chat_metadata_by_id(chat_id)?;
 
         let messages = {
             let mut statement = self.db_conn.prepare(
                 "SELECT role, message FROM messages WHERE chat_id = ?1 ORDER BY position ASC",
             )?;
 
-            let messages = statement.query_map([id], Message::from_row)?;
+            let messages = statement.query_map([chat_id], Message::from_row)?;
             messages.collect::<std::result::Result<Vec<_>, _>>()?
         };
 
@@ -179,9 +216,16 @@ impl Chats {
             current_datetime.format(&dtfmt).unwrap()
         };
 
+        let current_unix_timestamp = util::get_current_unix_timestamp();
+
         self.db_conn.execute(
-            "INSERT INTO chats (id, name) VALUES (?1, ?2)",
-            params![new_chat_id, &new_chat_name],
+            "INSERT INTO chats (id, name, created, modified) VALUES (?1, ?2, ?3, ?4)",
+            params![
+                new_chat_id,
+                &new_chat_name,
+                current_unix_timestamp,
+                current_unix_timestamp
+            ],
         )?;
 
         Ok(new_chat_id)
@@ -190,17 +234,18 @@ impl Chats {
     // TODO: Inserting a message in the middle:
     // https://softwareengineering.stackexchange.com/a/304597
 
-    fn get_next_message_position_for_chat(&self, id: Uuid) -> Result<usize> {
-        // Just to easily error with the correct error if the chat doesn't exist.
-        let metadata = self.get_chat_metadata_by_id(id)?;
+    fn get_next_message_position_for_chat(&self, chat_id: Uuid) -> Result<usize> {
+        if !self.chat_exists(chat_id)? {
+            return Err(Error::ChatNotFound(chat_id));
+        }
 
         match self.db_conn.query_row(
             "SELECT MAX(position) FROM messages WHERE id = ?1",
-            [id],
+            [chat_id],
             |row| row.get(0),
         ) {
             Ok(max_position) => Ok(max_position),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Err(Error::ChatNotFound(id)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Err(Error::ChatNotFound(chat_id)),
             Err(err) => Err(Error::Database(err)),
         }
     }
@@ -213,6 +258,8 @@ impl Chats {
             "INSERT INTO messages (chat_id, position, role, text) VALUES (?1, ?2, ?3, ?4)",
             params![chat_id, next_position, role.to_string(), text],
         )?;
+
+        self.update_chat_last_modified_time(chat_id)?;
 
         Ok(())
     }

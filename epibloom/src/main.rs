@@ -4,8 +4,9 @@ extern crate rocket;
 mod anthropic;
 mod api;
 mod chat;
+mod util;
 
-use std::{path::PathBuf, sync::Mutex};
+use std::{fs, path::PathBuf, sync::Mutex};
 
 use etcetera::{choose_app_strategy, AppStrategy, AppStrategyArgs};
 
@@ -34,13 +35,15 @@ fn rocket() -> _ {
     let state_dir = strategy.state_dir();
     let runtime_dir = strategy.runtime_dir();
 
+    fs::create_dir_all(&data_dir).unwrap();
+
     let mut db_path = PathBuf::new();
-    db_path.push(data_dir);
+    db_path.push(&data_dir);
     db_path.push(DATABASE_FILENAME);
 
     let chats = {
         let db_conn = Connection::open(db_path.as_path()).unwrap();
-        let chats = Chats::new(db_conn);
+        let chats = Chats::new(db_conn).unwrap();
         Mutex::new(chats)
     };
 

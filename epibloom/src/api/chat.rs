@@ -35,10 +35,10 @@ pub struct NewChatResponse {
 #[post("/")]
 pub fn new_chat(
     chats: &State<Mutex<Chats>>,
-) -> Result<status::Created<Json<NewChatResponse>>, String> {
+) -> Result<status::Created<Json<NewChatResponse>>, ApiError> {
     let chats = chats.lock().unwrap();
 
-    let new_chat_id = chats.new_chat(None).map_err(|err| err.to_string())?;
+    let new_chat_id = chats.new_chat(None)?;
 
     Ok(
         status::Created::new(format!("/chat/{id}", id = new_chat_id)).body(Json(NewChatResponse {
@@ -59,10 +59,10 @@ pub struct GetChatsResponse {
 }
 
 #[get("/")]
-pub fn get_chats(chats: &State<Mutex<Chats>>) -> Result<Json<GetChatsResponse>, String> {
+pub fn get_chats(chats: &State<Mutex<Chats>>) -> Result<Json<GetChatsResponse>, ApiError> {
     let chats = chats.lock().unwrap();
 
-    let chats_list = chats.list_chats().map_err(|err| err.to_string())?;
+    let chats_list = chats.list_chats()?;
 
     let mut response = GetChatsResponse { chats: Vec::new() };
     for chat_metadata in chats_list.iter() {
