@@ -2,6 +2,7 @@ use std::env;
 
 use log::info;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use time::OffsetDateTime;
 
 use crate::chat;
@@ -13,6 +14,14 @@ const ANTHROPIC_API_URL_BASE: &str = "https://api.anthropic.com/v1";
 pub struct AnthropicApi {
     api_key: String,
 }
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("Reqwest error: {0}")]
+    Reqwest(#[from] reqwest::Error),
+}
+
+type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelInfo {
@@ -31,6 +40,10 @@ struct ModelInfoPage {
     last_id: String,
 }
 
+struct AnthropicMessagesRequest {}
+
+impl From<chat::Chat> for AnthropicMessagesRequest {}
+
 impl AnthropicApi {
     pub fn new_with_key_from_env() -> Self {
         let api_key = env::var("ANTHROPIC_API_KEY").unwrap();
@@ -38,7 +51,7 @@ impl AnthropicApi {
         AnthropicApi { api_key }
     }
 
-    pub async fn list_models(&self) -> Result<Vec<ModelInfo>, String> {
+    pub async fn list_models(&self) -> Result<Vec<ModelInfo>> {
         let client = reqwest::Client::new();
         let url = format!("{base}/models", base = ANTHROPIC_API_URL_BASE);
 
@@ -48,13 +61,9 @@ impl AnthropicApi {
             .header("anthropic-version", ANTHROPIC_API_VERSION)
             .header("content-type", "application/json")
             .send()
-            .await
-            .map_err(|err| err.to_string())?;
+            .await?;
 
-        //let text = response.text().await.map_err(|err| err.to_string())?;
-        //debug!("{}", text);
-
-        let body: ModelInfoPage = response.json().await.map_err(|err| err.to_string())?;
+        let body: ModelInfoPage = response.json().await?;
         info!("{:?}", body);
 
         // TODO: Concatenate all pages in the model list.
@@ -62,8 +71,22 @@ impl AnthropicApi {
     }
 
     // TODO: Expose streaming outside of this
-    pub async fn generate(&self, chat: chat::Chat) -> String {
+    pub async fn generate(&self, chat: chat::Chat) -> Result<String> {
         let client = reqwest::Client::new();
+        let url = format!("{base}/messages", base = ANTHROPIC_API_URL_BASE);
+
+        let body = json!({
+            "model": "claude-3-haiku-20240307",
+            "max_tokens": 256,
+        });
+
+        let response = client
+            .post(url)
+            .header("x-api-key", self.api_key.clone())
+            .header("anthropic-version", ANTHROPIC_API_VERSION)
+            .header("content-type", "application/json")
+            .send()
+            .await?;
     }
 }
 
@@ -72,17 +95,23 @@ pub mod api {
 
     use super::*;
 
+    /*
     #[get("/models")]
     pub async fn list_models(
         anthropic_api: &State<AnthropicApi>,
     ) -> Result<Json<Vec<ModelInfo>>, status::Custom<String>> {
-        let model_list = anthropic_api.list_models().await.map_err(|err| {
-            status::Custom(
-                Status::BadGateway,
-                format!("Failed to get model list from Anthropic: {err}"),
-            )
-        })?;
+        let model_list = anthropic_api
+            .list_models()
+            .await
+            .map_err(|err| {
+                status::Custom(
+                    Status::BadGateway,
+                    format!("Failed to get model list from Anthropic: {err}"),
+                )
+            })
+            .map_err(|err| err.to_string());
 
         Ok(Json(model_list))
     }
+    */
 }
