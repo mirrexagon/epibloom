@@ -1,10 +1,10 @@
 use std::sync::Mutex;
 
-use rocket::{get, http::Status, response::status, serde::json::Json, State};
+use rocket::{get, response::status, serde::json::Json, State};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::chat::{self, Chat, Chats, Message, Role};
+use crate::chat::{self, Chat, Chats, Role};
 
 #[derive(Debug, Clone, Responder)]
 pub enum ApiError {
@@ -36,7 +36,7 @@ pub struct NewChatResponse {
 pub fn new_chat(
     chats: &State<Mutex<Chats>>,
 ) -> Result<status::Created<Json<NewChatResponse>>, String> {
-    let mut chats = chats.lock().unwrap();
+    let chats = chats.lock().unwrap();
 
     let new_chat_id = chats.new_chat(None).map_err(|err| err.to_string())?;
 
@@ -97,7 +97,7 @@ pub fn push_message(
     chat_id: Uuid,
     message: Json<PushMessageRequest>,
 ) -> Result<Json<PushMessageResponse>, ApiError> {
-    let mut chats = chats.lock().unwrap();
+    let chats = chats.lock().unwrap();
 
     chats
         .push_message(chat_id, message.role, message.text)
