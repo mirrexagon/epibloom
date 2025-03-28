@@ -48,14 +48,8 @@ pub fn new_chat(
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetChatsResponseChat {
-    id: Uuid,
-    name: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetChatsResponse {
-    chats: Vec<GetChatsResponseChat>,
+    chats: Vec<chat::ChatMetadata>,
 }
 
 #[get("/")]
@@ -66,10 +60,7 @@ pub fn get_chats(chats: &State<Mutex<Chats>>) -> Result<Json<GetChatsResponse>, 
 
     let mut response = GetChatsResponse { chats: Vec::new() };
     for chat_metadata in chats_list.iter() {
-        response.chats.push(GetChatsResponseChat {
-            id: chat_metadata.id,
-            name: chat_metadata.name.to_owned(),
-        });
+        response.chats.push(chat_metadata.clone());
     }
 
     Ok(Json(response))

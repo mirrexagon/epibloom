@@ -3,7 +3,7 @@ use std::fmt;
 use rusqlite::{params, Connection, Row};
 use serde::{Deserialize, Serialize};
 use time::macros::format_description;
-use time::{OffsetDateTime, UtcDateTime};
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::util;
@@ -65,16 +65,18 @@ impl Message {
 pub struct ChatMetadata {
     pub id: Uuid,
     pub name: String,
-    pub created: UtcDateTime,
-    pub modified: UtcDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub modified: OffsetDateTime,
 }
 
 impl ChatMetadata {
     fn from_row(row: &Row) -> rusqlite::Result<Self> {
         let id: Uuid = row.get("id")?;
         let name = row.get("name")?;
-        let created = UtcDateTime::from_unix_timestamp(row.get("created")?).unwrap();
-        let modified = UtcDateTime::from_unix_timestamp(row.get("modified")?).unwrap();
+        let created = OffsetDateTime::from_unix_timestamp(row.get("created")?).unwrap();
+        let modified = OffsetDateTime::from_unix_timestamp(row.get("modified")?).unwrap();
 
         Ok(ChatMetadata {
             id,
@@ -127,7 +129,7 @@ impl Chats {
     pub fn list_chats(&self) -> Result<Vec<ChatMetadata>> {
         let mut statement = self
             .db_conn
-            .prepare("SELECT id, name FROM chats ORDER BY created DESC")?;
+            .prepare("SELECT id, name, created, modified FROM chats ORDER BY created DESC")?;
 
         let chats = statement.query_map([], ChatMetadata::from_row)?;
         chats
