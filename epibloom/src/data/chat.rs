@@ -199,7 +199,7 @@ impl Chats {
 
         let messages = {
             let mut statement = self.db_conn.prepare(
-                "SELECT role, text FROM messages WHERE chat_id = ?1 ORDER BY position ASC",
+                "SELECT role, text, created, modified FROM messages WHERE chat_id = ?1 ORDER BY position ASC",
             )?;
 
             let messages = statement.query_map([chat_id], Message::from_row)?;
@@ -276,7 +276,7 @@ impl Chats {
         let current_unix_timestamp = util::get_current_unix_timestamp();
 
         self.db_conn.execute(
-            "INSERT INTO messages (chat_id, position, created, modified, role, text) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO messages (chat_id, position, created, modified, role, text) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![chat_id, next_position, current_unix_timestamp, current_unix_timestamp, role.to_string(), text],
         )?;
 

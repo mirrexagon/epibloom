@@ -4,14 +4,19 @@ use rocket::{get, response::status, serde::json::Json, State};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::data::chat::{self, Chat, Chats, Role};
+use crate::{
+    backends::anthropic::{self, AnthropicApi},
+    data::chat::{self, Chat, Chats, Role},
+};
 
 #[derive(Debug, Clone, Responder)]
 pub enum ApiError {
     #[response(status = 404, content_type = "text")]
     NotFound(String),
     #[response(status = 500, content_type = "text")]
-    DatabaseError(String),
+    Database(String),
+    #[response(status = 502, content_type = "text")]
+    Reqwest(String),
 }
 
 impl From<chat::Error> for ApiError {
@@ -21,7 +26,17 @@ impl From<chat::Error> for ApiError {
                 ApiError::NotFound(format!("chat not found: {chat_id}"))
             }
             chat::Error::Database(db_err) => {
-                ApiError::DatabaseError(format!("database error: {}", db_err))
+                ApiError::Database(format!("database error: {}", db_err))
+            }
+        }
+    }
+}
+
+impl From<anthropic::Error> for ApiError {
+    fn from(value: anthropic::Error) -> Self {
+        match value {
+            anthropic::Error::Reqwest(req_err) => {
+                ApiError::Reqwest(format!("request error: {req_err}"))
             }
         }
     }
@@ -96,5 +111,22 @@ pub fn push_message(
         .map_err(From::from)
 }
 
-//#[post("/<chat_id>/message/<message_index>")]
-//pub fn update_message() {}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenerateResponse {}
+
+#[post("/<chat_id>/generate")]
+pub async fn generate(
+    chats: &State<Mutex<Chats>>,
+    anthropic_api: &State<AnthropicApi>,
+    chat_id: Uuid,
+) -> Result<Json<GenerateResponse>, ApiError> {
+    let chat = {
+        let chats = chats.lock().unwrap();
+        chats.get_chat_by_id(chat_id)?
+    };
+
+    let new_message = anthropic_api.generate(&chat).await?;
+    info!("Complete new message: {}", new_message);
+
+    Ok(Json(GenerateResponse {}))
+}

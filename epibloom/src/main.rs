@@ -75,6 +75,7 @@ fn rocket() -> _ {
                 api::chat::get_chat_by_id,
                 api::chat::new_chat,
                 api::chat::push_message,
+                api::chat::generate,
             ],
         )
         // .mount(

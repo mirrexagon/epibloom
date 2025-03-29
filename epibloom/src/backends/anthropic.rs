@@ -1,8 +1,8 @@
 use std::env;
 
+use futures::stream::StreamExt;
 use log::info;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use sse_stream::SseStream;
 use time::OffsetDateTime;
 
@@ -65,11 +65,11 @@ struct Message {
     content: String,
 }
 
-impl From<chat::Message> for Message {
-    fn from(message: chat::Message) -> Self {
+impl From<&chat::Message> for Message {
+    fn from(message: &chat::Message) -> Self {
         Message {
             role: From::from(message.role),
-            content: message.text,
+            content: message.text.clone(),
         }
     }
 }
@@ -91,25 +91,43 @@ impl Default for MessagesRequest {
             messages: Vec::new(),
             model: "claude-3-haiku-20240307".to_string(),
             stop_sequences: Vec::new(),
-            stream: false,
+            stream: true,
             system: String::new(),
         }
     }
 }
 
-impl From<chat::Chat> for MessagesRequest {
-    fn from(chat: chat::Chat) -> Self {
-        let mut request = MessagesRequest::default();
-
-        request.messages = chat
-            .messages
-            .iter()
-            .map(Clone::clone)
-            .map(From::from)
-            .collect();
-
-        request
+impl From<&chat::Chat> for MessagesRequest {
+    fn from(chat: &chat::Chat) -> Self {
+        MessagesRequest {
+            messages: chat.messages.iter().map(From::from).collect(),
+            ..Default::default()
+        }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "type")]
+enum ContentBlock {
+    Text { text: String },
+    TextDelta { text: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MessageDelta {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MessageDelta {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "type")]
+enum MessagesResponseEvent {
+    MessageStart {},
+    Ping,
+    ContentBlockStart { content_block: ContentBlock },
+    ContentBlockDelta { delta: ContentBlock },
+    ContentBlockStop,
+    MessageDelta,
 }
 
 impl AnthropicApi {
@@ -139,7 +157,7 @@ impl AnthropicApi {
     }
 
     // TODO: Expose streaming outside of this
-    pub async fn generate(&self, chat: chat::Chat) -> Result<String> {
+    pub async fn generate(&self, chat: &chat::Chat) -> Result<String> {
         let client = reqwest::Client::new();
         let url = format!("{base}/messages", base = ANTHROPIC_API_URL_BASE);
 
@@ -150,14 +168,17 @@ impl AnthropicApi {
             .header("x-api-key", self.api_key.clone())
             .header("anthropic-version", ANTHROPIC_API_VERSION)
             .header("content-type", "application/json")
+            .json(&body)
             .send()
             .await?;
+
+        info!("Anthropic generate response code: {}", response.status());
 
         let mut sse_body = SseStream::from_byte_stream(response.bytes_stream());
         let mut generated_message = String::new();
 
-        while let Some(Ok(sse)) = sse_body.next().await {
-            // TODO
+        while let Some(sse) = sse_body.next().await {
+            println!("{:?}", sse.unwrap());
         }
 
         Ok(generated_message)
@@ -165,11 +186,11 @@ impl AnthropicApi {
 }
 
 pub mod api {
+    /*
     use rocket::{get, http::Status, response::status, serde::json::Json, State};
 
     use super::*;
 
-    /*
     #[get("/models")]
     pub async fn list_models(
         anthropic_api: &State<AnthropicApi>,
