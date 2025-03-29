@@ -1,3 +1,5 @@
+//! Internal chat representation and storage.
+
 use std::fmt;
 
 use rusqlite::{params, Connection, Row};

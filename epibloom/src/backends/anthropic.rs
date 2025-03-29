@@ -3,9 +3,10 @@ use std::env;
 use log::info;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sse_stream::SseStream;
 use time::OffsetDateTime;
 
-use crate::chat;
+use crate::data::chat;
 
 // https://docs.anthropic.com/en/api/versioning
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
@@ -40,9 +41,76 @@ struct ModelInfoPage {
     last_id: String,
 }
 
-struct AnthropicMessagesRequest {}
+// /messages
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+pub enum Role {
+    #[serde(rename = "assistant")]
+    Assistant,
+    #[serde(rename = "user")]
+    User,
+}
 
-impl From<chat::Chat> for AnthropicMessagesRequest {}
+impl From<chat::Role> for Role {
+    fn from(value: chat::Role) -> Self {
+        match value {
+            chat::Role::Assistant => Role::Assistant,
+            chat::Role::User => Role::User,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Message {
+    role: Role,
+    content: String,
+}
+
+impl From<chat::Message> for Message {
+    fn from(message: chat::Message) -> Self {
+        Message {
+            role: From::from(message.role),
+            content: message.text,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MessagesRequest {
+    max_tokens: u32,
+    messages: Vec<Message>,
+    model: String,
+    stop_sequences: Vec<String>,
+    stream: bool,
+    system: String,
+}
+
+impl Default for MessagesRequest {
+    fn default() -> Self {
+        MessagesRequest {
+            max_tokens: 256,
+            messages: Vec::new(),
+            model: "claude-3-haiku-20240307".to_string(),
+            stop_sequences: Vec::new(),
+            stream: false,
+            system: String::new(),
+        }
+    }
+}
+
+impl From<chat::Chat> for MessagesRequest {
+    fn from(chat: chat::Chat) -> Self {
+        let mut request = MessagesRequest::default();
+
+        request.messages = chat
+            .messages
+            .iter()
+            .map(Clone::clone)
+            .map(From::from)
+            .collect();
+
+        request
+    }
+}
 
 impl AnthropicApi {
     pub fn new_with_key_from_env() -> Self {
@@ -75,10 +143,7 @@ impl AnthropicApi {
         let client = reqwest::Client::new();
         let url = format!("{base}/messages", base = ANTHROPIC_API_URL_BASE);
 
-        let body = json!({
-            "model": "claude-3-haiku-20240307",
-            "max_tokens": 256,
-        });
+        let body = MessagesRequest::from(chat);
 
         let response = client
             .post(url)
@@ -87,6 +152,15 @@ impl AnthropicApi {
             .header("content-type", "application/json")
             .send()
             .await?;
+
+        let mut sse_body = SseStream::from_byte_stream(response.bytes_stream());
+        let mut generated_message = String::new();
+
+        while let Some(Ok(sse)) = sse_body.next().await {
+            // TODO
+        }
+
+        Ok(generated_message)
     }
 }
 

@@ -3,15 +3,15 @@ extern crate rocket;
 
 mod api;
 mod backends;
-mod chat;
+mod data;
 mod util;
 
 use std::{fs, path::PathBuf, sync::Mutex};
 
 use etcetera::{choose_app_strategy, AppStrategy, AppStrategyArgs};
-
-use chat::Chats;
 use rusqlite::Connection;
+
+use data::chat::Chats;
 
 const DATABASE_FILENAME: &str = "epibloom.db";
 
@@ -26,6 +26,12 @@ const DATABASE_FILENAME: &str = "epibloom.db";
 // https://docs.anthropic.com/en/docs/build-with-claude/tool-use/overview,
 // Claude will stop generating and say to use the tool, then you run a
 // continuation.
+//
+// TODO: For characters/system prompts, world info, etc., chats can be linked
+// to a single character and to 0 or more lorebooks. Code somewhere (maybe in
+// data::chat or some chat builder module) will read these and build a final
+// temporary backend::Chat that then each backend knows how to send to its
+// API/add instruct tokens and turn into a text blob for text completion/etc.
 
 #[launch]
 fn rocket() -> _ {
@@ -41,11 +47,11 @@ fn rocket() -> _ {
     })
     .unwrap();
 
-    let config_dir = strategy.config_dir();
+    let _config_dir = strategy.config_dir();
     let data_dir = strategy.data_dir();
-    let cache_dir = strategy.cache_dir();
-    let state_dir = strategy.state_dir();
-    let runtime_dir = strategy.runtime_dir();
+    let _cache_dir = strategy.cache_dir();
+    let _state_dir = strategy.state_dir();
+    let _runtime_dir = strategy.runtime_dir();
 
     fs::create_dir_all(&data_dir).unwrap();
 
@@ -71,10 +77,10 @@ fn rocket() -> _ {
                 api::chat::push_message,
             ],
         )
-        .mount(
-            "/api/anthropic",
-            routes![backends::anthropic::api::list_models],
-        )
+        // .mount(
+        //     "/api/anthropic",
+        //     routes![backends::anthropic::api::list_models],
+        // )
         .manage(chats)
         .manage(anthropic_api)
 }

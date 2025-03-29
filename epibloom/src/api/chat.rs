@@ -4,7 +4,7 @@ use rocket::{get, response::status, serde::json::Json, State};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::chat::{self, Chat, Chats, Role};
+use crate::data::chat::{self, Chat, Chats, Role};
 
 #[derive(Debug, Clone, Responder)]
 pub enum ApiError {
