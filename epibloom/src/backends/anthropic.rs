@@ -1,7 +1,7 @@
 use std::env;
 
 use futures::stream::StreamExt;
-use log::info;
+use log::{info, trace};
 use serde::{Deserialize, Serialize};
 use sse_stream::SseStream;
 use time::OffsetDateTime;
@@ -60,14 +60,14 @@ impl From<chat::Role> for Role {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Message {
+struct InputMessage {
     role: Role,
     content: String,
 }
 
-impl From<&chat::Message> for Message {
+impl From<&chat::Message> for InputMessage {
     fn from(message: &chat::Message) -> Self {
-        Message {
+        InputMessage {
             role: From::from(message.role),
             content: message.text.clone(),
         }
@@ -77,7 +77,7 @@ impl From<&chat::Message> for Message {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MessagesRequest {
     max_tokens: u32,
-    messages: Vec<Message>,
+    messages: Vec<InputMessage>,
     model: String,
     stop_sequences: Vec<String>,
     stream: bool,
@@ -107,27 +107,57 @@ impl From<&chat::Chat> for MessagesRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", tag = "type")]
-enum ContentBlock {
-    Text { text: String },
-    TextDelta { text: String },
+struct ContentBlock {
+    text: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct MessageDelta {}
+struct ResponseMessage {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct MessageDelta {}
+#[serde(rename_all = "snake_case")]
+enum StopReason {
+    EndTurn,
+    MaxTokens,
+    StopSequence,
+    ToolUse,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Usage {
+    input_tokens: Option<u32>,
+    output_tokens: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MessageDelta {
+    stop_reason: Option<StopReason>,
+    stop_sequence: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
 enum MessagesResponseEvent {
-    MessageStart {},
+    MessageStart {
+        message: ResponseMessage,
+    },
     Ping,
-    ContentBlockStart { content_block: ContentBlock },
-    ContentBlockDelta { delta: ContentBlock },
-    ContentBlockStop,
-    MessageDelta,
+    ContentBlockStart {
+        index: u32,
+        content_block: ContentBlock,
+    },
+    ContentBlockDelta {
+        index: u32,
+        delta: ContentBlock,
+    },
+    ContentBlockStop {
+        index: u32,
+    },
+    MessageDelta {
+        delta: MessageDelta,
+        usage: Usage,
+    },
+    MessageStop,
 }
 
 impl AnthropicApi {
@@ -178,7 +208,22 @@ impl AnthropicApi {
         let mut generated_message = String::new();
 
         while let Some(sse) = sse_body.next().await {
-            println!("{:?}", sse.unwrap());
+            let sse = sse.unwrap();
+            //debug!("{:?}", sse);
+
+            let event: MessagesResponseEvent = serde_json::from_str(&sse.data.unwrap()).unwrap();
+            debug!("{:?}", event);
+
+            match event {
+                MessagesResponseEvent::ContentBlockStart {
+                    index,
+                    content_block,
+                } => generated_message.push_str(&content_block.text),
+                MessagesResponseEvent::ContentBlockDelta { index, delta } => {
+                    generated_message.push_str(&delta.text)
+                }
+                _ => {}
+            }
         }
 
         Ok(generated_message)
