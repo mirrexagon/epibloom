@@ -11,6 +11,7 @@ use std::{fs, path::PathBuf, sync::Mutex};
 use etcetera::{choose_app_strategy, AppStrategy, AppStrategyArgs};
 use rusqlite::Connection;
 
+use backends::anthropic::AnthropicApi;
 use data::chat::Chats;
 
 const DATABASE_FILENAME: &str = "epibloom.db";
@@ -65,7 +66,7 @@ fn rocket() -> _ {
         Mutex::new(chats)
     };
 
-    let anthropic_api = backends::anthropic::AnthropicApi::new_with_key_from_env();
+    let anthropic_api: AnthropicApi = AnthropicApi::new_with_key_from_env().unwrap();
 
     rocket::build()
         .mount(
