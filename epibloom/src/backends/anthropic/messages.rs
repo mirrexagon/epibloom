@@ -1,12 +1,11 @@
 //! Types and functions for the /messages endpoint.
 
 use futures::stream::StreamExt;
-use log::{info, trace};
+use log::info;
 use serde::{Deserialize, Serialize};
 use sse_stream::SseStream;
-use time::OffsetDateTime;
 
-use super::{ANTHROPIC_API_URL_BASE, ANTHROPIC_API_VERSION};
+use super::ANTHROPIC_API_URL_BASE;
 use crate::data;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
@@ -132,6 +131,8 @@ enum MessagesResponseEvent {
 
 //pub async fn generate(client: &reqwest::Client) -> super::Result<MessagesResponse> {}
 
+// TODO: Return a MessagesResponse built up from the events to start with, since
+// the point of the deltas and such is to fill in a complete response.
 pub async fn generate_stream(
     client: &reqwest::Client,
     chat: &data::chat::Chat,

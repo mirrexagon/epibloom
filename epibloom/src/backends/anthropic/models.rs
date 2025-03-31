@@ -1,15 +1,11 @@
 //! Types and functions for the /models endpoint.
 
-use std::env;
 
 use futures::stream::StreamExt;
-use log::{info, trace};
 use serde::{Deserialize, Serialize};
-use sse_stream::SseStream;
 use time::OffsetDateTime;
 
-use super::{ANTHROPIC_API_URL_BASE, ANTHROPIC_API_VERSION};
-use crate::data::chat;
+use super::ANTHROPIC_API_URL_BASE;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelInfo {

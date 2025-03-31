@@ -3,12 +3,6 @@ mod models;
 
 use std::env;
 
-use futures::stream::StreamExt;
-use log::{info, trace};
-use serde::{Deserialize, Serialize};
-use sse_stream::SseStream;
-use time::OffsetDateTime;
-
 use crate::data;
 
 // https://docs.anthropic.com/en/api/versioning
@@ -18,7 +12,6 @@ const ANTHROPIC_API_URL_BASE: &str = "https://api.anthropic.com/v1";
 static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
 pub struct AnthropicApi {
-    api_key: String,
     client: reqwest::Client,
 }
 
@@ -33,7 +26,7 @@ type Result<T> = std::result::Result<T, Error>;
 impl AnthropicApi {
     pub fn new_with_key_from_env() -> Result<Self> {
         use reqwest::{
-            header::{self, HeaderMap, HeaderName, HeaderValue},
+            header::{self, HeaderMap, HeaderValue},
             Client,
         };
 
@@ -56,17 +49,15 @@ impl AnthropicApi {
             .default_headers(default_headers)
             .build()?;
 
-        Ok(AnthropicApi { api_key, client })
+        Ok(AnthropicApi { client })
     }
 
     pub async fn list_models(&self) -> Result<Vec<models::ModelInfo>> {
-        models::list_models(&self.client).await.map_err(From::from)
+        models::list_models(&self.client).await
     }
 
     pub async fn generate(&self, chat: &data::chat::Chat) -> Result<String> {
-        messages::generate_stream(&self.client, chat)
-            .await
-            .map_err(From::from)
+        messages::generate_stream(&self.client, chat).await
     }
 }
 
