@@ -16,7 +16,7 @@ pub enum ApiError {
     #[response(status = 500, content_type = "text")]
     Database(String),
     #[response(status = 502, content_type = "text")]
-    Reqwest(String),
+    HttpClient(String),
 }
 
 impl From<chat::Error> for ApiError {
@@ -35,9 +35,7 @@ impl From<chat::Error> for ApiError {
 impl From<anthropic::Error> for ApiError {
     fn from(value: anthropic::Error) -> Self {
         match value {
-            anthropic::Error::Reqwest(req_err) => {
-                ApiError::Reqwest(format!("request error: {req_err}"))
-            }
+            anthropic::Error::HttpClient(req_err) => ApiError::HttpClient(format!("{req_err}")),
         }
     }
 }

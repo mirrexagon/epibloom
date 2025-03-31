@@ -17,8 +17,8 @@ pub struct AnthropicApi {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Reqwest error: {0}")]
-    Reqwest(#[from] reqwest::Error),
+    #[error("HTTP client error: {0}")]
+    HttpClient(#[from] reqwest::Error),
 }
 
 type Result<T> = std::result::Result<T, Error>;

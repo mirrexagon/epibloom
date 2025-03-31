@@ -8,125 +8,245 @@ use sse_stream::SseStream;
 use super::ANTHROPIC_API_URL_BASE;
 use crate::data;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
-pub enum Role {
-    #[serde(rename = "assistant")]
-    Assistant,
-    #[serde(rename = "user")]
-    User,
-}
+mod request {
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct Request {
+        max_tokens: u32,
+        messages: Vec<Message>,
+        model: String,
 
-impl From<data::chat::Role> for Role {
-    fn from(value: data::chat::Role) -> Self {
-        match value {
-            data::chat::Role::Assistant => Role::Assistant,
-            data::chat::Role::User => Role::User,
+        metadata: Option<Metadata>,
+        stop_sequences: Option<Vec<String>>,
+        stream: bool,
+        system: Option<String>,
+        temperature: Option<f32>,
+        thinking: Option<Thinking>,
+        tool_choice: Option<ToolChoice>,
+        tools: Vec<Tool>,
+        top_k: Option<u32>,
+        top_p: Option<f32>,
+    }
+
+    impl Default for Request {
+        fn default() -> Self {
+            Request {
+                max_tokens: 256,
+                messages: Vec::new(),
+                model: "claude-3-haiku-20240307".to_string(),
+
+                metadata: None,
+                stop_sequences: None,
+                stream: false,
+                system: None,
+            }
         }
+    }
+
+    impl From<&data::chat::Chat> for Request {
+        fn from(chat: &data::chat::Chat) -> Self {
+            Request {
+                messages: chat.messages.iter().map(From::from).collect(),
+                ..Default::default()
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct Message {
+        role: Role,
+        content: ContentBlock,
+    }
+
+    impl From<&data::chat::Message> for Message {
+        fn from(message: &data::chat::Message) -> Self {
+            Message {
+                role: From::from(message.role),
+                content: message.text.clone(),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case", tag = "type")]
+    enum ContentBlock {
+        Text {
+            text: String,
+            cache_control: Option<CacheControl>,
+            citations: Option<Citations>,
+        },
+        Image {
+            source: ImageSource,
+            cache_control: Option<CacheControl>,
+        },
+        ToolUse {
+            id: String,
+            input: serde_json::Value,
+            name: String,
+            cache_control: Option<CacheControl>,
+        },
+        ToolResult {
+            tool_use_id: String,
+            cache_control: Option<CacheControl>,
+            content: String,
+            is_error: bool,
+        },
+        // TODO: More
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case", tag = "type")]
+    enum CacheControl {
+        Ephemeral,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case", tag = "type")]
+    enum Citations {
+        CharLocation {
+            cited_text: String,
+            document_index: u32,
+            document_title: Option<String>,
+            end_char_index: i32,
+            start_char_index: u32,
+        },
+        PageLocation {
+            cited_text: String,
+            document_index: u32,
+            document_title: Option<String>,
+            end_page_number: i32,
+            start_page_number: u32,
+        },
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case", tag = "type")]
+    enum ImageSource {
+        Base64 {
+            media_type: ImageSourceMediaType,
+            data: String,
+        },
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    enum ImageSourceMediaType {
+        #[serde(rename = "image/jpeg")]
+        Jpeg,
+        #[serde(rename = "image/png")]
+        Png,
+        #[serde(rename = "image/gif")]
+        Gif,
+        #[serde(rename = "image/webp")]
+        Webp,
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+    pub enum Role {
+        #[serde(rename = "assistant")]
+        Assistant,
+        #[serde(rename = "user")]
+        User,
+    }
+
+    impl From<data::chat::Role> for Role {
+        fn from(value: data::chat::Role) -> Self {
+            match value {
+                data::chat::Role::Assistant => Role::Assistant,
+                data::chat::Role::User => Role::User,
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct Metadata {
+        user_id: Option<String>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case", tag = "type")]
+    enum Thinking {
+        Disabled,
+        Enabled { budget_tokens: u32 },
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case", tag = "type")]
+    enum ToolChoice {
+        Auto {
+            disable_parallel_tool_use: bool,
+        },
+        Any {
+            disable_parallel_tool_use: bool,
+        },
+        Tool {
+            name: String,
+            disable_parallel_tool_use: bool,
+        },
+        None,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case", tag = "type")]
+    enum Tool {
+        Custom {
+            name: String,
+            description: String,
+            input_schema: serde_json::Value,
+        },
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct MessagesRequest {
-    max_tokens: u32,
-    messages: Vec<InputMessage>,
-    model: String,
-    stop_sequences: Vec<String>,
-    stream: bool,
-    system: String,
-}
+mod response {
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct MessagesResponse {}
 
-impl Default for MessagesRequest {
-    fn default() -> Self {
-        MessagesRequest {
-            max_tokens: 256,
-            messages: Vec::new(),
-            model: "claude-3-haiku-20240307".to_string(),
-            stop_sequences: Vec::new(),
-            stream: true,
-            system: String::new(),
-        }
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct ResponseMessage {}
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    enum StopReason {
+        EndTurn,
+        MaxTokens,
+        StopSequence,
+        ToolUse,
     }
-}
 
-impl From<&data::chat::Chat> for MessagesRequest {
-    fn from(chat: &data::chat::Chat) -> Self {
-        MessagesRequest {
-            messages: chat.messages.iter().map(From::from).collect(),
-            ..Default::default()
-        }
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct Usage {
+        input_tokens: Option<u32>,
+        output_tokens: u32,
     }
-}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct InputMessage {
-    role: Role,
-    content: String,
-}
-
-impl From<&data::chat::Message> for InputMessage {
-    fn from(message: &data::chat::Message) -> Self {
-        InputMessage {
-            role: From::from(message.role),
-            content: message.text.clone(),
-        }
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct MessageDelta {
+        stop_reason: Option<StopReason>,
+        stop_sequence: Option<String>,
     }
-}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct MessagesResponse {}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ContentBlock {
-    text: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ResponseMessage {}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum StopReason {
-    EndTurn,
-    MaxTokens,
-    StopSequence,
-    ToolUse,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct Usage {
-    input_tokens: Option<u32>,
-    output_tokens: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct MessageDelta {
-    stop_reason: Option<StopReason>,
-    stop_sequence: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", tag = "type")]
-enum MessagesResponseEvent {
-    MessageStart {
-        message: ResponseMessage,
-    },
-    Ping,
-    ContentBlockStart {
-        index: u32,
-        content_block: ContentBlock,
-    },
-    ContentBlockDelta {
-        index: u32,
-        delta: ContentBlock,
-    },
-    ContentBlockStop {
-        index: u32,
-    },
-    MessageDelta {
-        delta: MessageDelta,
-        usage: Usage,
-    },
-    MessageStop,
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case", tag = "type")]
+    enum MessagesResponseEvent {
+        MessageStart {
+            message: ResponseMessage,
+        },
+        Ping,
+        ContentBlockStart {
+            index: u32,
+            content_block: ContentBlock,
+        },
+        ContentBlockDelta {
+            index: u32,
+            delta: ContentBlock,
+        },
+        ContentBlockStop {
+            index: u32,
+        },
+        MessageDelta {
+            delta: MessageDelta,
+            usage: Usage,
+        },
+        MessageStop,
+    }
 }
 
 //pub async fn generate(client: &reqwest::Client) -> super::Result<MessagesResponse> {}
