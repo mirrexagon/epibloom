@@ -211,6 +211,31 @@ impl Chats {
         Ok(Chat { metadata, messages })
     }
 
+    /// Set `position` to `None` to get the last message.
+    pub fn get_message(&self, chat_id: Uuid, position: Option<usize>) -> Result<Message> {
+        let position = self.get_message_position_default_last(chat_id, position)?;
+
+        self.db_conn
+            .query_row(
+                "SELECT role, text, created, modified FROM messages WHERE chat_id = ?1 AND position = ?2",
+                params![chat_id, position],
+                Message::from_row,
+            )
+            .map_err(From::from)
+    }
+
+    fn get_message_position_default_last(
+        &self,
+        chat_id: Uuid,
+        position: Option<usize>,
+    ) -> Result<usize> {
+        Ok(if let Some(position) = position {
+            position
+        } else {
+            self.get_next_message_position_for_chat(chat_id)? - 1
+        })
+    }
+
     pub fn new_chat(&self, name: Option<&str>) -> Result<ChatMetadata> {
         let mut new_chat_id;
 
@@ -280,12 +305,27 @@ impl Chats {
     pub fn push_message(&self, chat_id: Uuid, role: Role, text: &str) -> Result<()> {
         // This will as a side effect confirm that the chat exists.
         let next_position = self.get_next_message_position_for_chat(chat_id)?;
-
         let current_unix_timestamp = util::get_current_unix_timestamp();
 
         self.db_conn.execute(
             "INSERT INTO messages (chat_id, position, created, modified, role, text) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![chat_id, next_position, current_unix_timestamp, current_unix_timestamp, role.to_string(), text],
+        )?;
+
+        self.update_chat_last_modified_time(chat_id)?;
+
+        Ok(())
+    }
+
+    /// Set `position` to `None` to update the last message.
+    pub fn update_message(&self, chat_id: Uuid, position: Option<usize>, text: &str) -> Result<()> {
+        let current_unix_timestamp = util::get_current_unix_timestamp();
+
+        let position_to_update = self.get_message_position_default_last(chat_id, position)?;
+
+        self.db_conn.execute(
+            "UPDATE messages SET modified = ?1, text = ?2 WHERE chat_id = ?3 AND position = ?4",
+            params![current_unix_timestamp, text, chat_id, position_to_update],
         )?;
 
         self.update_chat_last_modified_time(chat_id)?;

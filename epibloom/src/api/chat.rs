@@ -111,22 +111,29 @@ pub struct GenerateResponse {
     message: String,
 }
 
-#[post("/<chat_id>/generate")]
+#[post("/<chat_id>/generate?<continue>")]
 pub async fn generate(
     chats: &State<Mutex<Chats>>,
     anthropic_api: &State<AnthropicApi>,
     chat_id: Uuid,
+    r#continue: bool,
 ) -> Result<Json<GenerateResponse>, ApiError> {
     let chat = {
         let chats = chats.lock().unwrap();
         chats.get_chat_by_id(chat_id)?
     };
 
-    let new_message = anthropic_api.generate(&chat).await?;
+    let mut new_message = anthropic_api.generate(&chat).await?;
 
     {
         let chats = chats.lock().unwrap();
-        chats.push_message(chat_id, Role::Assistant, &new_message)?;
+
+        if r#continue {
+            chats.update_message(chat_id, None, &new_message)?;
+            new_message = chats.get_message(chat_id, None)?.text;
+        } else {
+            chats.push_message(chat_id, Role::Assistant, &new_message)?;
+        }
     }
 
     Ok(Json(GenerateResponse {
