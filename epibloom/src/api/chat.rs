@@ -22,12 +22,10 @@ pub enum ApiError {
 impl From<chat::Error> for ApiError {
     fn from(value: chat::Error) -> Self {
         match value {
-            chat::Error::ChatNotFound(chat_id) => {
-                ApiError::NotFound(format!("chat not found: {chat_id}"))
-            }
-            chat::Error::Database(db_err) => {
-                ApiError::Database(format!("database error: {}", db_err))
-            }
+            chat::Error::ChatNotFound(_)
+            | chat::Error::ChatHasNoMessages(_)
+            | chat::Error::MessageNotFound { .. } => ApiError::NotFound(value.to_string()),
+            chat::Error::Database(_) => ApiError::Database(value.to_string()),
         }
     }
 }
@@ -123,14 +121,17 @@ pub async fn generate(
         chats.get_chat_by_id(chat_id)?
     };
 
+    // TODO for continue: Anthropic API returned error 'invalid_request_error': messages: final assistant content cannot end with trailing whitespace
     let mut new_message = anthropic_api.generate(&chat).await?;
 
     {
         let chats = chats.lock().unwrap();
 
         if r#continue {
-            chats.update_message(chat_id, None, &new_message)?;
-            new_message = chats.get_message(chat_id, None)?.text;
+            let mut combined_message = chats.get_message(chat_id, None)?.text;
+            combined_message.push_str(&new_message);
+            chats.update_message(chat_id, None, &combined_message)?;
+            new_message = combined_message;
         } else {
             chats.push_message(chat_id, Role::Assistant, &new_message)?;
         }

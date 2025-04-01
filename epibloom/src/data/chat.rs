@@ -15,8 +15,12 @@ use crate::util;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("chat not found")]
+    #[error("chat not found: {0}")]
     ChatNotFound(Uuid),
+    #[error("chat {0} has no messages")]
+    ChatHasNoMessages(Uuid),
+    #[error("message not found: chat {chat_id}, message position {position}")]
+    MessageNotFound { chat_id: Uuid, position: usize },
     #[error("database error: {0}")]
     Database(#[from] rusqlite::Error),
 }
@@ -213,7 +217,7 @@ impl Chats {
 
     /// Set `position` to `None` to get the last message.
     pub fn get_message(&self, chat_id: Uuid, position: Option<usize>) -> Result<Message> {
-        let position = self.get_message_position_default_last(chat_id, position)?;
+        let position = self.get_message_position_default_latest(chat_id, position)?;
 
         self.db_conn
             .query_row(
@@ -222,18 +226,24 @@ impl Chats {
                 Message::from_row,
             )
             .map_err(From::from)
+
+        // TODO: use Error::MessageNotFound when no rows returned
     }
 
-    fn get_message_position_default_last(
+    fn get_message_position_default_latest(
         &self,
         chat_id: Uuid,
         position: Option<usize>,
     ) -> Result<usize> {
-        Ok(if let Some(position) = position {
-            position
+        if !self.chat_exists(chat_id)? {
+            return Err(Error::ChatNotFound(chat_id));
+        }
+
+        if let Some(position) = position {
+            Ok(position)
         } else {
-            self.get_next_message_position_for_chat(chat_id)? - 1
-        })
+            self.get_latest_message_position(chat_id)
+        }
     }
 
     pub fn new_chat(&self, name: Option<&str>) -> Result<ChatMetadata> {
@@ -285,26 +295,31 @@ impl Chats {
     // TODO: Inserting a message in the middle:
     // https://softwareengineering.stackexchange.com/a/304597
 
-    fn get_next_message_position_for_chat(&self, chat_id: Uuid) -> Result<usize> {
+    fn get_latest_message_position(&self, chat_id: Uuid) -> Result<usize> {
         if !self.chat_exists(chat_id)? {
             return Err(Error::ChatNotFound(chat_id));
         }
 
         match self.db_conn.query_row(
-            "SELECT MAX(position) FROM messages WHERE id = ?1",
+            "SELECT MAX(position) FROM messages WHERE chat_id = ?1",
             [chat_id],
             |row| row.get(0),
         ) {
-            Ok(Some(max_position)) => Ok(max_position),
-            Ok(None) => Ok(0),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Err(Error::ChatNotFound(chat_id)),
+            Ok(Some(latest_message_position)) => Ok(latest_message_position),
+            Ok(None) => Err(Error::ChatHasNoMessages(chat_id)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Err(Error::ChatHasNoMessages(chat_id)),
             Err(err) => Err(Error::Database(err)),
         }
     }
 
     pub fn push_message(&self, chat_id: Uuid, role: Role, text: &str) -> Result<()> {
         // This will as a side effect confirm that the chat exists.
-        let next_position = self.get_next_message_position_for_chat(chat_id)?;
+        let next_position = match self.get_latest_message_position(chat_id) {
+            Ok(position) => position + 1,
+            Err(Error::ChatHasNoMessages(_)) => 0,
+            Err(err) => return Err(err),
+        };
+
         let current_unix_timestamp = util::get_current_unix_timestamp();
 
         self.db_conn.execute(
@@ -321,11 +336,11 @@ impl Chats {
     pub fn update_message(&self, chat_id: Uuid, position: Option<usize>, text: &str) -> Result<()> {
         let current_unix_timestamp = util::get_current_unix_timestamp();
 
-        let position_to_update = self.get_message_position_default_last(chat_id, position)?;
+        let position = self.get_message_position_default_latest(chat_id, position)?;
 
         self.db_conn.execute(
             "UPDATE messages SET modified = ?1, text = ?2 WHERE chat_id = ?3 AND position = ?4",
-            params![current_unix_timestamp, text, chat_id, position_to_update],
+            params![current_unix_timestamp, text, chat_id, position],
         )?;
 
         self.update_chat_last_modified_time(chat_id)?;

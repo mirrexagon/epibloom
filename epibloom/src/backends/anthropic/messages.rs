@@ -198,7 +198,7 @@ mod request {
     impl Default for Request {
         fn default() -> Self {
             Request {
-                max_tokens: 256,
+                max_tokens: 64,
                 messages: Vec::new(),
                 model: "claude-3-haiku-20240307".to_string(),
 
