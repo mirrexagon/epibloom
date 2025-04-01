@@ -17,6 +17,8 @@ pub struct AnthropicApi {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("Anthropic API returned error '{type}': {message}")]
+    Api { r#type: String, message: String },
     #[error("HTTP client error: {0}")]
     HttpClient(#[from] reqwest::Error),
 }
@@ -57,7 +59,7 @@ impl AnthropicApi {
     }
 
     pub async fn generate(&self, chat: &data::chat::Chat) -> Result<String> {
-        messages::generate_stream(&self.client, chat).await
+        messages::generate(&self.client, chat).await
     }
 }
 

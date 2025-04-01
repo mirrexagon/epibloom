@@ -16,7 +16,7 @@ pub enum ApiError {
     #[response(status = 500, content_type = "text")]
     Database(String),
     #[response(status = 502, content_type = "text")]
-    HttpClient(String),
+    Backend(String),
 }
 
 impl From<chat::Error> for ApiError {
@@ -34,9 +34,7 @@ impl From<chat::Error> for ApiError {
 
 impl From<anthropic::Error> for ApiError {
     fn from(value: anthropic::Error) -> Self {
-        match value {
-            anthropic::Error::HttpClient(req_err) => ApiError::HttpClient(format!("{req_err}")),
-        }
+        ApiError::Backend(value.to_string())
     }
 }
 

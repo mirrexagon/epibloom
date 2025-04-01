@@ -2,29 +2,177 @@
 
 use futures::stream::StreamExt;
 use log::info;
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use sse_stream::SseStream;
 
 use super::ANTHROPIC_API_URL_BASE;
 use crate::data;
 
-mod request {
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    struct Request {
-        max_tokens: u32,
-        messages: Vec<Message>,
-        model: String,
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+enum Role {
+    #[serde(rename = "assistant")]
+    Assistant,
+    #[serde(rename = "user")]
+    User,
+}
 
-        metadata: Option<Metadata>,
-        stop_sequences: Option<Vec<String>>,
-        stream: bool,
-        system: Option<String>,
-        temperature: Option<f32>,
-        thinking: Option<Thinking>,
-        tool_choice: Option<ToolChoice>,
-        tools: Vec<Tool>,
-        top_k: Option<u32>,
-        top_p: Option<f32>,
+impl From<data::chat::Role> for Role {
+    fn from(value: data::chat::Role) -> Self {
+        match value {
+            data::chat::Role::Assistant => Role::Assistant,
+            data::chat::Role::User => Role::User,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "type")]
+enum ContentBlock {
+    Text {
+        text: String,
+        citations: Option<Citations>,
+        cache_control: Option<CacheControl>,
+    },
+    Image {
+        source: ImageSource,
+        cache_control: Option<CacheControl>,
+    },
+    ToolUse {
+        id: String,
+        input: serde_json::Value,
+        name: String,
+        cache_control: Option<CacheControl>,
+    },
+    ToolResult {
+        tool_use_id: String,
+        content: String,
+        is_error: bool,
+        cache_control: Option<CacheControl>,
+    },
+    Document {
+        source: DocumentSource,
+        citations: DocumentCitations,
+        context: Option<String>,
+        title: Option<String>,
+        cache_control: Option<CacheControl>,
+    },
+    Thinking {
+        signature: String,
+        thinking: String,
+    },
+    RedactedThinking {
+        data: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "type")]
+enum CacheControl {
+    Ephemeral,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "type")]
+enum Citations {
+    CharLocation {
+        cited_text: String,
+        document_index: u32,
+        document_title: Option<String>,
+        end_char_index: i32,
+        start_char_index: u32,
+    },
+    PageLocation {
+        cited_text: String,
+        document_index: u32,
+        document_title: Option<String>,
+        end_page_number: i32,
+        start_page_number: u32,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "type")]
+enum ImageSource {
+    Base64 {
+        media_type: ImageSourceMediaType,
+        data: String,
+    },
+    Url {
+        url: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum ImageSourceMediaType {
+    #[serde(rename = "image/jpeg")]
+    Jpeg,
+    #[serde(rename = "image/png")]
+    Png,
+    #[serde(rename = "image/gif")]
+    Gif,
+    #[serde(rename = "image/webp")]
+    Webp,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "type")]
+enum DocumentSource {
+    Base64 {
+        media_type: Base64DocumentMediaType,
+        data: String,
+    },
+    Text {
+        media_type: TextDocumentMediaType,
+        data: String,
+    },
+    Content {
+        /// Only accepts Text or Image.
+        content: Vec<ContentBlock>,
+    },
+    Url {
+        url: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum Base64DocumentMediaType {
+    #[serde(rename = "application/pdf")]
+    Pdf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum TextDocumentMediaType {
+    #[serde(rename = "text/plain")]
+    Text,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DocumentCitations {
+    pub enabled: bool,
+}
+
+mod request {
+    use serde::{Deserialize, Serialize};
+
+    use crate::data;
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct Request {
+        pub max_tokens: u32,
+        pub messages: Vec<Message>,
+        pub model: String,
+
+        pub metadata: Option<Metadata>,
+        pub stop_sequences: Option<Vec<String>>,
+        pub stream: bool,
+        pub system: Option<String>,
+        pub temperature: Option<f32>,
+        pub thinking: Option<Thinking>,
+        pub tool_choice: Option<ToolChoice>,
+        pub tools: Option<Vec<Tool>>,
+        pub top_k: Option<u32>,
+        pub top_p: Option<f32>,
     }
 
     impl Default for Request {
@@ -38,6 +186,12 @@ mod request {
                 stop_sequences: None,
                 stream: false,
                 system: None,
+                temperature: None,
+                thinking: None,
+                tool_choice: None,
+                tools: None,
+                top_k: None,
+                top_p: None,
             }
         }
     }
@@ -52,180 +206,53 @@ mod request {
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
-    struct Message {
-        role: Role,
-        content: Vec<ContentBlock>,
+    pub struct Message {
+        pub role: super::Role,
+        pub content: Vec<super::ContentBlock>,
     }
 
     impl From<&data::chat::Message> for Message {
         fn from(message: &data::chat::Message) -> Self {
             Message {
                 role: From::from(message.role),
-                content: ContentBlock::Text {
+                content: vec![super::ContentBlock::Text {
                     text: message.text.clone(),
-                    ..Default::default()
-                },
+                    citations: None,
+                    cache_control: None,
+                }],
             }
         }
     }
 
+    // TODO: impl From<response::Message> for Message
+    // so that we can transform the response message into a request message to
+    // send back to the model?
+    // But this will be done through data::chat always anyway.
+
     impl Default for Message {
         fn default() -> Self {
             Self {
-                role: Role::Assistant,
+                role: super::Role::Assistant,
                 content: Vec::new(),
             }
         }
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
-    #[serde(rename_all = "snake_case", tag = "type")]
-    enum ContentBlock {
-        Text {
-            text: String,
-            citations: Option<Citations>,
-            cache_control: Option<CacheControl>,
-        },
-        Image {
-            source: ImageSource,
-            cache_control: Option<CacheControl>,
-        },
-        ToolUse {
-            id: String,
-            input: serde_json::Value,
-            name: String,
-            cache_control: Option<CacheControl>,
-        },
-        ToolResult {
-            tool_use_id: String,
-            content: String,
-            is_error: bool,
-            cache_control: Option<CacheControl>,
-        },
-        Document {
-            source: DocumentSource,
-            citations: DocumentCitations,
-            context: Option<String>,
-            title: Option<String>,
-            cache_control: Option<CacheControl>,
-        },
-        // TODO: More
+    pub struct Metadata {
+        pub user_id: Option<String>,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     #[serde(rename_all = "snake_case", tag = "type")]
-    enum CacheControl {
-        Ephemeral,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    #[serde(rename_all = "snake_case", tag = "type")]
-    enum Citations {
-        CharLocation {
-            cited_text: String,
-            document_index: u32,
-            document_title: Option<String>,
-            end_char_index: i32,
-            start_char_index: u32,
-        },
-        PageLocation {
-            cited_text: String,
-            document_index: u32,
-            document_title: Option<String>,
-            end_page_number: i32,
-            start_page_number: u32,
-        },
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    #[serde(rename_all = "snake_case", tag = "type")]
-    enum ImageSource {
-        Base64 {
-            media_type: ImageSourceMediaType,
-            data: String,
-        },
-        Url {
-            url: String,
-        },
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    enum ImageSourceMediaType {
-        #[serde(rename = "image/jpeg")]
-        Jpeg,
-        #[serde(rename = "image/png")]
-        Png,
-        #[serde(rename = "image/gif")]
-        Gif,
-        #[serde(rename = "image/webp")]
-        Webp,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    #[serde(rename_all = "snake_case", tag = "type")]
-    enum DocumentSource {
-        Base64 {
-            media_type: Base64DocumentMediaType,
-            data: String,
-        },
-        Text {
-            media_type: TextDocumentMediaType,
-            data: String,
-        },
-        Content {
-            url: String,
-        },
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    enum Base64DocumentMediaType {
-        #[serde(rename = "application/pdf")]
-        Pdf,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    enum TextDocumentMediaType {
-        #[serde(rename = "text/plain")]
-        Text,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    struct DocumentCitations {
-        enabled: bool,
-    }
-
-    #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
-    pub enum Role {
-        #[serde(rename = "assistant")]
-        Assistant,
-        #[serde(rename = "user")]
-        User,
-    }
-
-    impl From<data::chat::Role> for Role {
-        fn from(value: data::chat::Role) -> Self {
-            match value {
-                data::chat::Role::Assistant => Role::Assistant,
-                data::chat::Role::User => Role::User,
-            }
-        }
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    struct Metadata {
-        user_id: Option<String>,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    #[serde(rename_all = "snake_case", tag = "type")]
-    enum Thinking {
+    pub enum Thinking {
         Disabled,
         Enabled { budget_tokens: u32 },
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     #[serde(rename_all = "snake_case", tag = "type")]
-    enum ToolChoice {
+    pub enum ToolChoice {
         Auto {
             disable_parallel_tool_use: bool,
         },
@@ -241,7 +268,7 @@ mod request {
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     #[serde(rename_all = "snake_case", tag = "type")]
-    enum Tool {
+    pub enum Tool {
         Custom {
             name: String,
             description: String,
@@ -251,15 +278,20 @@ mod request {
 }
 
 mod response {
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    struct MessagesResponse {}
+    use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
-    struct ResponseMessage {}
+    pub struct Message {
+        pub role: super::Role,
+        pub content: Vec<super::ContentBlock>,
+
+        pub id: String,
+        pub model: String,
+    }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     #[serde(rename_all = "snake_case")]
-    enum StopReason {
+    pub enum StopReason {
         EndTurn,
         MaxTokens,
         StopSequence,
@@ -267,22 +299,23 @@ mod response {
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
-    struct Usage {
-        input_tokens: Option<u32>,
-        output_tokens: u32,
+    pub struct Usage {
+        pub input_tokens: Option<u32>,
+        pub output_tokens: u32,
     }
 
+    /*
     #[derive(Debug, Clone, Serialize, Deserialize)]
-    struct MessageDelta {
+    pub struct MessageDelta {
         stop_reason: Option<StopReason>,
         stop_sequence: Option<String>,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     #[serde(rename_all = "snake_case", tag = "type")]
-    enum MessagesResponseEvent {
+    pub enum StreamingEvent {
         MessageStart {
-            message: ResponseMessage,
+            message: Message,
         },
         Ping,
         ContentBlockStart {
@@ -302,19 +335,46 @@ mod response {
         },
         MessageStop,
     }
+    */
 }
 
-//pub async fn generate(client: &reqwest::Client) -> super::Result<MessagesResponse> {}
+pub async fn generate(client: &reqwest::Client, chat: &data::chat::Chat) -> super::Result<String> {
+    let url = format!("{ANTHROPIC_API_URL_BASE}/messages");
+
+    let body = request::Request::from(chat);
+    let response = client.post(url).json(&body).send().await?;
+
+    if response.status() != StatusCode::OK {
+        let error_object: serde_json::Value = response.json().await?;
+        return Err(super::Error::Api {
+            r#type: error_object["error"]["type"].to_string(),
+            message: error_object["error"]["message"].to_string(),
+        });
+    }
+
+    let response: response::Message = response.json().await?;
+    debug!("{:?}", response);
+
+    let mut result = String::new();
+    for block in response.content.iter() {
+        if let ContentBlock::Text { text, .. } = block {
+            result.push_str(text);
+        }
+    }
+
+    Ok(result)
+}
 
 // TODO: Return a MessagesResponse built up from the events to start with, since
 // the point of the deltas and such is to fill in a complete response.
+/*
 pub async fn generate_stream(
     client: &reqwest::Client,
     chat: &data::chat::Chat,
 ) -> super::Result<String> {
     let url = format!("{ANTHROPIC_API_URL_BASE}/messages");
 
-    let body = MessagesRequest::from(chat);
+    let body = request::Request::from(chat);
     let response = client.post(url).json(&body).send().await?;
 
     info!("Anthropic generate response code: {}", response.status());
@@ -343,3 +403,4 @@ pub async fn generate_stream(
 
     Ok(generated_message)
 }
+*/
