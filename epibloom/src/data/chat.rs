@@ -119,7 +119,7 @@ impl Chats {
 
         db_conn.execute(
             "CREATE TABLE IF NOT EXISTS chats (
-                id TEXT PRIMARY KEY,
+                id BLOB PRIMARY KEY,
                 name TEXT NOT NULL,
                 created INTEGER NOT NULL, -- Unix timestamp
                 modified INTEGER NOT NULL -- Unix timestamp
@@ -130,7 +130,7 @@ impl Chats {
         db_conn.execute(
             "CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                chat_id TEXT NOT NULL,
+                chat_id BLOB NOT NULL,
                 position INTEGER NOT NULL,
                 created INTEGER NOT NULL, -- Unix timestamp
                 modified INTEGER NOT NULL, -- Unix timestamp
@@ -211,7 +211,7 @@ impl Chats {
         Ok(Chat { metadata, messages })
     }
 
-    pub fn new_chat(&self, name: Option<&str>) -> Result<Uuid> {
+    pub fn new_chat(&self, name: Option<&str>) -> Result<ChatMetadata> {
         let mut new_chat_id;
 
         loop {
@@ -223,20 +223,21 @@ impl Chats {
 
                 // Note that `res` should always be `Err` at this point, so the
                 // `map()` is just to satisfy the type checker.
-                res => return res.map(|chat_metadata| chat_metadata.id),
+                res => return res,
             }
         }
+
+        let current_datetime = OffsetDateTime::now_local().unwrap();
 
         let new_chat_name = if let Some(name) = name {
             name.to_owned()
         } else {
-            let current_datetime = OffsetDateTime::now_local().unwrap();
             let dtfmt =
                 format_description!(version = 2, "[year]-[month]-[day]T[hour][minute][second]");
             current_datetime.format(&dtfmt).unwrap()
         };
 
-        let current_unix_timestamp = util::get_current_unix_timestamp();
+        let current_unix_timestamp = current_datetime.unix_timestamp();
 
         self.db_conn.execute(
             "INSERT INTO chats (id, name, created, modified) VALUES (?1, ?2, ?3, ?4)",
@@ -248,7 +249,12 @@ impl Chats {
             ],
         )?;
 
-        Ok(new_chat_id)
+        Ok(ChatMetadata {
+            id: new_chat_id,
+            name: new_chat_name,
+            created: current_datetime,
+            modified: current_datetime,
+        })
     }
 
     // TODO: Inserting a message in the middle:

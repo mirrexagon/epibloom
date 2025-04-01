@@ -31,30 +31,38 @@ impl From<data::chat::Role> for Role {
 enum ContentBlock {
     Text {
         text: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         citations: Option<Citations>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
     Image {
         source: ImageSource,
+        #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
     ToolUse {
         id: String,
         input: serde_json::Value,
         name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
     ToolResult {
         tool_use_id: String,
         content: String,
         is_error: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
     Document {
         source: DocumentSource,
         citations: DocumentCitations,
+        #[serde(skip_serializing_if = "Option::is_none")]
         context: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         title: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
     Thinking {
@@ -78,6 +86,7 @@ enum Citations {
     CharLocation {
         cited_text: String,
         document_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
         document_title: Option<String>,
         end_char_index: i32,
         start_char_index: u32,
@@ -85,6 +94,7 @@ enum Citations {
     PageLocation {
         cited_text: String,
         document_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
         document_title: Option<String>,
         end_page_number: i32,
         start_page_number: u32,
@@ -153,25 +163,34 @@ struct DocumentCitations {
 }
 
 mod request {
-    use serde::{Deserialize, Serialize};
+    use serde::Serialize;
 
     use crate::data;
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[derive(Debug, Clone, Serialize)]
     pub struct Request {
         pub max_tokens: u32,
         pub messages: Vec<Message>,
         pub model: String,
 
+        #[serde(skip_serializing_if = "Option::is_none")]
         pub metadata: Option<Metadata>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         pub stop_sequences: Option<Vec<String>>,
         pub stream: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
         pub system: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         pub temperature: Option<f32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         pub thinking: Option<Thinking>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         pub tool_choice: Option<ToolChoice>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         pub tools: Option<Vec<Tool>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         pub top_k: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         pub top_p: Option<f32>,
     }
 
@@ -205,7 +224,7 @@ mod request {
         }
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[derive(Debug, Clone, Serialize)]
     pub struct Message {
         pub role: super::Role,
         pub content: Vec<super::ContentBlock>,
@@ -238,19 +257,20 @@ mod request {
         }
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[derive(Debug, Clone, Serialize)]
     pub struct Metadata {
+        #[serde(skip_serializing_if = "Option::is_none")]
         pub user_id: Option<String>,
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[derive(Debug, Clone, Serialize)]
     #[serde(rename_all = "snake_case", tag = "type")]
     pub enum Thinking {
         Disabled,
         Enabled { budget_tokens: u32 },
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[derive(Debug, Clone, Serialize)]
     #[serde(rename_all = "snake_case", tag = "type")]
     pub enum ToolChoice {
         Auto {
@@ -266,7 +286,7 @@ mod request {
         None,
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[derive(Debug, Clone, Serialize)]
     #[serde(rename_all = "snake_case", tag = "type")]
     pub enum Tool {
         Custom {
@@ -278,9 +298,9 @@ mod request {
 }
 
 mod response {
-    use serde::{Deserialize, Serialize};
+    use serde::Deserialize;
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[derive(Debug, Clone, Deserialize)]
     pub struct Message {
         pub role: super::Role,
         pub content: Vec<super::ContentBlock>,
@@ -289,7 +309,7 @@ mod response {
         pub model: String,
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[derive(Debug, Clone, Deserialize)]
     #[serde(rename_all = "snake_case")]
     pub enum StopReason {
         EndTurn,
@@ -298,20 +318,20 @@ mod response {
         ToolUse,
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[derive(Debug, Clone, Deserialize)]
     pub struct Usage {
         pub input_tokens: Option<u32>,
         pub output_tokens: u32,
     }
 
     /*
-    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[derive(Debug, Clone, Deserialize)]
     pub struct MessageDelta {
         stop_reason: Option<StopReason>,
         stop_sequence: Option<String>,
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[derive(Debug, Clone, Deserialize)]
     #[serde(rename_all = "snake_case", tag = "type")]
     pub enum StreamingEvent {
         MessageStart {
@@ -342,13 +362,21 @@ pub async fn generate(client: &reqwest::Client, chat: &data::chat::Chat) -> supe
     let url = format!("{ANTHROPIC_API_URL_BASE}/messages");
 
     let body = request::Request::from(chat);
+    debug!(
+        "Anthropic messages request: {}",
+        serde_json::to_string_pretty(&body).unwrap()
+    );
+
     let response = client.post(url).json(&body).send().await?;
 
     if response.status() != StatusCode::OK {
         let error_object: serde_json::Value = response.json().await?;
         return Err(super::Error::Api {
-            r#type: error_object["error"]["type"].to_string(),
-            message: error_object["error"]["message"].to_string(),
+            r#type: error_object["error"]["type"].as_str().unwrap().to_owned(),
+            message: error_object["error"]["message"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
         });
     }
 

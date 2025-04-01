@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::{
     backends::anthropic::{self, AnthropicApi},
-    data::chat::{self, Chat, Chats, Role},
+    data::chat::{self, Chat, ChatMetadata, Chats, Role},
 };
 
 #[derive(Debug, Clone, Responder)]
@@ -46,15 +46,14 @@ pub struct NewChatResponse {
 #[post("/")]
 pub fn new_chat(
     chats: &State<Mutex<Chats>>,
-) -> Result<status::Created<Json<NewChatResponse>>, ApiError> {
+) -> Result<status::Created<Json<ChatMetadata>>, ApiError> {
     let chats = chats.lock().unwrap();
 
-    let new_chat_id = chats.new_chat(None)?;
+    let new_chat_metadata = chats.new_chat(None)?;
 
     Ok(
-        status::Created::new(format!("/chat/{id}", id = new_chat_id)).body(Json(NewChatResponse {
-            chat_id: new_chat_id,
-        })),
+        status::Created::new(format!("/chat/{id}", id = new_chat_metadata.id))
+            .body(Json(new_chat_metadata)),
     )
 }
 
