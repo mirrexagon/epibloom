@@ -107,7 +107,9 @@ pub fn push_message(
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GenerateResponse {}
+pub struct GenerateResponse {
+    message: String,
+}
 
 #[post("/<chat_id>/generate")]
 pub async fn generate(
@@ -121,7 +123,13 @@ pub async fn generate(
     };
 
     let new_message = anthropic_api.generate(&chat).await?;
-    info!("Complete new message: {}", new_message);
 
-    Ok(Json(GenerateResponse {}))
+    {
+        let chats = chats.lock().unwrap();
+        chats.push_message(chat_id, Role::Assistant, &new_message)?;
+    }
+
+    Ok(Json(GenerateResponse {
+        message: new_message,
+    }))
 }

@@ -162,6 +162,7 @@ struct DocumentCitations {
     pub enabled: bool,
 }
 
+#[allow(dead_code)]
 mod request {
     use serde::Serialize;
 
@@ -297,6 +298,7 @@ mod request {
     }
 }
 
+#[allow(dead_code)]
 mod response {
     use serde::Deserialize;
 
@@ -381,7 +383,7 @@ pub async fn generate(client: &reqwest::Client, chat: &data::chat::Chat) -> supe
     }
 
     let response: response::Message = response.json().await?;
-    debug!("{:?}", response);
+    debug!("{:#?}", response);
 
     let mut result = String::new();
     for block in response.content.iter() {
@@ -412,10 +414,10 @@ pub async fn generate_stream(
 
     while let Some(sse) = sse_body.next().await {
         let sse = sse.unwrap();
-        //debug!("{:?}", sse);
+        //debug!("{:#?}", sse);
 
         let event: MessagesResponseEvent = serde_json::from_str(&sse.data.unwrap()).unwrap();
-        debug!("{:?}", event);
+        debug!("{:#?}", event);
 
         match event {
             MessagesResponseEvent::ContentBlockStart {
