@@ -83,8 +83,8 @@ mod request {
     enum ContentBlock {
         Text {
             text: String,
-            cache_control: Option<CacheControl>,
             citations: Option<Citations>,
+            cache_control: Option<CacheControl>,
         },
         Image {
             source: ImageSource,
@@ -98,9 +98,16 @@ mod request {
         },
         ToolResult {
             tool_use_id: String,
-            cache_control: Option<CacheControl>,
             content: String,
             is_error: bool,
+            cache_control: Option<CacheControl>,
+        },
+        Document {
+            source: DocumentSource,
+            citations: DocumentCitations,
+            context: Option<String>,
+            title: Option<String>,
+            cache_control: Option<CacheControl>,
         },
         // TODO: More
     }
@@ -137,6 +144,9 @@ mod request {
             media_type: ImageSourceMediaType,
             data: String,
         },
+        Url {
+            url: String,
+        },
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,6 +159,39 @@ mod request {
         Gif,
         #[serde(rename = "image/webp")]
         Webp,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case", tag = "type")]
+    enum DocumentSource {
+        Base64 {
+            media_type: Base64DocumentMediaType,
+            data: String,
+        },
+        Text {
+            media_type: TextDocumentMediaType,
+            data: String,
+        },
+        Url {
+            url: String,
+        },
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    enum Base64DocumentMediaType {
+        #[serde(rename = "application/pdf")]
+        Pdf,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    enum TextDocumentMediaType {
+        #[serde(rename = "text/plain")]
+        Text,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct DocumentCitations {
+        enabled: bool,
     }
 
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
