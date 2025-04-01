@@ -54,14 +54,26 @@ mod request {
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct Message {
         role: Role,
-        content: ContentBlock,
+        content: Vec<ContentBlock>,
     }
 
     impl From<&data::chat::Message> for Message {
         fn from(message: &data::chat::Message) -> Self {
             Message {
                 role: From::from(message.role),
-                content: message.text.clone(),
+                content: ContentBlock::Text {
+                    text: message.text.clone(),
+                    ..Default::default()
+                },
+            }
+        }
+    }
+
+    impl Default for Message {
+        fn default() -> Self {
+            Self {
+                role: Role::Assistant,
+                content: Vec::new(),
             }
         }
     }

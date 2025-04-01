@@ -115,13 +115,15 @@ pub struct Chats {
 
 impl Chats {
     pub fn new(db_conn: Connection) -> Result<Self> {
+        db_conn.execute("PRAGMA foreign_keys = ON", [])?;
+
         db_conn.execute(
             "CREATE TABLE IF NOT EXISTS chats (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 created INTEGER NOT NULL, -- Unix timestamp
                 modified INTEGER NOT NULL -- Unix timestamp
-            )",
+            ) STRICT",
             [],
         )?;
 
@@ -135,7 +137,7 @@ impl Chats {
                 role TEXT NOT NULL,
                 text TEXT NOT NULL,
                 FOREIGN KEY (chat_id) REFERENCES chats (id)
-            )",
+            ) STRICT",
             [],
         )?;
 
