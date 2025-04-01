@@ -172,7 +172,7 @@ mod request {
             media_type: TextDocumentMediaType,
             data: String,
         },
-        Url {
+        Content {
             url: String,
         },
     }
