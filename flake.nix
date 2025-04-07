@@ -43,7 +43,9 @@
             nativeBuildInputs = with pkgs; [
               nodejs
 
-              rustup
+              rustc
+              cargo
+              clippy
               cargo-edit
 
               pkg-config
