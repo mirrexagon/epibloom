@@ -9,6 +9,16 @@ use sse_stream::SseStream;
 use super::ANTHROPIC_API_URL_BASE;
 use crate::data;
 
+// TODO: Wouldn't it be really cool if each backend has its own config and that
+// was exposed directly in the UI for each backend. This application could send
+// the UI what fields there are, types, and descriptions, and the UI could build
+// the widgets dynamically.
+#[derive(Debug)]
+pub struct Config {
+    max_tokens: u32,
+    model: String,
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 enum Role {
     #[serde(rename = "assistant")]
