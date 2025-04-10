@@ -1,6 +1,6 @@
 //! LLM backends.
 //!
-//! Each backend should have a Config struct that implements
+//! Each backend has a Config struct that implements
 //! `schemars::JsonSchema` that can get reported to the UI to dynamically generate
 //! the configuration UI for that backend.
 
@@ -24,3 +24,9 @@ pub trait Backend {
         chat: &data::chat::Chat,
     ) -> Result<String, Self::Error>;
 }
+
+// TODO: On config structs, use
+// https://graham.cool/schemars/deriving/attributes/#extend to add a field for
+// the UI control type (texbox, spinner, etc.). There are also validators like
+// https://graham.cool/schemars/deriving/attributes/#range
+// Description seems like it will come from doc comments.
