@@ -3,6 +3,9 @@ mod models;
 
 use std::env;
 
+use schemars::{schema::RootSchema, schema_for, JsonSchema};
+use serde::Deserialize;
+
 use crate::data;
 
 // https://docs.anthropic.com/en/api/versioning
@@ -10,6 +13,29 @@ const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 const ANTHROPIC_API_URL_BASE: &str = "https://api.anthropic.com/v1";
 
 static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct Config {
+    max_tokens: u32,
+    model: String,
+
+    stop_sequences: Vec<String>,
+    thinking: bool,
+    thinking_budget: u32,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            max_tokens: 512,
+            model: "claude-3-haiku-20240307".to_string(),
+
+            stop_sequences: Vec::new(),
+            thinking: false,
+            thinking_budget: 0,
+        }
+    }
+}
 
 pub struct AnthropicApi {
     client: reqwest::Client,
@@ -57,34 +83,17 @@ impl AnthropicApi {
     pub async fn list_models(&self) -> Result<Vec<models::ModelInfo>> {
         models::list_models(&self.client).await
     }
-
-    pub async fn generate(&self, chat: &data::chat::Chat) -> Result<String> {
-        messages::generate(&self.client, chat).await
-    }
 }
 
-pub mod api {
-    /*
-    use rocket::{get, http::Status, response::status, serde::json::Json, State};
+impl super::Backend for AnthropicApi {
+    type Config = Config;
+    type Error = Error;
 
-    use super::*;
-
-    #[get("/models")]
-    pub async fn list_models(
-        anthropic_api: &State<AnthropicApi>,
-    ) -> Result<Json<Vec<ModelInfo>>, status::Custom<String>> {
-        let model_list = anthropic_api
-            .list_models()
-            .await
-            .map_err(|err| {
-                status::Custom(
-                    Status::BadGateway,
-                    format!("Failed to get model list from Anthropic: {err}"),
-                )
-            })
-            .map_err(|err| err.to_string());
-
-        Ok(Json(model_list))
+    async fn generate(
+        &self,
+        config: &Self::Config,
+        chat: &data::chat::Chat,
+    ) -> std::result::Result<String, Self::Error> {
+        messages::generate(&self.client, config, chat).await
     }
-    */
 }

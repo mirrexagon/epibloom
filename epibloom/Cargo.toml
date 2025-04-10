@@ -36,3 +36,7 @@ features = [ "json", "stream" ]
 [dependencies.rusqlite]
 version = "0.34.0"
 features = [ "bundled", "uuid" ]
+
+[dependencies.schemars]
+version = "0.8.22"
+features = [ "preserve_order", "uuid" ]

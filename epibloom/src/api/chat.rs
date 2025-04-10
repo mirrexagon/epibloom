@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use crate::{
     backends::anthropic::{self, AnthropicApi},
+    backends::Backend,
     data::chat::{self, Chat, ChatMetadata, Chats, Role},
 };
 
@@ -121,8 +122,10 @@ pub async fn generate(
         chats.get_chat_by_id(chat_id)?
     };
 
+    let anthropic_config = anthropic::Config::default();
+
     // TODO for continue: Anthropic API returned error 'invalid_request_error': messages: final assistant content cannot end with trailing whitespace
-    let mut new_message = anthropic_api.generate(&chat).await?;
+    let mut new_message = anthropic_api.generate(&anthropic_config, &chat).await?;
 
     {
         let chats = chats.lock().unwrap();

@@ -9,16 +9,6 @@ use sse_stream::SseStream;
 use super::ANTHROPIC_API_URL_BASE;
 use crate::data;
 
-// TODO: Wouldn't it be really cool if each backend has its own config and that
-// was exposed directly in the UI for each backend. This application could send
-// the UI what fields there are, types, and descriptions, and the UI could build
-// the widgets dynamically.
-#[derive(Debug)]
-pub struct Config {
-    max_tokens: u32,
-    model: String,
-}
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 enum Role {
     #[serde(rename = "assistant")]
@@ -205,15 +195,19 @@ mod request {
         pub top_p: Option<f32>,
     }
 
-    impl Default for Request {
-        fn default() -> Self {
-            Request {
-                max_tokens: 64,
-                messages: Vec::new(),
-                model: "claude-3-haiku-20240307".to_string(),
+    impl Request {
+        pub fn new(config: &super::super::Config, chat: &data::chat::Chat) -> Self {
+            Self {
+                max_tokens: config.max_tokens,
+                messages: chat.messages.iter().map(From::from).collect(),
+                model: config.model.to_owned(),
 
                 metadata: None,
-                stop_sequences: None,
+                stop_sequences: if !config.stop_sequences.is_empty() {
+                    Some(config.stop_sequences.clone())
+                } else {
+                    None
+                },
                 stream: false,
                 system: None,
                 temperature: None,
@@ -222,15 +216,6 @@ mod request {
                 tools: None,
                 top_k: None,
                 top_p: None,
-            }
-        }
-    }
-
-    impl From<&data::chat::Chat> for Request {
-        fn from(chat: &data::chat::Chat) -> Self {
-            Request {
-                messages: chat.messages.iter().map(From::from).collect(),
-                ..Default::default()
             }
         }
     }
@@ -370,10 +355,15 @@ mod response {
     */
 }
 
-pub async fn generate(client: &reqwest::Client, chat: &data::chat::Chat) -> super::Result<String> {
+pub async fn generate(
+    client: &reqwest::Client,
+    config: &super::Config,
+    chat: &data::chat::Chat,
+) -> super::Result<String> {
     let url = format!("{ANTHROPIC_API_URL_BASE}/messages");
 
-    let body = request::Request::from(chat);
+    let mut body = request::Request::new(config, chat);
+
     debug!(
         "Anthropic messages request: {}",
         serde_json::to_string_pretty(&body).unwrap()
