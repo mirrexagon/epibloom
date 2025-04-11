@@ -7,50 +7,40 @@ type message = {
 let make = () => {
   let (messages, setMessages) = React.useState(_ => [])
   let (inputValue, setInputValue) = React.useState(_ => "")
-  let messagesEndRef = React.useRef(Js.Nullable.null)
-  
-  // Scroll to bottom of chat when messages change
-  React.useEffect(() => {
-    switch Js.Nullable.toOption(messagesEndRef.current) {
-    | Some(element) => element["scrollIntoView"](. {"behavior": "smooth"})
-    | None => ()
-    }
-    None
-  }, [messages])
-  
+
   let handleSubmit = e => {
-    e->ReactEvent.Form.preventDefault
-    
-    if inputValue->String.trim != "" {
+    ReactEvent.Form.preventDefault(e)
+
+    if String.trim(inputValue) != "" {
       // Add user message
       let userMessage = {text: inputValue, sender: #User}
       setMessages(prev => prev->Array.concat([userMessage]))
-      
+
       // Simulate AI response (in a real app, this would be an API call)
       let aiResponse = {text: `Response to: ${inputValue}`, sender: #AI}
       Js.Global.setTimeout(() => {
         setMessages(prev => prev->Array.concat([aiResponse]))
       }, 500)->ignore
-      
+
       // Clear input
       setInputValue(_ => "")
     }
   }
-  
+
   <div className="flex flex-col h-[600px] border border-gray-300 rounded-md overflow-hidden">
     // Chat history
     <div className="flex-1 p-4 overflow-y-auto">
       <div className="space-y-4">
         {messages->Array.mapWithIndex((message, index) => {
           let isUser = message.sender == #User
-          <div 
+          <div
             key={index->Int.toString}
             className={`flex ${isUser ? "justify-end" : "justify-start"}`}
           >
-            <div 
+            <div
               className={`max-w-[80%] p-3 rounded-lg ${
-                isUser 
-                  ? "bg-blue-600 text-white" 
+                isUser
+                  ? "bg-blue-600 text-white"
                   : "bg-gray-200 text-gray-800"
               }`}
             >
@@ -58,10 +48,9 @@ let make = () => {
             </div>
           </div>
         })->React.array}
-        <div ref={ReactDOM.Ref.current(messagesEndRef)} />
       </div>
     </div>
-    
+
     // Input area
     <form onSubmit={handleSubmit} className="border-t border-gray-300 p-3">
       <div className="flex items-center">
