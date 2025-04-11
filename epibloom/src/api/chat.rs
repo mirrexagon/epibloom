@@ -122,6 +122,7 @@ pub async fn generate(
         chats.get_chat_by_id(chat_id)?
     };
 
+    // TODO: Let client decide this, probably by choosing stored config values
     let anthropic_config = anthropic::Config::default();
 
     // TODO for continue: Anthropic API returned error 'invalid_request_error': messages: final assistant content cannot end with trailing whitespace

@@ -211,7 +211,13 @@ mod request {
                 stream: false,
                 system: None,
                 temperature: None,
-                thinking: None,
+                thinking: if config.thinking {
+                    Some(Thinking::Enabled {
+                        budget_tokens: config.thinking_budget,
+                    })
+                } else {
+                    None
+                },
                 tool_choice: None,
                 tools: None,
                 top_k: None,
@@ -362,8 +368,7 @@ pub async fn generate(
 ) -> super::Result<String> {
     let url = format!("{ANTHROPIC_API_URL_BASE}/messages");
 
-    let mut body = request::Request::new(config, chat);
-
+    let body = request::Request::new(config, chat);
     debug!(
         "Anthropic messages request: {}",
         serde_json::to_string_pretty(&body).unwrap()
@@ -383,7 +388,7 @@ pub async fn generate(
     }
 
     let response: response::Message = response.json().await?;
-    debug!("{:#?}", response);
+    debug!("Anthropic messages response: {:#?}", response);
 
     let mut result = String::new();
     for block in response.content.iter() {
