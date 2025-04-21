@@ -57,7 +57,7 @@
 * Notes per chat, not sent to LLM
 * Lore/lore book per chat, eg. for characters made up in that chat - ideally don't mix with other lore books but it can be useful, maybe UI to make creating lore books easier
 * Fancy summarization, eg. https://reddit.com/comments/1jkckum
-* Expose primitives to a scripting language which then assembles the prompt? Lua? Implement most features this way?
+* Expose primitives to a scripting language which then assembles the prompt? Lua? Implement most features this way? Or templating language is good enough?
     * Reload scripts on disk as soon as they are changed
     * Expose scripts to UI editor, probably still store on disk, or in DB
 
