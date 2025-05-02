@@ -60,6 +60,8 @@
 * Expose primitives to a scripting language which then assembles the prompt? Lua? Implement most features this way? Or templating language is good enough?
     * Reload scripts on disk as soon as they are changed
     * Expose scripts to UI editor, probably still store on disk, or in DB
+    * Lua as templating language: https://nachtimwald.com/2014/08/06/using-lua-as-a-templating-engine/
+    * https://github.com/mlua-rs/mlua/tree/v0.10?tab=readme-ov-file#serialization-serde-support
 
 ## Other notes
 - Use Aider/Claude Code to help make this
@@ -67,3 +69,6 @@
 
 # Inspirations
 - Freely-editable markdown plain text as chat: https://github.com/rusiaaman/chat.md
+
+# Tools for development
+- https://docs.rs/utoipa/latest/utoipa/index.html to export OpenAPI definitions for internal API - has Rocket support
