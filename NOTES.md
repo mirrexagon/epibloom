@@ -1,9 +1,9 @@
 ## Good things about SillyTavern
-* World info is mostly good
-* Support for many APIs, including model picker for hosted services
-* Hiding messages from inclusion
-* Connection profiles make managing all the different preset categories easier, but it seems somewhat like a patch
-* Downloading cards from Chub, etc.
+- World info is mostly good
+- Support for many APIs, including model picker for hosted services
+- Hiding messages from inclusion
+- Connection profiles make managing all the different preset categories easier, but it seems somewhat like a patch
+- Downloading cards from Chub, etc.
 
 ## Problems with SillyTavern
 - Story string often mixes system prompt and other things
@@ -29,39 +29,42 @@
 - navigating away from the tab or browser on my phone closes connections - if the backend was fully responsible for things and the UI could always be restored to the current state, that would help a lot.
 
 ## Features
-* Seeing raw LLM input before it is sent, possibly live
-* Templating
-	* probably Handlebars, which is what ST uses
-	* There is also Vento by the creator of Lume: https://vento.js.org
-	* Or, don't use traditional templating for overall response building, build in order based on roles like chat completion, including for system prompt, etc.
-* Chat interface and flat interface - probably can't mix both but having both is nice, and converting from chat to flat might be good
-* Swipes
-* Separating reasoning from main part
-* Multiple system prompt parts, eg. like for https://github.com/p-e-w/sorcery
-* World info is good, possibly more control over newlines for Markdown formatting, etc.
-* Markdown features
-	* Structured document that gets turned into Markdown with nice formatting? Aware of header depth, world info can be nested correctly, etc.?
-* Lots of syntax highlighting, eg.
-	* Templating language, highlighting `{{char}}` and so on
-	* In final LLM input preview, highlight which sections come from what, eg. system prompt, chat, world info
-* NovelAI-style edit and author tracking?
-* Load prompt format stuff based on model detected on API (by name or metadata)? Can ST do this somehow?
-	* Maybe associate lots of things with the specific chat?
-* Chat completion as well as text completion
-* Seeing logits/token probabilities for each token, see top few tokens, how sampler selected (if possible)
-* Binding template, prompt format, sampler settings, etc. to a chat, character, tagged in some way, etc.
-* Being able to hover and highlight individual tokens in every text field that it makes sense in (may require API support to tokenize)
-* Use chat completion wherever possible (including possibly for free text if using system prompt, etc.) to push chat tokenization to backend - build Epicalyx with this in mind
-* MCP support, PoC with blender-mcp for example
-* Image generation as tool as well as just asking for prompt from LLM
-* Notes per chat, not sent to LLM
-* Lore/lore book per chat, eg. for characters made up in that chat - ideally don't mix with other lore books but it can be useful, maybe UI to make creating lore books easier
-* Fancy summarization, eg. https://reddit.com/comments/1jkckum
-* Expose primitives to a scripting language which then assembles the prompt? Lua? Implement most features this way? Or templating language is good enough?
-    * Reload scripts on disk as soon as they are changed
-    * Expose scripts to UI editor, probably still store on disk, or in DB
-    * Lua as templating language: https://nachtimwald.com/2014/08/06/using-lua-as-a-templating-engine/
-    * https://github.com/mlua-rs/mlua/tree/v0.10?tab=readme-ov-file#serialization-serde-support
+- Seeing raw LLM input before it is sent, possibly live
+- Templating
+	- probably Handlebars, which is what ST uses
+	- There is also Vento by the creator of Lume: https://vento.js.org
+	- Or, don't use traditional templating for overall response building, build in order based on roles like chat completion, including for system prompt, etc.
+	- Use Lua, see somewhere below
+- Chat interface and flat interface - probably can't mix both but having both is nice, and converting from chat to flat might be good
+- Swipes
+- Separating reasoning from main part
+- Multiple system prompt parts, eg. like for https://github.com/p-e-w/sorcery
+- World info is good, possibly more control over newlines for Markdown formatting, etc.
+- Markdown features
+	- Structured document that gets turned into Markdown with nice formatting? Aware of header depth, world info can be nested correctly, etc.?
+- Lots of syntax highlighting, eg.
+	- Templating language, highlighting `{{char}}` and so on
+	- In final LLM input preview, highlight which sections come from what, eg. system prompt, chat, world info
+- NovelAI-style edit and author tracking?
+- Load prompt format stuff based on model detected on API (by name or metadata)? Can ST do this somehow?
+	- Maybe associate lots of things with the specific chat?
+- Chat completion as well as text completion
+- Seeing logits/token probabilities for each token, see top few tokens, how sampler selected (if possible)
+- Binding template, prompt format, sampler settings, etc. to a chat, character, tagged in some way, etc.
+- Being able to hover and highlight individual tokens in every text field that it makes sense in (may require API support to tokenize)
+- Use chat completion wherever possible (including possibly for free text if using system prompt, etc.) to push chat tokenization to backend - build Epicalyx with this in mind
+- MCP support, PoC with blender-mcp for example
+- Image generation as tool as well as just asking for prompt from LLM
+- Notes per chat, not sent to LLM
+- Lore/lore book per chat, eg. for characters made up in that chat - ideally don't mix with other lore books but it can be useful, maybe UI to make creating lore books easier
+- Fancy summarization, eg. https://reddit.com/comments/1jkckum
+- Expose primitives to a scripting language which then assembles the prompt? Lua? Implement most features this way? Or templating language is good enough?
+    - Reload scripts on disk as soon as they are changed
+    - Expose scripts to UI editor, probably still store on disk, or in DB
+    - Lua as templating language: https://nachtimwald.com/2014/08/06/using-lua-as-a-templating-engine/
+    - https://github.com/mlua-rs/mlua/tree/v0.10?tab=readme-ov-file#serialization-serde-support
+- Add tool calls for things like adding lorebook entries, adding notes and character changes to bios, summarizing, adjusting timeline, so Claude can add them when requested instead of me having to copy and paste and then delete the messages.
+- If enabled/received, show thinking for actions like summarizing, generating images, etc. as well as normal messages
 
 ## Other notes
 - Use Aider/Claude Code to help make this
