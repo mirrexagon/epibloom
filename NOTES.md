@@ -72,6 +72,7 @@
 
 # Inspirations
 - Freely-editable markdown plain text as chat: https://github.com/rusiaaman/chat.md
+- More complex templates/thinking message selection: https://huggingface.co/blog/qwen-3-chat-template-deep-dive
 
 # Tools for development
 - https://docs.rs/utoipa/latest/utoipa/index.html to export OpenAPI definitions for internal API - has Rocket support
