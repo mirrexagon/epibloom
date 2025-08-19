@@ -319,6 +319,8 @@ mod response {
         MaxTokens,
         StopSequence,
         ToolUse,
+        PauseTurn,
+        Refusal,
     }
 
     #[derive(Debug, Clone, Deserialize)]
