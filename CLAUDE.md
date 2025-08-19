@@ -41,3 +41,13 @@ Note: Don't use commands like `npm run res:dev` and `npm run dev` as the user wi
 
 Remember to run `npm run res:build` after making changes to ReScript files.
 
+## API Testing
+
+To check backend API endpoints during development:
+
+- `curl -X GET http://localhost:8000/api/chat` - Get list of all chats
+- `curl -X GET http://localhost:8000/api/chat/<chat-id>` - Get specific chat with messages
+- Example: `curl -X GET http://localhost:8000/api/chat/3e5c99e7-7dc5-43b7-b2a0-ca0a51846436`
+
+The UI uses a Vite proxy to forward `/api/*` requests to the backend at `http://localhost:8000`, avoiding CORS issues.
+
