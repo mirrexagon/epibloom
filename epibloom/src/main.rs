@@ -39,7 +39,7 @@ fn rocket() -> _ {
     env_logger::init();
 
     // TODO: Store API keys in database or config file.
-    dotenvy::dotenv().unwrap();
+    dotenvy::dotenv().expect("Could not open .env file");
 
     let strategy = choose_app_strategy(AppStrategyArgs {
         top_level_domain: "dev".to_string(),
