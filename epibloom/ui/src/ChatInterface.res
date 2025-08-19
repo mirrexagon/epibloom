@@ -6,7 +6,8 @@ let fetchChat = async (chatId: string): result<ApiTypes.chat, string> => {
     let response = await fetch(`/api/chat/${chatId}`)
     let jsonData = await response->json
     let chatObj = jsonData->JSON.Decode.object->Option.getExn
-    let messagesData = chatObj->Dict.get("messages")->Option.flatMap(JSON.Decode.array)->Option.getExn
+    let messagesData =
+      chatObj->Dict.get("messages")->Option.flatMap(JSON.Decode.array)->Option.getExn
 
     let messages = messagesData->Array.map(msgJson => {
       let msgObj = msgJson->JSON.Decode.object->Option.getExn
@@ -23,7 +24,7 @@ let fetchChat = async (chatId: string): result<ApiTypes.chat, string> => {
       name: chatObj->Dict.get("name")->Option.flatMap(JSON.Decode.string)->Option.getExn,
       created: chatObj->Dict.get("created")->Option.flatMap(JSON.Decode.string)->Option.getExn,
       modified: chatObj->Dict.get("modified")->Option.flatMap(JSON.Decode.string)->Option.getExn,
-      messages: messages,
+      messages,
     }
     Ok(chat)
   } catch {
@@ -63,6 +64,7 @@ let make = (~selectedChatId: option<string>) => {
 
   let handleSubmit = e => {
     ReactEvent.Form.preventDefault(e)
+
     // TODO: Implement sending messages to the selected chat
     if String.trim(inputValue) != "" {
       setInputValue(_ => "")
@@ -87,23 +89,21 @@ let make = (~selectedChatId: option<string>) => {
         </div>
       | (Some(_), Some(chatData), false, None) =>
         <div className="space-y-4">
-          {chatData.messages->Array.mapWithIndex((message, index) => {
+          {chatData.messages
+          ->Array.mapWithIndex((message, index) => {
             let isUser = message.role == "user"
             <div
               key={index->Int.toString}
-              className={`flex ${isUser ? "justify-end" : "justify-start"}`}
-            >
+              className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
               <div
-                className={`max-w-[80%] p-3 rounded-lg ${
-                  isUser
+                className={`max-w-[80%] p-3 rounded-lg ${isUser
                     ? "bg-blue-600 text-white"
-                    : "bg-gray-200 text-gray-800"
-                }`}
-              >
+                    : "bg-gray-200 text-gray-800"}`}>
                 {React.string(message.text)}
               </div>
             </div>
-          })->React.array}
+          })
+          ->React.array}
         </div>
       | _ =>
         <div className="flex items-center justify-center h-full text-gray-500">
@@ -111,14 +111,15 @@ let make = (~selectedChatId: option<string>) => {
         </div>
       }}
     </div>
-
     // Input area
     <form onSubmit={handleSubmit} className="border-t border-gray-300 p-3">
       <div className="flex items-center">
         <input
           type_="text"
           className="flex-1 p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder={selectedChatId->Option.isSome ? "Type a message..." : "Select a chat to start messaging"}
+          placeholder={selectedChatId->Option.isSome
+            ? "Type a message..."
+            : "Select a chat to start messaging"}
           value={inputValue}
           onChange={e => setInputValue(ReactEvent.Form.target(e)["value"])}
           disabled={selectedChatId->Option.isNone}
