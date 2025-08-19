@@ -42,6 +42,7 @@
           devShells.default = pkgs.mkShell {
             nativeBuildInputs = with pkgs; [
               nodejs
+              rescript-language-server
 
               rustc
               cargo
