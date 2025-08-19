@@ -1,11 +1,2 @@
-type chatMetadata = {
-  id: string,
-  name: string,
-  created: string,
-  modified: string,
-}
-
-type chatsResponse = {chats: array<chatMetadata>}
-
 @react.component
-let make: unit => Jsx.element
+let make: (~selectedChatId: option<string>, ~onChatSelect: string => unit) => Jsx.element

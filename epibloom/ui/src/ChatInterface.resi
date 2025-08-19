@@ -1,7 +1,2 @@
-type message = {
-  text: string,
-  sender: [#User | #AI]
-}
-
 @react.component
-let make: unit => Jsx.element
+let make: (~selectedChatId: option<string>) => Jsx.element
