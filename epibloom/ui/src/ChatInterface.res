@@ -1,37 +1,3 @@
-@val external fetch: string => Promise.t<'response> = "fetch"
-@send external json: 'response => Promise.t<JSON.t> = "json"
-
-let fetchChat = async (chatId: string): result<ApiTypes.chat, string> => {
-  try {
-    let response = await fetch(`/api/chat/${chatId}`)
-    let jsonData = await response->json
-    let chatObj = jsonData->JSON.Decode.object->Option.getExn
-    let messagesData =
-      chatObj->Dict.get("messages")->Option.flatMap(JSON.Decode.array)->Option.getExn
-
-    let messages = messagesData->Array.map(msgJson => {
-      let msgObj = msgJson->JSON.Decode.object->Option.getExn
-      {
-        ApiTypes.role: msgObj->Dict.get("role")->Option.flatMap(JSON.Decode.string)->Option.getExn,
-        text: msgObj->Dict.get("text")->Option.flatMap(JSON.Decode.string)->Option.getExn,
-        created: msgObj->Dict.get("created")->Option.flatMap(JSON.Decode.string)->Option.getExn,
-        modified: msgObj->Dict.get("modified")->Option.flatMap(JSON.Decode.string)->Option.getExn,
-      }
-    })
-
-    let chat = {
-      ApiTypes.id: chatObj->Dict.get("id")->Option.flatMap(JSON.Decode.string)->Option.getExn,
-      name: chatObj->Dict.get("name")->Option.flatMap(JSON.Decode.string)->Option.getExn,
-      created: chatObj->Dict.get("created")->Option.flatMap(JSON.Decode.string)->Option.getExn,
-      modified: chatObj->Dict.get("modified")->Option.flatMap(JSON.Decode.string)->Option.getExn,
-      messages,
-    }
-    Ok(chat)
-  } catch {
-  | _ => Error("Failed to fetch chat")
-  }
-}
-
 @react.component
 let make = (~selectedChatId: option<string>) => {
   let (chat, setChat) = React.useState(_ => None)
@@ -45,15 +11,18 @@ let make = (~selectedChatId: option<string>) => {
         setChat(_ => None)
         setError(_ => None)
       }
+
     | Some(chatId) => {
         let loadChat = async () => {
           setLoading(_ => true)
           setError(_ => None)
-          let result = await fetchChat(chatId)
+
+          let result = await Api.fetchChat(chatId)
           switch result {
           | Ok(chatData) => setChat(_ => Some(chatData))
           | Error(errorMsg) => setError(_ => Some(errorMsg))
           }
+
           setLoading(_ => false)
         }
         loadChat()->ignore
@@ -79,35 +48,42 @@ let make = (~selectedChatId: option<string>) => {
         <div className="flex items-center justify-center h-full text-gray-500">
           {React.string("Select a chat to view messages")}
         </div>
+
       | (Some(_), _, true, _) =>
-        <div className="flex items-center justify-center h-full text-gray-500">
-          {React.string("Loading chat...")}
-        </div>
+        <div className="flex items-center justify-center h-full text-gray-500" />
+
       | (Some(_), _, false, Some(errorMsg)) =>
         <div className="flex items-center justify-center h-full text-red-500">
           {React.string(`Error: ${errorMsg}`)}
         </div>
+
       | (Some(_), Some(chatData), false, None) =>
         <div className="space-y-4">
-          {chatData.messages
-          ->Array.mapWithIndex((message, index) => {
-            let isUser = message.role == "user"
-            <div
-              key={index->Int.toString}
-              className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+          {if chatData.messages->Array.length > 0 {
+            chatData.messages
+            ->Array.mapWithIndex((message, index) => {
+              let isUser = message.role == "user"
               <div
-                className={`max-w-[80%] p-3 rounded-lg ${isUser
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-200 text-gray-800"}`}>
-                {React.string(message.text)}
+                key={index->Int.toString}
+                className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+                <div
+                  className={`max-w-[80%] p-3 rounded-lg ${isUser
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-200 text-gray-800"}`}>
+                  {React.string(message.text)}
+                </div>
               </div>
+            })
+            ->React.array
+          } else {
+            <div className="flex items-center justify-center h-full text-gray-500">
+              {React.string("No messages")}
             </div>
-          })
-          ->React.array}
+          }}
         </div>
       | _ =>
-        <div className="flex items-center justify-center h-full text-gray-500">
-          {React.string("No messages")}
+        <div className="flex items-center justify-center h-full text-red-500">
+          {React.string("Unknown error")}
         </div>
       }}
     </div>
