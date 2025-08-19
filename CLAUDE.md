@@ -24,14 +24,14 @@ In `epibloom/ui/`, ReScript + React + TailwindCSS.
 Note: Don't use commands like `npm run res:dev` and `npm run dev` as the user will have this running already separately. Just `npm run res:build` to check for errors after making changes to ReScript files.
 
 ### Code Style Guidelines
-- **File Naming**: PascalCase for components (Button.res, App.res)
-- **Interface Files**: Use .resi files for type signatures
-- **Components**: Use `@react.component` annotation with `make` function
-- **Types**: Explicit type annotations in .resi files
-- **Strings**: Use `React.string("text")` or `` `${value->toString}` ``
-- **Functions**: camelCase naming, pipe operator (`->`) for chaining
-- **Pattern Matching**: Exhaustive with `switch` for optional values
-- **Styling**: Use Tailwind CSS classes directly in JSX
+- File Naming: PascalCase for components (Button.res, App.res)
+- Interface Files: Use .resi files for type signatures
+- Components: Use `@react.component` annotation with `make` function
+- Types: Explicit type annotations in .resi files
+- Strings: Use `React.string("text")` or `` `${value->toString}` ``
+- Functions: camelCase naming, pipe operator (`->`) for chaining
+- Pattern Matching: Exhaustive with `switch` for optional values
+- Styling: Use Tailwind CSS classes directly in JSX
 
 ### Project Structure
 - React components in src/
