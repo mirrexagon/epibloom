@@ -14,6 +14,7 @@ In `epibloom/`, Rust + Rocket.
 In `epibloom/ui/`, ReScript + React + TailwindCSS.
 
 ### Commands
+
 - `npm run res:build` - Build ReScript files
 - `npm run res:clean` - Clean ReScript build artifacts
 - `npm run build` - Build for production
@@ -24,22 +25,25 @@ In `epibloom/ui/`, ReScript + React + TailwindCSS.
 Note: Don't use commands like `npm run res:dev` and `npm run dev` as the user will have this running already separately. Just `npm run res:build` to check for errors after making changes to ReScript files.
 
 ### Code Style Guidelines
-- File Naming: PascalCase for components (Button.res, App.res)
-- Interface Files: Use .resi files for type signatures
+
+- File Naming: PascalCase for source files, including components (`Button.res`, `App.res`)
+- Interface Files: Use .resi files for type signatures for components at least
 - Components: Use `@react.component` annotation with `make` function
 - Types: Explicit type annotations in .resi files
-- Strings: Use `React.string("text")` or `` `${value->toString}` ``
-- Functions: camelCase naming, pipe operator (`->`) for chaining
+- Strings in React components: Explicit `React.string("text")` is required
+- Functions: camelCase naming, pipe operator (`->`) for chaining, but don't overdo it (eg. don't do single-step pipelines)
 - Pattern Matching: Exhaustive with `switch` for optional values
 - Styling: Use Tailwind CSS classes directly in JSX
 
 ### Project Structure
-- React components in src/
-- Component structure: implementation (.res) + interface (.resi)
-- Auto-opened modules: RescriptCore (-open compiler flag)
-- ESModule output format with .res.mjs extension
 
-Remember to run `npm run res:build` after making changes to ReScript files.
+- Interface backend API interaction in `src/Api.res`
+- React components in `src/`
+- Component structure: Implementation (`.res`) + interface (`.resi`)
+- Auto-opened modules: No need to explicitly `open` modules in other files, just refer to them by name
+- ESModule output format with `.res.mjs` extension
+
+Remember to run `npm run res:build` after making changes to ReScript files, to check for errors.
 
 ## API Testing
 
