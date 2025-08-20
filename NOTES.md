@@ -65,6 +65,7 @@
     - https://github.com/mlua-rs/mlua/tree/v0.10?tab=readme-ov-file#serialization-serde-support
 - Add tool calls for things like adding lorebook entries, adding notes and character changes to bios, summarizing, adjusting timeline, so Claude can add them when requested instead of me having to copy and paste and then delete the messages.
 - If enabled/received, show thinking for actions like summarizing, generating images, etc. as well as normal messages
+- Branching chats natively supported
 
 ## Other notes
 - Use Aider/Claude Code to help make this
