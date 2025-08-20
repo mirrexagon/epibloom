@@ -1,3 +1,11 @@
+type role =
+    |
+    @as("user")
+    User
+    |
+    @as("assistant")
+    Assistant
+
 type chatMetadata = {
   id: string,
   name: string,
@@ -6,7 +14,7 @@ type chatMetadata = {
 }
 
 type chatMessage = {
-  role: string,
+  role: role,
   text: string,
   created: string,
   modified: string,
@@ -22,13 +30,10 @@ type chat = {
 
 type chatsResponse = {chats: array<chatMetadata>}
 
-@val external fetch: string => Promise.t<'response> = "fetch"
-@send external json: 'response => Promise.t<JSON.t> = "json"
-
 let fetchChats = async (): result<array<chatMetadata>, string> => {
   try {
-    let response = await fetch("/api/chat")
-    let jsonData = await response->json
+    let response = await Fetch.get("/api/chat")
+    let jsonData = await response->Fetch.Response.json
     let chatsData =
       jsonData
       ->JSON.Decode.object
@@ -60,16 +65,24 @@ let fetchChats = async (): result<array<chatMetadata>, string> => {
 
 let fetchChat = async (chatId: string): result<chat, string> => {
   try {
-    let response = await fetch(`/api/chat/${chatId}`)
-    let jsonData = await response->json
+    let response = await Fetch.get(`/api/chat/${chatId}`)
+    let jsonData = await response->Fetch.Response.json
     let chatObj = jsonData->JSON.Decode.object->Option.getExn
     let messagesData =
       chatObj->Dict.get("messages")->Option.flatMap(JSON.Decode.array)->Option.getExn
 
     let messages = messagesData->Array.map(msgJson => {
       let msgObj = msgJson->JSON.Decode.object->Option.getExn
+
+      let roleString = msgObj->Dict.get("role")->Option.flatMap(JSON.Decode.string)->Option.getExn
+      let role = switch roleString {
+          | "user" => User
+          | "assistant" => Assistant
+          | _ => raise(Failure(`Invalid role for message: ${roleString}`))
+      }
+
       {
-        role: msgObj->Dict.get("role")->Option.flatMap(JSON.Decode.string)->Option.getExn,
+        role,
         text: msgObj->Dict.get("text")->Option.flatMap(JSON.Decode.string)->Option.getExn,
         created: msgObj->Dict.get("created")->Option.flatMap(JSON.Decode.string)->Option.getExn,
         modified: msgObj->Dict.get("modified")->Option.flatMap(JSON.Decode.string)->Option.getExn,
@@ -86,5 +99,20 @@ let fetchChat = async (chatId: string): result<chat, string> => {
     Ok(chat)
   } catch {
   | _ => Error("Failed to fetch chat")
+  }
+}
+
+let postMessage = async (chatId: string, role: role, text: string): result<unit, string> => {
+  try {
+    let data = {
+        "role": role,
+        "text": text,
+    }
+
+    let _response = await Fetch.fetch(`/api/chat/${chatId}/message`, {method: #POST, body: data->Js.Json.stringifyAny->Option.getExn->Fetch.Body.string })
+
+    Ok()
+  } catch {
+  | _ => Error("Failed to post message")
   }
 }

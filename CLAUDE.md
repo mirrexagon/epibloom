@@ -31,7 +31,7 @@ Note: Don't use commands like `npm run res:dev` and `npm run dev` as the user wi
 - Components: Use `@react.component` annotation with `make` function
 - Types: Explicit type annotations in .resi files
 - Strings in React components: Explicit `React.string("text")` is required
-- Functions: camelCase naming, pipe operator (`->`) for chaining, but don't overdo it (eg. don't do single-step pipelines)
+- Functions: camelCase naming, pipe operator (`->`) for chaining
 - Pattern Matching: Exhaustive with `switch` for optional values
 - Styling: Use Tailwind CSS classes directly in JSX
 
@@ -40,7 +40,7 @@ Note: Don't use commands like `npm run res:dev` and `npm run dev` as the user wi
 - Interface backend API interaction in `src/Api.res`
 - React components in `src/`
 - Component structure: Implementation (`.res`) + interface (`.resi`)
-- Auto-opened modules: No need to explicitly `open` modules in other files, just refer to them by name
+- Modules: No need to explicitly `open` modules in other files, just refer to them by name
 - ESModule output format with `.res.mjs` extension
 
 Remember to run `npm run res:build` after making changes to ReScript files, to check for errors.
@@ -51,6 +51,7 @@ To check backend API endpoints during development, use `http` (HTTPie), eg.
 
 - `http :8000/api/chat` - Get list of all chats
 - `http :8000/api/chat/<chat-id>` - Get specific chat with messages
+- `http POST :8000/api/chat/<chat-id>/message role=user text='Message text'` - Add message to chat (HTTPie automatically serializes key=value pairs as JSON and sets Content-Type)
 
 See files in `epibloom/src/api` for the API server code.
 

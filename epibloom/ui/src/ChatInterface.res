@@ -34,9 +34,28 @@ let make = (~selectedChatId: option<string>) => {
   let handleSubmit = e => {
     ReactEvent.Form.preventDefault(e)
 
-    // TODO: Implement sending messages to the selected chat
-    if String.trim(inputValue) != "" {
-      setInputValue(_ => "")
+    switch selectedChatId {
+    | None => ()
+    | Some(chatId) =>
+      if String.trim(inputValue) != "" {
+        let sendMessage = async () => {
+          let result = await Api.postMessage(chatId, User, inputValue)
+          switch result {
+          | Ok() => {
+              setInputValue(_ => "")
+
+              // Reload the chat to show the new message
+              let chatResult = await Api.fetchChat(chatId)
+              switch chatResult {
+              | Ok(updatedChat) => setChat(_ => Some(updatedChat))
+              | Error(_) => ()
+              }
+            }
+          | Error(errorMsg) => setError(_ => Some(`Failed to send message: ${errorMsg}`))
+          }
+        }
+        sendMessage()->ignore
+      }
     }
   }
 
@@ -62,7 +81,7 @@ let make = (~selectedChatId: option<string>) => {
           {if chatData.messages->Array.length > 0 {
             chatData.messages
             ->Array.mapWithIndex((message, index) => {
-              let isUser = message.role == "user"
+              let isUser = message.role == User
               <div
                 key={index->Int.toString}
                 className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
