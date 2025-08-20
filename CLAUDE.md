@@ -27,7 +27,7 @@ Note: Don't use commands like `npm run res:dev` and `npm run dev` as the user wi
 ### Code Style Guidelines
 
 - File Naming: PascalCase for source files, including components (`Button.res`, `App.res`)
-- Interface Files: Use .resi files for type signatures for components at least
+- No Interface Files: Don't create `.resi` interface files on this project
 - Components: Use `@react.component` annotation with `make` function
 - Types: Explicit type annotations in .resi files
 - Strings in React components: Explicit `React.string("text")` is required
