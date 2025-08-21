@@ -1,10 +1,6 @@
 type role =
-    |
-    @as("user")
-    User
-    |
-    @as("assistant")
-    Assistant
+  | @as("user") User
+  | @as("assistant") Assistant
 
 type chatMetadata = {
   id: string,
@@ -76,9 +72,9 @@ let fetchChat = async (chatId: string): result<chat, string> => {
 
       let roleString = msgObj->Dict.get("role")->Option.flatMap(JSON.Decode.string)->Option.getExn
       let role = switch roleString {
-          | "user" => User
-          | "assistant" => Assistant
-          | _ => raise(Failure(`Invalid role for message: ${roleString}`))
+      | "user" => User
+      | "assistant" => Assistant
+      | _ => raise(Failure(`Invalid role for message: ${roleString}`))
       }
 
       {
@@ -105,11 +101,14 @@ let fetchChat = async (chatId: string): result<chat, string> => {
 let postMessage = async (chatId: string, role: role, text: string): result<unit, string> => {
   try {
     let data = {
-        "role": role,
-        "text": text,
+      "role": role,
+      "text": text,
     }
 
-    let _response = await Fetch.fetch(`/api/chat/${chatId}/message`, {method: #POST, body: data->Js.Json.stringifyAny->Option.getExn->Fetch.Body.string })
+    let _response = await Fetch.fetch(
+      `/api/chat/${chatId}/message`,
+      {method: #POST, body: data->Js.Json.stringifyAny->Option.getExn->Fetch.Body.string},
+    )
 
     Ok()
   } catch {
