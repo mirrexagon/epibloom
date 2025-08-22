@@ -6,21 +6,17 @@ In `epibloom/`, Rust + Rocket.
 
 ### Commands
 
-- `cargo build` - Build Rust project
-- `cargo run` - Run Rust project
+- `cargo clippy` - Ensure the project builds, including extra lints.
+
+Note: The user will usually already have the backend running during UI development.
 
 ## Interface Frontend
 
 In `epibloom/ui/`, ReScript + React + TailwindCSS.
 
-### Commands
+### Useful Commands
 
 - `npm run res:build` - Build ReScript files
-- `npm run res:clean` - Clean ReScript build artifacts
-- `npm run build` - Build for production
-- `npm run res:dev` - Watch ReScript files and rebuild on changes
-- `npm run dev` - Start development server with hot reloading
-- `npm run preview` - Preview production build locally
 
 Note: Don't use commands like `npm run res:dev` and `npm run dev` as the user will have this running already separately. Just `npm run res:build` to check for errors after making changes to ReScript files.
 
@@ -29,7 +25,6 @@ Note: Don't use commands like `npm run res:dev` and `npm run dev` as the user wi
 - File Naming: PascalCase for source files, including components (`Button.res`, `App.res`)
 - No Interface Files: Don't create `.resi` interface files on this project
 - Components: Use `@react.component` annotation with `make` function
-- Types: Explicit type annotations in .resi files
 - Strings in React components: Explicit `React.string("text")` is required
 - Functions: camelCase naming, pipe operator (`->`) for chaining
 - Pattern Matching: Exhaustive with `switch` for optional values
@@ -56,4 +51,3 @@ To check backend API endpoints during development, use `http` (HTTPie), eg.
 See files in `epibloom/src/api` for the API server code.
 
 The UI uses a Vite proxy to forward `/api/*` requests to the backend at `http://localhost:8000`, avoiding CORS issues.
-

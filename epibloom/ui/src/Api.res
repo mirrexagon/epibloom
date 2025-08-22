@@ -115,3 +115,13 @@ let postMessage = async (chatId: string, role: role, text: string): result<unit,
   | _ => Error("Failed to post message")
   }
 }
+
+let generateMessage = async (chatId: string): result<unit, string> => {
+  try {
+    let _response = await Fetch.fetch(`/api/chat/${chatId}/generate`, {method: #POST})
+
+    Ok()
+  } catch {
+  | _ => Error("Failed to generate message")
+  }
+}

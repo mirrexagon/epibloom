@@ -47,7 +47,23 @@ let make = (~selectedChatId: option<string>) => {
               // Reload the chat to show the new message
               let chatResult = await Api.fetchChat(chatId)
               switch chatResult {
-              | Ok(updatedChat) => setChat(_ => Some(updatedChat))
+              | Ok(updatedChat) => {
+                  setChat(_ => Some(updatedChat))
+                  
+                  // Generate assistant response
+                  let generateResult = await Api.generateMessage(chatId)
+                  switch generateResult {
+                  | Ok() => {
+                      // Reload chat again to show generated message
+                      let finalChatResult = await Api.fetchChat(chatId)
+                      switch finalChatResult {
+                      | Ok(finalChat) => setChat(_ => Some(finalChat))
+                      | Error(_) => ()
+                      }
+                    }
+                  | Error(errorMsg) => setError(_ => Some(`Failed to generate response: ${errorMsg}`))
+                  }
+                }
               | Error(_) => ()
               }
             }
