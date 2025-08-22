@@ -25,9 +25,11 @@ let make = (~selectedChatId: option<string>) => {
 
           setLoading(_ => false)
         }
+
         loadChat()->ignore
       }
     }
+
     None
   }, [selectedChatId])
 
@@ -36,10 +38,12 @@ let make = (~selectedChatId: option<string>) => {
 
     switch selectedChatId {
     | None => ()
+
     | Some(chatId) =>
       if String.trim(inputValue) != "" {
         let sendMessage = async () => {
           let result = await Api.postMessage(chatId, User, inputValue)
+
           switch result {
           | Ok() => {
               setInputValue(_ => "")
@@ -49,7 +53,7 @@ let make = (~selectedChatId: option<string>) => {
               switch chatResult {
               | Ok(updatedChat) => {
                   setChat(_ => Some(updatedChat))
-                  
+
                   // Generate assistant response
                   let generateResult = await Api.generateMessage(chatId)
                   switch generateResult {
@@ -61,7 +65,8 @@ let make = (~selectedChatId: option<string>) => {
                       | Error(_) => ()
                       }
                     }
-                  | Error(errorMsg) => setError(_ => Some(`Failed to generate response: ${errorMsg}`))
+                  | Error(errorMsg) =>
+                    setError(_ => Some(`Failed to generate response: ${errorMsg}`))
                   }
                 }
               | Error(_) => ()

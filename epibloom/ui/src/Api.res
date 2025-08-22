@@ -50,6 +50,7 @@ let fetchChats = async (): result<array<chatMetadata>, string> => {
           ->Option.getExn,
         }
       })
+
       Ok(chats)
 
     | None => Error("Failed to parse chats data")
