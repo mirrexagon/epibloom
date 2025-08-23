@@ -6,6 +6,7 @@ use rusqlite::{params, Connection, Row};
 use serde::{Deserialize, Serialize};
 use time::macros::format_description;
 use time::OffsetDateTime;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::util;
@@ -27,7 +28,7 @@ pub enum Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, ToSchema)]
 pub enum Role {
     #[serde(rename = "assistant")]
     Assistant,
@@ -46,7 +47,7 @@ impl fmt::Display for Role {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Message {
     pub role: Role,
     pub text: String,
@@ -79,7 +80,7 @@ impl Message {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ChatMetadata {
     pub id: Uuid,
     pub name: String,
@@ -105,7 +106,7 @@ impl ChatMetadata {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Chat {
     #[serde(flatten)]
     pub metadata: ChatMetadata,

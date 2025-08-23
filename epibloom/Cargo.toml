@@ -15,28 +15,42 @@ futures = "0.3.31"
 
 [dependencies.rocket]
 version = "0.5.1"
-features = [ "json", "uuid" ]
+features = ["json", "uuid"]
 
 [dependencies.uuid]
 version = "1.16.0"
-features = [ "v4", "serde" ]
+features = ["v4", "serde"]
 
 [dependencies.serde]
 version = "1.0.145"
-features = [ "derive" ]
+features = ["derive"]
 
 [dependencies.time]
 version = "0.3.39"
-features = [ "formatting", "local-offset", "serde" ]
+features = ["formatting", "local-offset", "serde"]
 
 [dependencies.reqwest]
-version= "0.12.14"
-features = [ "json", "stream" ]
+version = "0.12.14"
+features = ["json", "stream"]
 
 [dependencies.rusqlite]
 version = "0.34.0"
-features = [ "bundled", "uuid" ]
+features = ["bundled", "uuid"]
 
 [dependencies.schemars]
 version = "0.8.22"
-features = [ "preserve_order", "uuid" ]
+features = ["preserve_order", "uuid"]
+
+[dependencies.utoipa]
+version = "5.4.0"
+features = [
+    "uuid",
+    "time",
+    "rocket_extras",
+    "preserve_order",
+    "preserve_path_order",
+]
+
+[dependencies.utoipa-swagger-ui]
+version = "9.0.2"
+features = ["rocket"]

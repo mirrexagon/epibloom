@@ -10,6 +10,8 @@ use std::{fs, path::PathBuf, sync::Mutex};
 
 use etcetera::{choose_app_strategy, AppStrategy, AppStrategyArgs};
 use rusqlite::Connection;
+use utoipa::{OpenApi, ToSchema};
+use utoipa_swagger_ui::SwaggerUi;
 
 use backends::anthropic::AnthropicApi;
 use data::chat::Chats;
@@ -68,7 +70,24 @@ fn rocket() -> _ {
 
     let anthropic_api: AnthropicApi = AnthropicApi::new_with_key_from_env().unwrap();
 
+    #[derive(OpenApi)]
+    #[openapi(
+        nest(
+            (path = "/api/chat", api = api::chat::ChatApiDoc)
+        ),
+        tags(
+            (name = "chat", description = "Chat management and interaction.")
+        )
+    )]
+    struct ApiDoc;
+
     rocket::build()
+        .manage(chats)
+        .manage(anthropic_api)
+        .mount(
+            "/",
+            SwaggerUi::new("/swagger-ui/<_..>").url("/api-docs/openapi.json", ApiDoc::openapi()),
+        )
         .mount(
             "/api/chat",
             routes![
@@ -79,10 +98,4 @@ fn rocket() -> _ {
                 api::chat::generate,
             ],
         )
-        // .mount(
-        //     "/api/anthropic",
-        //     routes![backends::anthropic::api::list_models],
-        // )
-        .manage(chats)
-        .manage(anthropic_api)
 }

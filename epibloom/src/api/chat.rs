@@ -2,6 +2,7 @@ use std::sync::Mutex;
 
 use rocket::{get, response::status, serde::json::Json, State};
 use serde::{Deserialize, Serialize};
+use utoipa::{IntoParams, OpenApi, ToSchema};
 use uuid::Uuid;
 
 use crate::{
@@ -10,7 +11,7 @@ use crate::{
     data::chat::{self, Chat, ChatMetadata, Chats, Role},
 };
 
-#[derive(Debug, Clone, Responder)]
+#[derive(Debug, Clone, Responder, ToSchema)]
 pub enum ApiError {
     #[response(status = 404, content_type = "text")]
     NotFound(String),
@@ -37,11 +38,17 @@ impl From<anthropic::Error> for ApiError {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct NewChatResponse {
-    chat_id: Uuid,
-}
+#[derive(OpenApi)]
+#[openapi(paths(new_chat, get_chats, get_chat_by_id, push_message, generate))]
+pub struct ChatApiDoc;
 
+/// Creates a new chat.
+#[utoipa::path(
+    responses(
+        (status = 201, description = "Chat created successfully.", body = ChatMetadata),
+        (status = 500, description = "Database operation failed.", body = ApiError)
+    )
+)]
 #[post("/")]
 pub fn new_chat(
     chats: &State<Mutex<Chats>>,
@@ -56,11 +63,20 @@ pub fn new_chat(
     )
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GetChatsResponse {
     chats: Vec<chat::ChatMetadata>,
 }
 
+/// Gets a list of all chats in the database.
+///
+/// Just includes metadata, no messages.
+#[utoipa::path(
+    responses(
+        (status = 200, description = "Got chat list succesfully.", body = GetChatsResponse),
+        (status = 500, description = "Database operation failed.", body = ApiError)
+    )
+)]
 #[get("/")]
 pub fn get_chats(chats: &State<Mutex<Chats>>) -> Result<Json<GetChatsResponse>, ApiError> {
     let chats = chats.lock().unwrap();
@@ -75,6 +91,15 @@ pub fn get_chats(chats: &State<Mutex<Chats>>) -> Result<Json<GetChatsResponse>, 
     Ok(Json(response))
 }
 
+/// Gets a single chat by ID.
+///
+/// Includes chat metadata and all messages.
+#[utoipa::path(
+    responses(
+        (status = 200, description = "Got chat succesfully.", body = Chat),
+        (status = 500, description = "Database operation failed.", body = ApiError)
+    )
+)]
 #[get("/<chat_id>")]
 pub fn get_chat_by_id(chats: &State<Mutex<Chats>>, chat_id: Uuid) -> Result<Json<Chat>, ApiError> {
     let chats = chats.lock().unwrap();
@@ -82,21 +107,30 @@ pub fn get_chat_by_id(chats: &State<Mutex<Chats>>, chat_id: Uuid) -> Result<Json
     chats.get_chat_by_id(chat_id).map(Json).map_err(From::from)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PushMessageRequest<'a> {
     role: Role,
     text: &'a str,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PushMessageResponse {}
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PushMessageResponse;
 
+/// Adds a message on to the end of a chat.
+#[utoipa::path(
+    responses(
+        (status = 200, description = "Message added successfully.", body = PushMessageResponse),
+        (status = 500, description = "Database operation failed.", body = ApiError)
+    )
+)]
 #[post("/<chat_id>/message", data = "<message>")]
 pub fn push_message(
     chats: &State<Mutex<Chats>>,
     chat_id: Uuid,
     message: Json<PushMessageRequest>,
 ) -> Result<Json<PushMessageResponse>, ApiError> {
+    // TODO: Return 201 Created.
+
     let chats = chats.lock().unwrap();
 
     chats
@@ -105,11 +139,19 @@ pub fn push_message(
         .map_err(From::from)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GenerateResponse {
     message: String,
 }
 
+/// Generates an assistant response on the end of a chat.
+#[utoipa::path(
+    responses(
+        (status = 200, description = "Message generated succesfully.", body = GenerateResponse),
+        (status = 500, description = "Database operation failed.", body = ApiError),
+        (status = 502, description = "LLM backend error.", body = ApiError)
+    )
+)]
 #[post("/<chat_id>/generate?<continue>")]
 pub async fn generate(
     chats: &State<Mutex<Chats>>,
