@@ -11,30 +11,22 @@ use crate::{
     data::chat::{self, Chat, ChatMetadata, Chats, Role},
 };
 
-#[derive(Debug, Clone, Responder, ToSchema)]
-pub enum ApiError {
-    #[response(status = 404, content_type = "text")]
-    NotFound(String),
-    #[response(status = 500, content_type = "text")]
-    Database(String),
-    #[response(status = 502, content_type = "text")]
-    Backend(String),
-}
+use super::ApiErrorResponse;
 
-impl From<chat::Error> for ApiError {
+impl From<chat::Error> for ApiErrorResponse {
     fn from(value: chat::Error) -> Self {
         match value {
             chat::Error::ChatNotFound(_)
             | chat::Error::ChatHasNoMessages(_)
-            | chat::Error::MessageNotFound { .. } => ApiError::NotFound(value.to_string()),
-            chat::Error::Database(_) => ApiError::Database(value.to_string()),
+            | chat::Error::MessageNotFound { .. } => ApiErrorResponse::NotFound(value.to_string()),
+            chat::Error::Database(_) => ApiErrorResponse::InternalServerError(value.to_string()),
         }
     }
 }
 
-impl From<anthropic::Error> for ApiError {
+impl From<anthropic::Error> for ApiErrorResponse {
     fn from(value: anthropic::Error) -> Self {
-        ApiError::Backend(value.to_string())
+        ApiErrorResponse::BadGateway(value.to_string())
     }
 }
 
@@ -46,13 +38,13 @@ pub struct ChatApiDoc;
 #[utoipa::path(
     responses(
         (status = 201, description = "Chat created successfully.", body = ChatMetadata),
-        (status = 500, description = "Database operation failed.", body = ApiError)
+        (status = 500, description = "Database operation failed.", body = String)
     )
 )]
 #[post("/")]
 pub fn new_chat(
     chats: &State<Mutex<Chats>>,
-) -> Result<status::Created<Json<ChatMetadata>>, ApiError> {
+) -> Result<status::Created<Json<ChatMetadata>>, ApiErrorResponse> {
     let chats = chats.lock().unwrap();
 
     let new_chat_metadata = chats.new_chat(None)?;
@@ -74,11 +66,11 @@ pub struct GetChatsResponse {
 #[utoipa::path(
     responses(
         (status = 200, description = "Got chat list succesfully.", body = GetChatsResponse),
-        (status = 500, description = "Database operation failed.", body = ApiError)
+        (status = 500, description = "Database operation failed.", body = String)
     )
 )]
 #[get("/")]
-pub fn get_chats(chats: &State<Mutex<Chats>>) -> Result<Json<GetChatsResponse>, ApiError> {
+pub fn get_chats(chats: &State<Mutex<Chats>>) -> Result<Json<GetChatsResponse>, ApiErrorResponse> {
     let chats = chats.lock().unwrap();
 
     let chats_list = chats.list_chats()?;
@@ -97,11 +89,14 @@ pub fn get_chats(chats: &State<Mutex<Chats>>) -> Result<Json<GetChatsResponse>, 
 #[utoipa::path(
     responses(
         (status = 200, description = "Got chat succesfully.", body = Chat),
-        (status = 500, description = "Database operation failed.", body = ApiError)
+        (status = 500, description = "Database operation failed.", body = String)
     )
 )]
 #[get("/<chat_id>")]
-pub fn get_chat_by_id(chats: &State<Mutex<Chats>>, chat_id: Uuid) -> Result<Json<Chat>, ApiError> {
+pub fn get_chat_by_id(
+    chats: &State<Mutex<Chats>>,
+    chat_id: Uuid,
+) -> Result<Json<Chat>, ApiErrorResponse> {
     let chats = chats.lock().unwrap();
 
     chats.get_chat_by_id(chat_id).map(Json).map_err(From::from)
@@ -120,7 +115,7 @@ pub struct PushMessageResponse;
 #[utoipa::path(
     responses(
         (status = 200, description = "Message added successfully.", body = PushMessageResponse),
-        (status = 500, description = "Database operation failed.", body = ApiError)
+        (status = 500, description = "Database operation failed.", body = String)
     )
 )]
 #[post("/<chat_id>/message", data = "<message>")]
@@ -128,7 +123,7 @@ pub fn push_message(
     chats: &State<Mutex<Chats>>,
     chat_id: Uuid,
     message: Json<PushMessageRequest>,
-) -> Result<Json<PushMessageResponse>, ApiError> {
+) -> Result<Json<PushMessageResponse>, ApiErrorResponse> {
     // TODO: Return 201 Created.
 
     let chats = chats.lock().unwrap();
@@ -148,17 +143,20 @@ pub struct GenerateResponse {
 #[utoipa::path(
     responses(
         (status = 200, description = "Message generated succesfully.", body = GenerateResponse),
-        (status = 500, description = "Database operation failed.", body = ApiError),
-        (status = 502, description = "LLM backend error.", body = ApiError)
+        (status = 500, description = "Database operation failed.", body = String),
+        (status = 502, description = "LLM backend error.", body = String)
+    ),
+    params(
+        ("continue_last_message", Query, description = "Whether to continue the last assistant message")
     )
 )]
-#[post("/<chat_id>/generate?<continue>")]
+#[post("/<chat_id>/generate?<continue_last_message>")]
 pub async fn generate(
     chats: &State<Mutex<Chats>>,
     anthropic_api: &State<AnthropicApi>,
     chat_id: Uuid,
-    r#continue: bool,
-) -> Result<Json<GenerateResponse>, ApiError> {
+    continue_last_message: bool,
+) -> Result<Json<GenerateResponse>, ApiErrorResponse> {
     let chat = {
         let chats = chats.lock().unwrap();
         chats.get_chat_by_id(chat_id)?
@@ -173,7 +171,8 @@ pub async fn generate(
     {
         let chats = chats.lock().unwrap();
 
-        if r#continue {
+        if continue_last_message {
+            // Some backends won't allow continuing a user message, but some will and we want to support it.
             let mut combined_message = chats.get_message(chat_id, None)?.text;
             combined_message.push_str(&new_message);
             chats.update_message(chat_id, None, &combined_message)?;
