@@ -29,7 +29,7 @@
 - navigating away from the tab or browser on my phone closes connections - if the backend was fully responsible for things and the UI could always be restored to the current state, that would help a lot.
 
 ## Features
-- Seeing raw LLM input before it is sent, possibly live
+- Seeing raw LLM input before it is sent, live - useful for things like seeing what the summary is and making sure it is in there
 - Templating
 	- probably Handlebars, which is what ST uses
 	- There is also Vento by the creator of Lume: https://vento.js.org
