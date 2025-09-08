@@ -3,8 +3,6 @@ module Md = {
   external make: (~children: string) => React.element = "Md"
 }
 
-let markdownStylingRules = "space-y-4 [&_ul]:list-disc [&_ol]:list-decimal [&_li]:ml-6"
-
 @react.component
 let make = (~selectedChatId: option<string>) => {
   let (chat, setChat) = React.useState(_ => None)
@@ -120,6 +118,7 @@ let make = (~selectedChatId: option<string>) => {
                 | User => "justify-end"
                 | Assistant => "justify-start"
                 }
+                let markdownStylingRules = "space-y-4 [&_ul]:list-disc [&_ol]:list-decimal [&_li]:ml-6"
 
                 <div key={index->Int.toString} className={`flex ${messageJustify}`}>
                   <div
