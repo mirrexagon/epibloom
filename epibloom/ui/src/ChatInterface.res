@@ -1,5 +1,5 @@
 module Md = {
-  @module("@m2d/react-markdown/client") @react.component
+  @module("@m2d/react-markdown") @react.component
   external make: (~children: string) => React.element = "Md"
 }
 
@@ -110,14 +110,17 @@ let make = (~selectedChatId: option<string>) => {
             {if chatData.messages->Array.length > 0 {
               chatData.messages
               ->Array.mapWithIndex((message, index) => {
-                let isUser = message.role == User
-                <div
-                  key={index->Int.toString}
-                  className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-                  <div
-                    className={`max-w-[80%] p-3 rounded-lg ${isUser
-                        ? "bg-blue-600 text-white"
-                        : "bg-gray-700 text-white"}`}>
+                let messageColor = switch message.role {
+                | User => "bg-blue-600 text-white"
+                | Assistant => "bg-gray-700 text-white"
+                }
+                let messageJustify = switch message.role {
+                | User => "justify-end"
+                | Assistant => "justify-start"
+                }
+
+                <div key={index->Int.toString} className={`flex ${messageJustify}`}>
+                  <div className={`max-w-[80%] p-3 rounded-lg ${messageColor}`}>
                     <Md> message.text </Md>
                   </div>
                 </div>
@@ -149,7 +152,7 @@ let make = (~selectedChatId: option<string>) => {
           onChange={e => setInputValue(ReactEvent.Form.target(e)["value"])}
           disabled={selectedChatId->Option.isNone}
         />
-        <Button type_="submit" className="ml-2" disabled={selectedChatId->Option.isNone}>
+        <Button type_="submit" className="" disabled={selectedChatId->Option.isNone}>
           {React.string("Send")}
         </Button>
       </div>
