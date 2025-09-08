@@ -196,7 +196,7 @@ mod request {
     }
 
     impl Request {
-        pub fn new(config: &super::super::Config, chat: &data::chat::Chat) -> Self {
+        pub fn new(config: &super::super::Config, chat: &data::RenderedChat) -> Self {
             Self {
                 max_tokens: config.max_tokens,
                 messages: chat.messages.iter().map(From::from).collect(),
@@ -366,7 +366,7 @@ mod response {
 pub async fn generate(
     client: &reqwest::Client,
     config: &super::Config,
-    chat: &data::chat::Chat,
+    chat: &data::RenderedChat,
 ) -> super::Result<String> {
     let url = format!("{ANTHROPIC_API_URL_BASE}/messages");
 
@@ -407,7 +407,7 @@ pub async fn generate(
 /*
 pub async fn generate_stream(
     client: &reqwest::Client,
-    chat: &data::chat::Chat,
+    chat: &data::RenderedChat,
 ) -> super::Result<String> {
     let url = format!("{ANTHROPIC_API_URL_BASE}/messages");
 

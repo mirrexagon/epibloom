@@ -21,7 +21,7 @@ pub trait Backend {
     async fn generate(
         &self,
         config: &Self::Config,
-        chat: &data::chat::Chat,
+        chat: &data::RenderedChat,
     ) -> Result<String, Self::Error>;
 }
 

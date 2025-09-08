@@ -92,7 +92,7 @@ impl super::Backend for AnthropicApi {
     async fn generate(
         &self,
         config: &Self::Config,
-        chat: &data::chat::Chat,
+        chat: &data::RenderedChat,
     ) -> std::result::Result<String, Self::Error> {
         messages::generate(&self.client, config, chat).await
     }

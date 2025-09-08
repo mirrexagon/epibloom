@@ -18,9 +18,9 @@ use data::chat::Chats;
 
 const DATABASE_FILENAME: &str = "epibloom.db";
 
-// TODO: Each backend has functions that take a Chat and send it to the backend
+// TODO: Each backend has functions that take a RenderedChat and send it to the backend
 // and return the response message.
-// System prompt in Chat should be separate, like Anthropic API, not a message
+// System prompt in RenderedChat should be separate, like Anthropic API, not a message
 // in the chat.
 // How would this interact with lorebooks and other injections? Probably
 // post-processed chat that includes relevant lorebook info.

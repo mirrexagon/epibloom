@@ -6,9 +6,14 @@ use utoipa::{IntoParams, OpenApi, ToSchema};
 use uuid::Uuid;
 
 use crate::{
-    backends::anthropic::{self, AnthropicApi},
-    backends::Backend,
-    data::chat::{self, Chat, ChatMetadata, Chats, Role},
+    backends::{
+        anthropic::{self, AnthropicApi},
+        Backend,
+    },
+    data::{
+        chat::{self, Chat, ChatMetadata, Chats, Role},
+        RenderedChat,
+    },
 };
 
 use super::ApiErrorResponse;
@@ -159,7 +164,8 @@ pub async fn generate(
 ) -> Result<Json<GenerateResponse>, ApiErrorResponse> {
     let chat = {
         let chats = chats.lock().unwrap();
-        chats.get_chat_by_id(chat_id)?
+        let chat = chats.get_chat_by_id(chat_id)?;
+        RenderedChat::from_chat(&chat)
     };
 
     // TODO: Let client decide this, probably by choosing stored config values
