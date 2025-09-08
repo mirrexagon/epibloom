@@ -36,7 +36,7 @@ impl From<anthropic::Error> for ApiErrorResponse {
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(new_chat, get_chats, get_chat_by_id, push_message, generate))]
+#[openapi(paths(new_chat, get_chats, get_chat_by_id, get_rendered_chat_by_id, push_message, generate))]
 pub struct ChatApiDoc;
 
 /// Creates a new chat.
@@ -105,6 +105,28 @@ pub fn get_chat_by_id(
     let chats = chats.lock().unwrap();
 
     chats.get_chat_by_id(chat_id).map(Json).map_err(From::from)
+}
+
+/// Gets a rendered chat by ID.
+///
+/// Returns the chat in the simplified RenderedChat format used by the backend.
+#[utoipa::path(
+    responses(
+        (status = 200, description = "Got rendered chat successfully.", body = RenderedChat),
+        (status = 500, description = "Database operation failed.", body = String)
+    )
+)]
+#[get("/<chat_id>/rendered")]
+pub fn get_rendered_chat_by_id(
+    chats: &State<Mutex<Chats>>,
+    chat_id: Uuid,
+) -> Result<Json<RenderedChat>, ApiErrorResponse> {
+    let chats = chats.lock().unwrap();
+
+    let chat = chats.get_chat_by_id(chat_id)?;
+    let rendered_chat = RenderedChat::from_chat(&chat);
+    
+    Ok(Json(rendered_chat))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

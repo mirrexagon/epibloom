@@ -93,6 +93,7 @@ fn rocket() -> _ {
             routes![
                 api::chat::get_chats,
                 api::chat::get_chat_by_id,
+                api::chat::get_rendered_chat_by_id,
                 api::chat::new_chat,
                 api::chat::push_message,
                 api::chat::generate,

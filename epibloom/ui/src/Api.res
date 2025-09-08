@@ -24,6 +24,10 @@ type chat = {
   messages: array<chatMessage>,
 }
 
+type renderedChat = {
+  messages: array<chatMessage>,
+}
+
 type chatsResponse = {chats: array<chatMetadata>}
 
 let fetchChats = async (): result<array<chatMetadata>, string> => {
@@ -114,6 +118,41 @@ let postMessage = async (chatId: string, role: role, text: string): result<unit,
     Ok()
   } catch {
   | _ => Error("Failed to post message")
+  }
+}
+
+let fetchRenderedChat = async (chatId: string): result<renderedChat, string> => {
+  try {
+    let response = await Fetch.get(`/api/chat/${chatId}/rendered`)
+    let jsonData = await response->Fetch.Response.json
+    let chatObj = jsonData->JSON.Decode.object->Option.getExn
+    let messagesData =
+      chatObj->Dict.get("messages")->Option.flatMap(JSON.Decode.array)->Option.getExn
+
+    let messages = messagesData->Array.map(msgJson => {
+      let msgObj = msgJson->JSON.Decode.object->Option.getExn
+
+      let roleString = msgObj->Dict.get("role")->Option.flatMap(JSON.Decode.string)->Option.getExn
+      let role = switch roleString {
+      | "user" => User
+      | "assistant" => Assistant
+      | _ => raise(Failure(`Invalid role for message: ${roleString}`))
+      }
+
+      {
+        role,
+        text: msgObj->Dict.get("text")->Option.flatMap(JSON.Decode.string)->Option.getExn,
+        created: msgObj->Dict.get("created")->Option.flatMap(JSON.Decode.string)->Option.getExn,
+        modified: msgObj->Dict.get("modified")->Option.flatMap(JSON.Decode.string)->Option.getExn,
+      }
+    })
+
+    let renderedChat = {
+      messages,
+    }
+    Ok(renderedChat)
+  } catch {
+  | _ => Error("Failed to fetch rendered chat")
   }
 }
 

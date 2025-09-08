@@ -46,7 +46,7 @@ impl fmt::Display for Role {
             Role::User => "user",
         };
 
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
@@ -66,7 +66,7 @@ impl Message {
         let role = match role.as_str() {
             "assistant" => Role::Assistant,
             "user" => Role::User,
-            r => panic!("Unknown role in database: {}", r),
+            r => panic!("Unknown role in database: {r}"),
         };
 
         let text = row.get("text")?;

@@ -1,5 +1,9 @@
 pub mod chat;
 
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RenderedChat {
     pub messages: Vec<chat::Message>,
 }

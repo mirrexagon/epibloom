@@ -11,5 +11,6 @@ let make = () => {
       </div>
       <ChatInterface selectedChatId />
     </div>
+    <RenderedChatView selectedChatId />
   </div>
 }
