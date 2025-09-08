@@ -8,18 +8,19 @@
 ## Problems with SillyTavern
 - Story string often mixes system prompt and other things
 - Can't control summary/example message injection well, arbitrary injection would be nice - want to keep neat Markdown format
-	-  Settings for introduction of examples are not in a preset (eg. with story string), not much control over how examples are sent (setting for whether to mark up with start/end sequences is part of one of the presets but didn't seem super coherent with that category)
-	- Summary template item from summary extension doesn't work correctly with the story string (if statement doesn't see it, but text still gets inserted?)
+    -  Settings for introduction of examples are not in a preset (eg. with story string), not much control over how examples are sent (setting for whether to mark up with start/end sequences is part of one of the presets but didn't seem super coherent with that category)
+    - Summary template item from summary extension doesn't work correctly with the story string (if statement doesn't see it, but text still gets inserted?)
 - Writing JSON arrays etc. for eg. DRY sequence breakers, with no syntax highlighting
 - Some settings that should cross domains are tricky to manage, they end up in just one, eg.
-	- DRY sequence breakers, you probably want the special prompt format tokens in there automatically from the definition of the prompt format
-	- Prompt format gets weirdly split across story string and instruct template
-		- though perhaps the instruct template has system prompt markers, but does that only apply for the system prompt and not the entire story string?
-	- When I have a setup such as the Wayfarer adventure, it's annoying to switch between prompt formats - as far as I know, I need to adjust the story string so that the entire story string is wrapped in the system prompt tags
+    - DRY sequence breakers, you probably want the special prompt format tokens in there automatically from the definition of the prompt format
+    - Prompt format gets weirdly split across story string and instruct template
+        - though perhaps the instruct template has system prompt markers, but does that only apply for the system prompt and not the entire story string?
+    - When I have a setup such as the Wayfarer adventure, it's annoying to switch between prompt formats - as far as I know, I need to adjust the story string so that the entire story string is wrapped in the system prompt tags
 - No syntax highlighting for eg. Jinja2 constructs
 - In prompts, I want newlines between my Markdown headers and their bodies on both sides, and having an optional section is a bit tricky to get that right
 - Persona locking to chats is awkward, I would like a persona field per chat to tailor it for each card - though now in ST personas can be linked to characters
-	- Would be nice to have separate persona name and in-chat name, so I can categorize like "Mirage for Inos" and the in-chat name is still "Mirage"
+    - Would be nice to have separate persona name and in-chat name, so I can categorize like "Mirage for Inos" and the in-chat name is still "Mirage"
+        - Persona display names have since been implemented in ST
 - When using System Prompt -> Miscellaneous -> Start Reply With, this gets applied to Chat Completion models even though the rest of the section isn't used
 - It's unclear to me how summary is injected in Chat Completion prompt manager mode. With Pixijb, it is near the start, before most things.
 - No progress or task completion indications when doing things like generating a prompt for image generation, or image generation itself
@@ -31,23 +32,23 @@
 ## Features
 - Seeing raw LLM input before it is sent, live - useful for things like seeing what the summary is and making sure it is in there
 - Templating
-	- probably Handlebars, which is what ST uses
-	- There is also Vento by the creator of Lume: https://vento.js.org
-	- Or, don't use traditional templating for overall response building, build in order based on roles like chat completion, including for system prompt, etc.
-	- Use Lua, see somewhere below
+    - probably Handlebars, which is what ST uses
+    - There is also Vento by the creator of Lume: https://vento.js.org
+    - Or, don't use traditional templating for overall response building, build in order based on roles like chat completion, including for system prompt, etc.
+    - Use Lua, see somewhere below
 - Chat interface and flat interface - probably can't mix both but having both is nice, and converting from chat to flat might be good
 - Swipes
 - Separating reasoning from main part
 - Multiple system prompt parts, eg. like for https://github.com/p-e-w/sorcery
 - World info is good, possibly more control over newlines for Markdown formatting, etc.
 - Markdown features
-	- Structured document that gets turned into Markdown with nice formatting? Aware of header depth, world info can be nested correctly, etc.?
+    - Structured document that gets turned into Markdown with nice formatting? Aware of header depth, world info can be nested correctly, etc.?
 - Lots of syntax highlighting, eg.
-	- Templating language, highlighting `{{char}}` and so on
-	- In final LLM input preview, highlight which sections come from what, eg. system prompt, chat, world info
+    - Templating language, highlighting `{{char}}` and so on
+    - In final LLM input preview, highlight which sections come from what, eg. system prompt, chat, world info
 - NovelAI-style edit and author tracking?
 - Load prompt format stuff based on model detected on API (by name or metadata)? Can ST do this somehow?
-	- Maybe associate lots of things with the specific chat?
+    - Maybe associate lots of things with the specific chat?
 - Chat completion as well as text completion
 - Seeing logits/token probabilities for each token, see top few tokens, how sampler selected (if possible)
 - Binding template, prompt format, sampler settings, etc. to a chat, character, tagged in some way, etc.

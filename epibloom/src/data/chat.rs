@@ -18,10 +18,13 @@ use crate::util;
 pub enum Error {
     #[error("chat not found: {0}")]
     ChatNotFound(Uuid),
+
     #[error("chat {0} has no messages")]
     ChatHasNoMessages(Uuid),
+
     #[error("message not found: chat {chat_id}, message position {position}")]
     MessageNotFound { chat_id: Uuid, position: usize },
+
     #[error("database error: {0}")]
     Database(#[from] rusqlite::Error),
 }
@@ -110,6 +113,7 @@ impl ChatMetadata {
 pub struct Chat {
     #[serde(flatten)]
     pub metadata: ChatMetadata,
+
     pub messages: Vec<Message>,
 }
 
