@@ -23,13 +23,13 @@ let make = (~selectedChatId: option<string>, ~onChatSelect: string => unit) => {
     None
   }, [])
 
-  <div className="w-64 bg-gray-50 border-r border-gray-200 p-4">
-    <h2 className="text-lg font-semibold mb-4"> {React.string("Chats")} </h2>
+  <div className="w-64 bg-gray-800 border-r border-gray-700 p-4">
+    <h2 className="text-lg font-semibold mb-4 text-white"> {React.string("Chats")} </h2>
     {loading
-      ? <div className="text-gray-500"> {React.string("Loading...")} </div>
+      ? <div className="text-gray-400"> {React.string("Loading...")} </div>
       : switch error {
         | Some(errorMsg) =>
-          <div className="text-red-500"> {React.string(`Error: ${errorMsg}`)} </div>
+          <div className="text-red-400"> {React.string(`Error: ${errorMsg}`)} </div>
         | None =>
           <div className="space-y-2">
             {chats
@@ -38,11 +38,11 @@ let make = (~selectedChatId: option<string>, ~onChatSelect: string => unit) => {
               <div
                 key={chat.id}
                 className={`p-3 rounded-lg border cursor-pointer transition-colors ${isSelected
-                    ? "bg-blue-100 border-blue-300"
-                    : "bg-white border-gray-200 hover:bg-gray-50"}`}
+                    ? "bg-blue-900 border-blue-600"
+                    : "bg-gray-700 border-gray-600 hover:bg-gray-600"}`}
                 onClick={_ => onChatSelect(chat.id)}>
-                <div className="font-medium text-sm truncate"> {React.string(chat.name)} </div>
-                <div className="text-xs text-gray-500"> {React.string(chat.created)} </div>
+                <div className="font-medium text-sm truncate text-white"> {React.string(chat.name)} </div>
+                <div className="text-xs text-gray-400"> {React.string(chat.created)} </div>
               </div>
             })
             ->React.array}

@@ -80,20 +80,20 @@ let make = (~selectedChatId: option<string>) => {
     }
   }
 
-  <div className="flex flex-col h-[600px] border border-gray-300 rounded-md overflow-hidden">
+  <div className="flex flex-col h-[600px] border border-gray-600 rounded-md overflow-hidden bg-gray-800">
     // Chat history
-    <div className="flex-1 p-4 overflow-y-auto">
+    <div className="flex-1 p-4 overflow-y-auto bg-gray-800">
       {switch (selectedChatId, chat, loading, error) {
       | (None, _, _, _) =>
-        <div className="flex items-center justify-center h-full text-gray-500">
+        <div className="flex items-center justify-center h-full text-gray-400">
           {React.string("Select a chat to view messages")}
         </div>
 
       | (Some(_), _, true, _) =>
-        <div className="flex items-center justify-center h-full text-gray-500" />
+        <div className="flex items-center justify-center h-full text-gray-400" />
 
       | (Some(_), _, false, Some(errorMsg)) =>
-        <div className="flex items-center justify-center h-full text-red-500">
+        <div className="flex items-center justify-center h-full text-red-400">
           {React.string(`Error: ${errorMsg}`)}
         </div>
 
@@ -109,30 +109,30 @@ let make = (~selectedChatId: option<string>) => {
                 <div
                   className={`max-w-[80%] p-3 rounded-lg ${isUser
                       ? "bg-blue-600 text-white"
-                      : "bg-gray-200 text-gray-800"}`}>
+                      : "bg-gray-700 text-white"}`}>
                   {React.string(message.text)}
                 </div>
               </div>
             })
             ->React.array
           } else {
-            <div className="flex items-center justify-center h-full text-gray-500">
+            <div className="flex items-center justify-center h-full text-gray-400">
               {React.string("No messages")}
             </div>
           }}
         </div>
       | _ =>
-        <div className="flex items-center justify-center h-full text-red-500">
+        <div className="flex items-center justify-center h-full text-red-400">
           {React.string("Unknown error")}
         </div>
       }}
     </div>
     // Input area
-    <form onSubmit={handleSubmit} className="border-t border-gray-300 p-3">
+    <form onSubmit={handleSubmit} className="border-t border-gray-600 p-3 bg-gray-800">
       <div className="flex items-center">
         <input
           type_="text"
-          className="flex-1 p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="flex-1 p-2 border border-gray-600 rounded-md bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           placeholder={selectedChatId->Option.isSome
             ? "Type a message..."
             : "Select a chat to start messaging"}
