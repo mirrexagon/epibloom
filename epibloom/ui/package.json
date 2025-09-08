@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@glennsl/rescript-fetch": "^0.2.3",
+    "@m2d/react-markdown": "^1.0.0",
     "@rescript/core": "^1.6.1",
     "@rescript/react": "^0.12.1",
     "react": "^18.2.0",

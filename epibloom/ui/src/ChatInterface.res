@@ -1,3 +1,8 @@
+module Md = {
+    @module("@m2d/react-markdown/client") @react.component
+    external make: (~children: string) => React.element = "Md"
+}
+
 @react.component
 let make = (~selectedChatId: option<string>) => {
   let (chat, setChat) = React.useState(_ => None)
@@ -110,7 +115,9 @@ let make = (~selectedChatId: option<string>) => {
                   className={`max-w-[80%] p-3 rounded-lg ${isUser
                       ? "bg-blue-600 text-white"
                       : "bg-gray-700 text-white"}`}>
-                  {React.string(message.text)}
+                  <Md>
+                      message.text
+                  </Md>
                 </div>
               </div>
             })
@@ -127,6 +134,7 @@ let make = (~selectedChatId: option<string>) => {
         </div>
       }}
     </div>
+
     // Input area
     <form onSubmit={handleSubmit} className="border-t border-gray-600 p-3 bg-gray-800">
       <div className="flex items-center">
