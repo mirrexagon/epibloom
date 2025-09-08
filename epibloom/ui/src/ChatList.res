@@ -41,7 +41,9 @@ let make = (~selectedChatId: option<string>, ~onChatSelect: string => unit) => {
                     ? "bg-blue-900 border-blue-600"
                     : "bg-gray-700 border-gray-600 hover:bg-gray-600"}`}
                 onClick={_ => onChatSelect(chat.id)}>
-                <div className="font-medium text-sm truncate text-white"> {React.string(chat.name)} </div>
+                <div className="font-medium text-sm truncate text-white">
+                  {React.string(chat.name)}
+                </div>
                 <div className="text-xs text-gray-400"> {React.string(chat.created)} </div>
               </div>
             })

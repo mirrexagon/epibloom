@@ -1,6 +1,6 @@
 module Md = {
-    @module("@m2d/react-markdown/client") @react.component
-    external make: (~children: string) => React.element = "Md"
+  @module("@m2d/react-markdown/client") @react.component
+  external make: (~children: string) => React.element = "Md"
 }
 
 @react.component
@@ -85,7 +85,8 @@ let make = (~selectedChatId: option<string>) => {
     }
   }
 
-  <div className="flex flex-col h-[600px] border border-gray-600 rounded-md overflow-hidden bg-gray-800">
+  <div
+    className="flex flex-col h-[600px] border border-gray-600 rounded-md overflow-hidden bg-gray-800">
     // Chat history
     <div className="flex-1 p-4 overflow-y-auto bg-gray-800">
       {switch (selectedChatId, chat, loading, error) {
@@ -103,34 +104,31 @@ let make = (~selectedChatId: option<string>) => {
         </div>
 
       | (Some(chatId), Some(chatData), false, None) =>
-          <>
-        <div className="text-xs text-gray-500 font-mono">{React.string(chatId)}</div>
-
-        <div className="space-y-4">
-          {if chatData.messages->Array.length > 0 {
-            chatData.messages
-            ->Array.mapWithIndex((message, index) => {
-              let isUser = message.role == User
-              <div
-                key={index->Int.toString}
-                className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+        <>
+          <div className="text-xs text-gray-500 font-mono"> {React.string(chatId)} </div>
+          <div className="space-y-4">
+            {if chatData.messages->Array.length > 0 {
+              chatData.messages
+              ->Array.mapWithIndex((message, index) => {
+                let isUser = message.role == User
                 <div
-                  className={`max-w-[80%] p-3 rounded-lg ${isUser
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-700 text-white"}`}>
-                  <Md>
-                      message.text
-                  </Md>
+                  key={index->Int.toString}
+                  className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+                  <div
+                    className={`max-w-[80%] p-3 rounded-lg ${isUser
+                        ? "bg-blue-600 text-white"
+                        : "bg-gray-700 text-white"}`}>
+                    <Md> message.text </Md>
+                  </div>
                 </div>
+              })
+              ->React.array
+            } else {
+              <div className="flex items-center justify-center h-full text-gray-400">
+                {React.string("No messages")}
               </div>
-            })
-            ->React.array
-          } else {
-            <div className="flex items-center justify-center h-full text-gray-400">
-              {React.string("No messages")}
-            </div>
-          }}
-        </div>
+            }}
+          </div>
         </>
       | _ =>
         <div className="flex items-center justify-center h-full text-red-400">
@@ -138,7 +136,6 @@ let make = (~selectedChatId: option<string>) => {
         </div>
       }}
     </div>
-
     // Input area
     <form onSubmit={handleSubmit} className="border-t border-gray-600 p-3 bg-gray-800">
       <div className="flex items-center">
@@ -157,6 +154,5 @@ let make = (~selectedChatId: option<string>) => {
         </Button>
       </div>
     </form>
-
   </div>
 }
