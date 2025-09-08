@@ -102,7 +102,10 @@ let make = (~selectedChatId: option<string>) => {
           {React.string(`Error: ${errorMsg}`)}
         </div>
 
-      | (Some(_), Some(chatData), false, None) =>
+      | (Some(chatId), Some(chatData), false, None) =>
+          <>
+        <div className="text-xs text-gray-500 font-mono">{React.string(chatId)}</div>
+
         <div className="space-y-4">
           {if chatData.messages->Array.length > 0 {
             chatData.messages
@@ -128,6 +131,7 @@ let make = (~selectedChatId: option<string>) => {
             </div>
           }}
         </div>
+        </>
       | _ =>
         <div className="flex items-center justify-center h-full text-red-400">
           {React.string("Unknown error")}
@@ -153,5 +157,6 @@ let make = (~selectedChatId: option<string>) => {
         </Button>
       </div>
     </form>
+
   </div>
 }
