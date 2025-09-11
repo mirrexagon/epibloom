@@ -24,9 +24,7 @@ type chat = {
   messages: array<chatMessage>,
 }
 
-type renderedChat = {
-  messages: array<chatMessage>,
-}
+type renderedChat = {messages: array<chatMessage>}
 
 type chatsResponse = {chats: array<chatMetadata>}
 
@@ -34,10 +32,12 @@ let fetchChats = async (): result<array<chatMetadata>, string> => {
   try {
     let response = await Fetch.get("/api/chat")
     let jsonData = await response->Fetch.Response.json
+
     let chatsData =
       jsonData
       ->JSON.Decode.object
-      ->Option.flatMap(obj => obj->Dict.get("chats")->Option.flatMap(JSON.Decode.array))
+      ->Option.flatMap(obj => obj->Dict.get("chats"))
+      ->Option.flatMap(JSON.Decode.array)
 
     switch chatsData {
     | Some(chatsArray) =>
@@ -148,7 +148,7 @@ let fetchRenderedChat = async (chatId: string): result<renderedChat, string> => 
     })
 
     let renderedChat = {
-      messages,
+      messages: messages,
     }
     Ok(renderedChat)
   } catch {
