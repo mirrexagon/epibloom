@@ -8,6 +8,7 @@ use uuid::Uuid;
 use crate::{
     backends::{
         anthropic::{self, AnthropicApi},
+        featherless::{self, FeatherlessApi},
         Backend,
     },
     data::{
@@ -35,8 +36,14 @@ impl From<anthropic::Error> for ApiErrorResponse {
     }
 }
 
+impl From<featherless::Error> for ApiErrorResponse {
+    fn from(value: featherless::Error) -> Self {
+        ApiErrorResponse::BadGateway(value.to_string())
+    }
+}
+
 #[derive(OpenApi)]
-#[openapi(paths(new_chat, get_chats, get_chat_by_id, get_rendered_chat_by_id, push_message, generate))]
+#[openapi(paths(new_chat, get_chats, get_chat_by_id, get_rendered_chat_by_id, push_message, generate, generate_featherless))]
 pub struct ChatApiDoc;
 
 /// Creates a new chat.
@@ -195,6 +202,54 @@ pub async fn generate(
 
     // TODO for continue: Anthropic API returned error 'invalid_request_error': messages: final assistant content cannot end with trailing whitespace
     let mut new_message = anthropic_api.generate(&anthropic_config, &chat).await?;
+
+    {
+        let chats = chats.lock().unwrap();
+
+        if continue_last_message {
+            // Some backends won't allow continuing a user message, but some will and we want to support it.
+            let mut combined_message = chats.get_message(chat_id, None)?.text;
+            combined_message.push_str(&new_message);
+            chats.update_message(chat_id, None, &combined_message)?;
+            new_message = combined_message;
+        } else {
+            chats.push_message(chat_id, Role::Assistant, &new_message)?;
+        }
+    }
+
+    Ok(Json(GenerateResponse {
+        message: new_message,
+    }))
+}
+
+/// Generates an assistant response on the end of a chat using Featherless.
+#[utoipa::path(
+    responses(
+        (status = 200, description = "Message generated succesfully.", body = GenerateResponse),
+        (status = 500, description = "Database operation failed.", body = String),
+        (status = 502, description = "LLM backend error.", body = String)
+    ),
+    params(
+        ("continue_last_message", Query, description = "Whether to continue the last assistant message")
+    )
+)]
+#[post("/<chat_id>/generate-featherless?<continue_last_message>")]
+pub async fn generate_featherless(
+    chats: &State<Mutex<Chats>>,
+    featherless_api: &State<FeatherlessApi>,
+    chat_id: Uuid,
+    continue_last_message: bool,
+) -> Result<Json<GenerateResponse>, ApiErrorResponse> {
+    let chat = {
+        let chats = chats.lock().unwrap();
+        let chat = chats.get_chat_by_id(chat_id)?;
+        RenderedChat::from_chat(&chat)
+    };
+
+    // TODO: Let client decide this, probably by choosing stored config values
+    let featherless_config = featherless::Config::default();
+
+    let mut new_message = featherless_api.generate(&featherless_config, &chat).await?;
 
     {
         let chats = chats.lock().unwrap();

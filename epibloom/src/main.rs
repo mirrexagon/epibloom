@@ -14,6 +14,7 @@ use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
 use backends::anthropic::AnthropicApi;
+use backends::featherless::FeatherlessApi;
 use data::chat::Chats;
 
 const DATABASE_FILENAME: &str = "epibloom.db";
@@ -69,6 +70,7 @@ fn rocket() -> _ {
     };
 
     let anthropic_api: AnthropicApi = AnthropicApi::new_with_key_from_env().unwrap();
+    let featherless_api: FeatherlessApi = FeatherlessApi::new_with_key_from_env().unwrap();
 
     #[derive(OpenApi)]
     #[openapi(
@@ -84,6 +86,7 @@ fn rocket() -> _ {
     rocket::build()
         .manage(chats)
         .manage(anthropic_api)
+        .manage(featherless_api)
         .mount(
             "/",
             SwaggerUi::new("/swagger-ui/<_..>").url("/api-docs/openapi.json", ApiDoc::openapi()),
@@ -97,6 +100,7 @@ fn rocket() -> _ {
                 api::chat::new_chat,
                 api::chat::push_message,
                 api::chat::generate,
+                api::chat::generate_featherless,
             ],
         )
 }

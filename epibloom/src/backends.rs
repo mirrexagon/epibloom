@@ -5,6 +5,7 @@
 //! the configuration UI for that backend.
 
 pub mod anthropic;
+pub mod featherless;
 
 use schemars::{schema::RootSchema, schema_for, JsonSchema};
 
