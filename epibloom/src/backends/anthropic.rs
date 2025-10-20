@@ -3,10 +3,10 @@ mod models;
 
 use std::env;
 
-use schemars::{schema::RootSchema, schema_for, JsonSchema};
+use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::data;
+use crate::backends;
 
 // https://docs.anthropic.com/en/api/versioning
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
@@ -92,7 +92,7 @@ impl super::Backend for AnthropicApi {
     async fn generate(
         &self,
         config: &Self::Config,
-        chat: &data::RenderedChat,
+        chat: &backends::Chat,
     ) -> std::result::Result<String, Self::Error> {
         messages::generate(&self.client, config, chat).await
     }

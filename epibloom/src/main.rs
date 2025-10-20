@@ -3,20 +3,16 @@ extern crate rocket;
 
 mod api;
 mod backends;
-mod data;
 mod util;
 
-use std::{fs, path::PathBuf, sync::Mutex};
+use std::{fs, path::PathBuf};
 
 use etcetera::{choose_app_strategy, AppStrategy, AppStrategyArgs};
-use rusqlite::Connection;
-use utoipa::{OpenApi, ToSchema};
+use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use backends::anthropic::AnthropicApi;
 use backends::featherless::FeatherlessApi;
-use data::chat::Chats;
-
 const DATABASE_FILENAME: &str = "epibloom.db";
 
 // TODO: Each backend has functions that take a RenderedChat and send it to the backend
@@ -63,28 +59,21 @@ fn rocket() -> _ {
     db_path.push(&data_dir);
     db_path.push(DATABASE_FILENAME);
 
-    let chats = {
-        let db_conn = Connection::open(db_path.as_path()).unwrap();
-        let chats = Chats::new(db_conn).unwrap();
-        Mutex::new(chats)
-    };
-
     let anthropic_api: AnthropicApi = AnthropicApi::new_with_key_from_env().unwrap();
     let featherless_api: FeatherlessApi = FeatherlessApi::new_with_key_from_env().unwrap();
 
     #[derive(OpenApi)]
     #[openapi(
         nest(
-            (path = "/api/chat", api = api::chat::ChatApiDoc)
+            (path = "/api/backend-proxy", api = api::backend_proxy::BackendProxyApiDoc)
         ),
         tags(
-            (name = "chat", description = "Chat management and interaction.")
+            (name = "backend-proxy", description = "Simple proxy to the LLM backends.")
         )
     )]
     struct ApiDoc;
 
     rocket::build()
-        .manage(chats)
         .manage(anthropic_api)
         .manage(featherless_api)
         .mount(
@@ -92,15 +81,10 @@ fn rocket() -> _ {
             SwaggerUi::new("/swagger-ui/<_..>").url("/api-docs/openapi.json", ApiDoc::openapi()),
         )
         .mount(
-            "/api/chat",
+            "/api/backend-proxy",
             routes![
-                api::chat::get_chats,
-                api::chat::get_chat_by_id,
-                api::chat::get_rendered_chat_by_id,
-                api::chat::new_chat,
-                api::chat::push_message,
-                api::chat::generate,
-                api::chat::generate_featherless,
+                api::backend_proxy::generate_claude,
+                api::backend_proxy::generate_featherless,
             ],
         )
 }

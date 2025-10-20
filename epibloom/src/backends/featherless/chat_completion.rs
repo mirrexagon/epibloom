@@ -4,21 +4,23 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use super::FEATHERLESS_API_URL_BASE;
-use crate::data;
+
+use crate::backends;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum Role {
+    System,
     Assistant,
     User,
-    System,
 }
 
-impl From<data::chat::Role> for Role {
-    fn from(value: data::chat::Role) -> Self {
+impl From<backends::Role> for Role {
+    fn from(value: backends::Role) -> Self {
         match value {
-            data::chat::Role::Assistant => Role::Assistant,
-            data::chat::Role::User => Role::User,
+            backends::Role::System => Role::System,
+            backends::Role::Assistant => Role::Assistant,
+            backends::Role::User => Role::User,
         }
     }
 }
@@ -26,7 +28,7 @@ impl From<data::chat::Role> for Role {
 mod request {
     use serde::Serialize;
 
-    use crate::data;
+    use crate::backends;
 
     #[derive(Debug, Clone, Serialize)]
     pub struct Request {
@@ -45,7 +47,7 @@ mod request {
     }
 
     impl Request {
-        pub fn new(config: &super::super::Config, chat: &data::RenderedChat) -> Self {
+        pub fn new(config: &super::super::Config, chat: &backends::Chat) -> Self {
             Self {
                 model: config.model.clone(),
                 messages: chat.messages.iter().map(From::from).collect(),
@@ -64,8 +66,8 @@ mod request {
         pub content: String,
     }
 
-    impl From<&data::chat::Message> for Message {
-        fn from(message: &data::chat::Message) -> Self {
+    impl From<&backends::Message> for Message {
+        fn from(message: &backends::Message) -> Self {
             Message {
                 role: From::from(message.role),
                 content: message.text.clone(),
@@ -123,7 +125,7 @@ mod response {
 pub async fn generate(
     client: &reqwest::Client,
     config: &super::Config,
-    chat: &data::RenderedChat,
+    chat: &backends::Chat,
 ) -> super::Result<String> {
     let url = format!("{FEATHERLESS_API_URL_BASE}/chat/completions");
 
@@ -145,7 +147,7 @@ pub async fn generate(
     let response: response::ChatCompletion = response.json().await?;
     debug!("Featherless chat completions response: {:#?}", response);
 
-    // Extract the content from the first choice
+    // Extract the content from the first choice.
     if let Some(choice) = response.choices.first() {
         Ok(choice.message.content.clone())
     } else {

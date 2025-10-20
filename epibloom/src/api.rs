@@ -1,8 +1,9 @@
-pub mod chat;
+pub mod backend_proxy;
 
 /// Responder that sets the status code and just responds with a string, which
 /// should be the error message.
 #[derive(Debug, Clone, Responder)]
+#[allow(dead_code)]
 pub enum ApiErrorResponse {
     #[response(status = 404)]
     NotFound(String),

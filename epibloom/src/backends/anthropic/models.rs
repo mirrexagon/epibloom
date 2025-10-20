@@ -1,7 +1,5 @@
 //! Types and functions for the /models endpoint.
 
-
-use futures::stream::StreamExt;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 

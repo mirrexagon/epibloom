@@ -1,13 +1,10 @@
 //! Types and functions for the /messages endpoint.
 
-use futures::stream::StreamExt;
-use log::info;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use sse_stream::SseStream;
 
 use super::ANTHROPIC_API_URL_BASE;
-use crate::data;
+use crate::backends;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 enum Role {
@@ -17,11 +14,12 @@ enum Role {
     User,
 }
 
-impl From<data::chat::Role> for Role {
-    fn from(value: data::chat::Role) -> Self {
+impl From<backends::Role> for Role {
+    fn from(value: backends::Role) -> Self {
         match value {
-            data::chat::Role::Assistant => Role::Assistant,
-            data::chat::Role::User => Role::User,
+            backends::Role::System => Role::User, // TODO: Concatenate all system messages into a single one that goes into the system message field.
+            backends::Role::Assistant => Role::Assistant,
+            backends::Role::User => Role::User,
         }
     }
 }
@@ -166,7 +164,7 @@ struct DocumentCitations {
 mod request {
     use serde::Serialize;
 
-    use crate::data;
+    use crate::backends;
 
     #[derive(Debug, Clone, Serialize)]
     pub struct Request {
@@ -196,7 +194,7 @@ mod request {
     }
 
     impl Request {
-        pub fn new(config: &super::super::Config, chat: &data::RenderedChat) -> Self {
+        pub fn new(config: &super::super::Config, chat: &backends::Chat) -> Self {
             Self {
                 max_tokens: config.max_tokens,
                 messages: chat.messages.iter().map(From::from).collect(),
@@ -232,8 +230,8 @@ mod request {
         pub content: Vec<super::ContentBlock>,
     }
 
-    impl From<&data::chat::Message> for Message {
-        fn from(message: &data::chat::Message) -> Self {
+    impl From<&backends::Message> for Message {
+        fn from(message: &backends::Message) -> Self {
             Message {
                 role: From::from(message.role),
                 content: vec![super::ContentBlock::Text {
@@ -248,7 +246,7 @@ mod request {
     // TODO: impl From<response::Message> for Message
     // so that we can transform the response message into a request message to
     // send back to the model?
-    // But this will be done through data::chat always anyway.
+    // But this will be done through backends always anyway.
 
     impl Default for Message {
         fn default() -> Self {
@@ -366,7 +364,7 @@ mod response {
 pub async fn generate(
     client: &reqwest::Client,
     config: &super::Config,
-    chat: &data::RenderedChat,
+    chat: &backends::Chat,
 ) -> super::Result<String> {
     let url = format!("{ANTHROPIC_API_URL_BASE}/messages");
 
@@ -407,7 +405,7 @@ pub async fn generate(
 /*
 pub async fn generate_stream(
     client: &reqwest::Client,
-    chat: &data::RenderedChat,
+    chat: &backends::Chatbackends::Chat
 ) -> super::Result<String> {
     let url = format!("{ANTHROPIC_API_URL_BASE}/messages");
 

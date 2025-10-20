@@ -7,27 +7,59 @@
 pub mod anthropic;
 pub mod featherless;
 
-use schemars::{schema::RootSchema, schema_for, JsonSchema};
+use std::fmt;
 
-use crate::data;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, ToSchema)]
+pub enum Role {
+    #[serde(rename = "system")]
+    System,
+    #[serde(rename = "assistant")]
+    Assistant,
+    #[serde(rename = "user")]
+    User,
+}
+
+impl fmt::Display for Role {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = match *self {
+            Role::System => "system",
+            Role::Assistant => "assistant",
+            Role::User => "user",
+        };
+
+        write!(f, "{s}")
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct Message {
+    pub role: Role,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct Chat {
+    pub messages: Vec<Message>,
+}
 
 pub trait Backend {
     type Config: JsonSchema;
     type Error: std::error::Error;
 
+    // TODO: On config structs, use
+    // https://graham.cool/schemars/deriving/attributes/#extend to add a field for
+    // the UI control type (texbox, spinner, etc.). There are also validators like
+    // https://graham.cool/schemars/deriving/attributes/#range
+    // Description seems like it will come from doc comments.
+    /*
     fn get_config_schema() -> RootSchema {
         schema_for!(Self::Config)
     }
+    */
 
-    async fn generate(
-        &self,
-        config: &Self::Config,
-        chat: &data::RenderedChat,
-    ) -> Result<String, Self::Error>;
+    async fn generate(&self, config: &Self::Config, chat: &Chat) -> Result<String, Self::Error>;
 }
-
-// TODO: On config structs, use
-// https://graham.cool/schemars/deriving/attributes/#extend to add a field for
-// the UI control type (texbox, spinner, etc.). There are also validators like
-// https://graham.cool/schemars/deriving/attributes/#range
-// Description seems like it will come from doc comments.

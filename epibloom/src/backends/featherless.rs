@@ -1,15 +1,17 @@
-mod messages;
+//! Featherless AI backend.
+//!
+//! https://featherless.ai
+
+mod chat_completion;
 
 use std::env;
 
-use schemars::{schema::RootSchema, schema_for, JsonSchema};
+use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::data;
+use crate::backends;
 
-// https://featherless.ai/docs/completions
 const FEATHERLESS_API_URL_BASE: &str = "https://api.featherless.ai/v1";
-
 static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -31,7 +33,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             max_tokens: 512,
-            model: "GalrionSoftworks/Margnum-12B-v1".to_string(),
+            model: "zai-org/GLM-4.6".to_string(),
             temperature: Some(0.7),
             top_p: Some(0.9),
             top_k: None,
@@ -92,8 +94,8 @@ impl super::Backend for FeatherlessApi {
     async fn generate(
         &self,
         config: &Self::Config,
-        chat: &data::RenderedChat,
+        chat: &backends::Chat,
     ) -> std::result::Result<String, Self::Error> {
-        messages::generate(&self.client, config, chat).await
+        chat_completion::generate(&self.client, config, chat).await
     }
 }

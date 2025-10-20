@@ -43,7 +43,15 @@ impl From<featherless::Error> for ApiErrorResponse {
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(new_chat, get_chats, get_chat_by_id, get_rendered_chat_by_id, push_message, generate, generate_featherless))]
+#[openapi(paths(
+    new_chat,
+    get_chats,
+    get_chat_by_id,
+    get_rendered_chat_by_id,
+    push_message,
+    generate,
+    generate_featherless
+))]
 pub struct ChatApiDoc;
 
 /// Creates a new chat.
@@ -132,7 +140,7 @@ pub fn get_rendered_chat_by_id(
 
     let chat = chats.get_chat_by_id(chat_id)?;
     let rendered_chat = RenderedChat::from_chat(&chat);
-    
+
     Ok(Json(rendered_chat))
 }
 
