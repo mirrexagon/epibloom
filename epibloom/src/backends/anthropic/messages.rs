@@ -405,7 +405,7 @@ pub async fn generate(
 /*
 pub async fn generate_stream(
     client: &reqwest::Client,
-    chat: &backends::Chatbackends::Chat
+    chat: &backends::Chat
 ) -> super::Result<String> {
     let url = format!("{ANTHROPIC_API_URL_BASE}/messages");
 
