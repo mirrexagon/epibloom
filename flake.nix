@@ -1,5 +1,5 @@
 {
-  description = "An LLM frontend.";
+  description = "A RPG simulator, using LLMs.";
 
   inputs = {
     flake-parts.url = "github:hercules-ci/flake-parts";

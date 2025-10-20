@@ -1,6 +1,6 @@
 # Epibloom
 
-An LLM frontend, tailored for me.
+A RPG simulator, using LLMs.
 
 ## Name
 
