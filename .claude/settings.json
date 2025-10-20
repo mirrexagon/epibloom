@@ -4,7 +4,8 @@
             "Bash(npm run res:build)"
         ],
         "deny": [
-            "Read(./.env)"
+            "Read(./.env)",
+            "Read(./epibloom/.env)"
         ]
     }
 }
