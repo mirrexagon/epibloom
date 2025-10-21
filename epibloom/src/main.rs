@@ -59,6 +59,10 @@ fn rocket() -> _ {
     db_path.push(&data_dir);
     db_path.push(DATABASE_FILENAME);
 
+    // TOOD: Make these copyable in some way or make them for each request so
+    // that eg multiple /backend-proxy/generate requests can run in parallel.
+    // Long term this will be used to run LLM generations in parallel, eg. when
+    // generating NPC details.
     let anthropic_api: AnthropicApi = AnthropicApi::new_with_key_from_env().unwrap();
     let featherless_api: FeatherlessApi = FeatherlessApi::new_with_key_from_env().unwrap();
 
