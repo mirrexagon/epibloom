@@ -1,5 +1,7 @@
 //! Types and functions for the /messages endpoint.
 
+use async_stream::try_stream;
+use futures::Stream;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
@@ -361,43 +363,46 @@ mod response {
     */
 }
 
-pub async fn generate(
-    client: &reqwest::Client,
-    config: &super::Config,
-    chat: &backends::Chat,
-) -> super::Result<String> {
-    let url = format!("{ANTHROPIC_API_URL_BASE}/messages");
+pub fn generate<'a>(
+    client: &'a reqwest::Client,
+    config: &'a super::Config,
+    chat: &'a backends::Chat,
+) -> impl Stream<Item = Result<backends::GenerateChunk, super::Error>> + 'a {
+    try_stream! {
+        let url = format!("{ANTHROPIC_API_URL_BASE}/messages");
 
-    let body = request::Request::new(config, chat);
-    debug!(
-        "Anthropic messages request: {}",
-        serde_json::to_string_pretty(&body).unwrap()
-    );
+        let body = request::Request::new(config, chat);
+        debug!(
+            "Anthropic messages request: {}",
+            serde_json::to_string_pretty(&body).unwrap()
+        );
 
-    let response = client.post(url).json(&body).send().await?;
+        let response = client.post(url).json(&body).send().await?;
 
-    if response.status() != StatusCode::OK {
-        let error_object: serde_json::Value = response.json().await?;
-        return Err(super::Error::Api {
-            r#type: error_object["error"]["type"].as_str().unwrap().to_owned(),
-            message: error_object["error"]["message"]
-                .as_str()
-                .unwrap()
-                .to_owned(),
-        });
-    }
-
-    let response: response::Message = response.json().await?;
-    debug!("Anthropic messages response: {:#?}", response);
-
-    let mut result = String::new();
-    for block in response.content.iter() {
-        if let ContentBlock::Text { text, .. } = block {
-            result.push_str(text);
+        if response.status() != StatusCode::OK {
+            let error_object: serde_json::Value = response.json().await?;
+            let _ = Err(super::Error::Api {
+                r#type: error_object["error"]["type"].as_str().unwrap().to_owned(),
+                message: error_object["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+            })?;
+            return;
         }
-    }
 
-    Ok(result)
+        let response: response::Message = response.json().await?;
+        debug!("Anthropic messages response: {:#?}", response);
+
+        let mut result = String::new();
+        for block in response.content.iter() {
+            if let ContentBlock::Text { text, .. } = block {
+                result.push_str(text);
+            }
+        }
+
+        yield backends::GenerateChunk::MessageDelta(result);
+    }
 }
 
 // TODO: Return a MessagesResponse built up from the events to start with, since

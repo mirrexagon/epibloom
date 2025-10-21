@@ -1,6 +1,8 @@
 //! Types and functions for the OpenAI-compatible chat completions endpoint.
 
+use async_stream::try_stream;
 use futures::stream::StreamExt;
+use futures::Stream;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use sse_stream::SseStream;
@@ -224,62 +226,56 @@ mod response {
     }
 }
 
-pub async fn generate(
-    client: &reqwest::Client,
-    config: &super::Config,
-    chat: &backends::Chat,
-) -> super::Result<String> {
-    let url = format!("{FEATHERLESS_API_URL_BASE}/chat/completions");
+pub fn generate<'a>(
+    client: &'a reqwest::Client,
+    config: &'a super::Config,
+    chat: &'a backends::Chat,
+) -> impl Stream<Item = Result<backends::GenerateChunk, super::Error>> + 'a {
+    try_stream! {
+        let url = format!("{FEATHERLESS_API_URL_BASE}/chat/completions");
 
-    let body = request::Request::new(config, chat);
-    debug!(
-        "Featherless chat completions request: {}",
-        serde_json::to_string_pretty(&body).unwrap()
-    );
+        let body = request::Request::new(config, chat);
+        debug!(
+            "Featherless chat completions request: {}",
+            serde_json::to_string_pretty(&body).unwrap()
+        );
 
-    let response = client.post(url).json(&body).send().await?;
+        let response = client.post(url).json(&body).send().await?;
 
-    if response.status() != StatusCode::OK {
-        let error_response: response::ErrorResponse = response.json().await?;
-        return Err(super::Error::Api {
-            message: error_response.error.message,
-        });
-    }
-
-    let mut sse_body = SseStream::from_byte_stream(response.bytes_stream());
-    let mut final_message = ChatCompletion::new();
-
-    // From a basic text-only streaming session, we get:
-    // - Lots of chunks with one choice with deltas with just content
-    // - One with one choice with empty string content + role + finish reason
-    // - One with no choices and with usage information and "system_fingerprint"
-    // - Just the string "[DONE]"
-    while let Some(sse) = sse_body.next().await {
-        let sse = sse.unwrap(); // TODO: Propagate errors.
-
-        let json_string = sse.data.unwrap();
-        debug!("{json_string:#?}");
-
-        if json_string == "[DONE]" {
-            break;
+        if response.status() != StatusCode::OK {
+            let error_response: response::ErrorResponse = response.json().await?;
+            let _ = Err(super::Error::Api {
+                message: error_response.error.message,
+            })?;
+            return;
         }
 
-        let chunk: response::ChatCompletionChunk = serde_json::from_str(&json_string).unwrap();
-        debug!("{chunk:#?}");
+        let mut sse_body = SseStream::from_byte_stream(response.bytes_stream());
+        let mut final_message = ChatCompletion::new();
 
-        final_message.add_chunk(&chunk);
-    }
+        // From a basic text-only streaming session, we get:
+        // - Lots of chunks with one choice with deltas with just content
+        // - One with one choice with empty string content + role + finish reason
+        // - One with no choices and with usage information and "system_fingerprint"
+        // - Just the string "[DONE]"
+        while let Some(sse) = sse_body.next().await {
+            let sse = sse.unwrap(); // TODO: Propagate errors.
 
-    debug!(
-        "Featherless chat completions response aggregated from streaming: {:#?}",
-        final_message
-    );
+            let json_string = sse.data.unwrap();
+            debug!("{json_string:#?}");
 
-    if let Some(choice) = final_message.choices.first() {
-        Ok(choice.message.content.clone())
-    } else {
-        Err(super::Error::InvalidResponse(
-            "No choices in response".to_string(),
-        ))
+            if json_string == "[DONE]" {
+                break;
+            }
+
+            let chunk: response::ChatCompletionChunk = serde_json::from_str(&json_string).unwrap();
+            debug!("{chunk:#?}");
+
+            if let Some(choice) = chunk.choices.first() {
+                yield backends::GenerateChunk::MessageDelta(choice.delta.content.clone());
+            }
+
+            final_message.add_chunk(&chunk);
+        }
     }
 }

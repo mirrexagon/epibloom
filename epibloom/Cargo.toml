@@ -12,6 +12,7 @@ etcetera = "0.10.0"
 thiserror = "2"
 sse-stream = "0.1.3"
 futures = "0.3.31"
+async-stream = "0.3.6"
 
 [dependencies.rocket]
 version = "0.5.1"

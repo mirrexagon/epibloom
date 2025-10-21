@@ -80,11 +80,5 @@ fn rocket() -> _ {
             "/",
             SwaggerUi::new("/swagger-ui/<_..>").url("/api-docs/openapi.json", ApiDoc::openapi()),
         )
-        .mount(
-            "/api/backend-proxy",
-            routes![
-                api::backend_proxy::generate_claude,
-                api::backend_proxy::generate_featherless,
-            ],
-        )
+        .mount("/api/backend-proxy", routes![api::backend_proxy::generate])
 }

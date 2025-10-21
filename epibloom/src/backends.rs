@@ -9,6 +9,7 @@ pub mod featherless;
 
 use std::fmt;
 
+use futures::Stream;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -46,6 +47,11 @@ pub struct Chat {
     pub messages: Vec<Message>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub enum GenerateChunk {
+    MessageDelta(String),
+}
+
 pub trait Backend {
     type Config: JsonSchema;
     type Error: std::error::Error;
@@ -61,5 +67,9 @@ pub trait Backend {
     }
     */
 
-    async fn generate(&self, config: &Self::Config, chat: &Chat) -> Result<String, Self::Error>;
+    fn generate<'a>(
+        &'a self,
+        config: &'a Self::Config,
+        chat: &'a Chat,
+    ) -> impl Stream<Item = Result<GenerateChunk, Self::Error>> + 'a;
 }

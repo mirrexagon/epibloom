@@ -410,6 +410,7 @@ dependencies = [
 name = "epibloom"
 version = "0.1.0"
 dependencies = [
+ "async-stream",
  "dotenvy",
  "env_logger",
  "etcetera",

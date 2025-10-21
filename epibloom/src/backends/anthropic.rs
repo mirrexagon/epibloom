@@ -3,6 +3,7 @@ mod models;
 
 use std::env;
 
+use futures::Stream;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -89,11 +90,11 @@ impl super::Backend for AnthropicApi {
     type Config = Config;
     type Error = Error;
 
-    async fn generate(
-        &self,
-        config: &Self::Config,
-        chat: &backends::Chat,
-    ) -> std::result::Result<String, Self::Error> {
-        messages::generate(&self.client, config, chat).await
+    fn generate<'a>(
+        &'a self,
+        config: &'a Self::Config,
+        chat: &'a backends::Chat,
+    ) -> impl Stream<Item = std::result::Result<backends::GenerateChunk, Self::Error>> + 'a {
+        messages::generate(&self.client, config, chat)
     }
 }

@@ -6,6 +6,7 @@ mod chat_completion;
 
 use std::env;
 
+use futures::Stream;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -57,7 +58,6 @@ pub enum Error {
 }
 
 type Result<T> = std::result::Result<T, Error>;
-
 impl FeatherlessApi {
     pub fn new_with_key_from_env() -> Result<Self> {
         use reqwest::{
@@ -91,11 +91,11 @@ impl super::Backend for FeatherlessApi {
     type Config = Config;
     type Error = Error;
 
-    async fn generate(
-        &self,
-        config: &Self::Config,
-        chat: &backends::Chat,
-    ) -> std::result::Result<String, Self::Error> {
-        chat_completion::generate(&self.client, config, chat).await
+    fn generate<'a>(
+        &'a self,
+        config: &'a Self::Config,
+        chat: &'a backends::Chat,
+    ) -> impl Stream<Item = std::result::Result<backends::GenerateChunk, Self::Error>> + 'a {
+        chat_completion::generate(&self.client, config, chat)
     }
 }
