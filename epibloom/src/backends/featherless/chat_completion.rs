@@ -251,7 +251,6 @@ pub fn generate<'a>(
         }
 
         let mut sse_body = SseStream::from_byte_stream(response.bytes_stream());
-        let mut final_message = ChatCompletion::new();
 
         // From a basic text-only streaming session, we get:
         // - Lots of chunks with one choice with deltas with just content
@@ -274,8 +273,6 @@ pub fn generate<'a>(
             if let Some(choice) = chunk.choices.first() {
                 yield backends::GenerateChunk::MessageDelta(choice.delta.content.clone());
             }
-
-            final_message.add_chunk(&chunk);
         }
     }
 }

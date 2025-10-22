@@ -1,9 +1,13 @@
 //! Types and functions for the /messages endpoint.
 
+use std::str::FromStr;
+
 use async_stream::try_stream;
 use futures::Stream;
+use futures::StreamExt;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use sse_stream::SseStream;
 
 use super::ANTHROPIC_API_URL_BASE;
 use crate::backends;
@@ -208,7 +212,7 @@ mod request {
                 } else {
                     None
                 },
-                stream: false,
+                stream: true,
                 system: None,
                 temperature: None,
                 thinking: if config.thinking {
@@ -329,11 +333,17 @@ mod response {
         pub output_tokens: u32,
     }
 
-    /*
     #[derive(Debug, Clone, Deserialize)]
     pub struct MessageDelta {
         stop_reason: Option<StopReason>,
         stop_sequence: Option<String>,
+    }
+
+    // TODO: Handle all the types here: https://docs.claude.com/en/docs/build-with-claude/streaming#content-block-delta-types
+    #[derive(Debug, Clone, Deserialize)]
+    #[serde(rename_all = "snake_case", tag = "type")]
+    pub enum ContentBlockDelta {
+        TextDelta { text: String },
     }
 
     #[derive(Debug, Clone, Deserialize)]
@@ -345,11 +355,11 @@ mod response {
         Ping,
         ContentBlockStart {
             index: u32,
-            content_block: ContentBlock,
+            content_block: super::ContentBlock,
         },
         ContentBlockDelta {
             index: u32,
-            delta: ContentBlock,
+            delta: ContentBlockDelta,
         },
         ContentBlockStop {
             index: u32,
@@ -360,7 +370,6 @@ mod response {
         },
         MessageStop,
     }
-    */
 }
 
 pub fn generate<'a>(
@@ -391,56 +400,42 @@ pub fn generate<'a>(
             return;
         }
 
-        let response: response::Message = response.json().await?;
-        debug!("Anthropic messages response: {:#?}", response);
+        let mut sse_body = SseStream::from_byte_stream(response.bytes_stream());
 
-        let mut result = String::new();
-        for block in response.content.iter() {
-            if let ContentBlock::Text { text, .. } = block {
-                result.push_str(text);
+        while let Some(sse) = sse_body.next().await {
+            let sse = sse.unwrap();
+
+            let json_string = sse.data.unwrap();
+            debug!("{json_string:#?}");
+
+            let event: response::StreamingEvent = serde_json::from_str(&json_string).unwrap();
+            debug!("Claude streaming event: {:#?}", event);
+
+            match event {
+                response::StreamingEvent::MessageStart { message } => {
+                    for content_block in message.content {
+                        if let ContentBlock::Text { text, .. } = content_block {
+                            yield backends::GenerateChunk::MessageDelta(text);
+                        }
+                    }
+                }
+
+                response::StreamingEvent::ContentBlockStart { content_block, .. } => {
+                    if let ContentBlock::Text { text, .. } = content_block
+                    {
+                        yield backends::GenerateChunk::MessageDelta(text)
+                    }
+                }
+
+                response::StreamingEvent::ContentBlockDelta { delta, .. } => {
+                    if let response::ContentBlockDelta::TextDelta { text, .. } = delta
+                    {
+                        yield backends::GenerateChunk::MessageDelta(text)
+                    }
+                }
+
+                _ => {}
             }
         }
-
-        yield backends::GenerateChunk::MessageDelta(result);
     }
 }
-
-// TODO: Return a MessagesResponse built up from the events to start with, since
-// the point of the deltas and such is to fill in a complete response.
-/*
-pub async fn generate_stream(
-    client: &reqwest::Client,
-    chat: &backends::Chat
-) -> super::Result<String> {
-    let url = format!("{ANTHROPIC_API_URL_BASE}/messages");
-
-    let body = request::Request::from(chat);
-    let response = client.post(url).json(&body).send().await?;
-
-    info!("Anthropic generate response code: {}", response.status());
-
-    let mut sse_body = SseStream::from_byte_stream(response.bytes_stream());
-    let mut generated_message = String::new();
-
-    while let Some(sse) = sse_body.next().await {
-        let sse = sse.unwrap();
-        //debug!("{:#?}", sse);
-
-        let event: MessagesResponseEvent = serde_json::from_str(&sse.data.unwrap()).unwrap();
-        debug!("{:#?}", event);
-
-        match event {
-            MessagesResponseEvent::ContentBlockStart {
-                index,
-                content_block,
-            } => generated_message.push_str(&content_block.text),
-            MessagesResponseEvent::ContentBlockDelta { index, delta } => {
-                generated_message.push_str(&delta.text)
-            }
-            _ => {}
-        }
-    }
-
-    Ok(generated_message)
-}
-*/
