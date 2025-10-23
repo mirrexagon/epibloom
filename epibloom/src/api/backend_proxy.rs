@@ -1,6 +1,6 @@
 //! Straight generating from the LLM, mostly for testing.
 
-use futures::{pin_mut, stream::StreamExt};
+use futures::{pin_mut, stream::StreamExt, Stream};
 use rocket::{serde::json::Json, State};
 use serde::{Deserialize, Serialize};
 use utoipa::{OpenApi, ToSchema};
@@ -32,6 +32,7 @@ pub struct BackendProxyApiDoc;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GenerateResponse {
+    thinking: Option<String>,
     message: String,
 }
 
@@ -39,6 +40,39 @@ pub struct GenerateResponse {
 pub enum GenerateBackend {
     Featherless,
     Claude,
+}
+
+/// Helper function to process a stream of chunks from any backend.
+async fn process_stream<S, E>(stream: S) -> Result<Json<GenerateResponse>, ApiErrorResponse>
+where
+    S: Stream<Item = Result<backends::GenerateChunk, E>>,
+    E: std::error::Error,
+{
+    pin_mut!(stream);
+
+    let mut new_thinking = String::new();
+    let mut new_message = String::new();
+
+    while let Some(chunk) = stream.next().await {
+        debug!("generate chunk: {chunk:#?}");
+
+        match chunk {
+            Ok(chunk) => match chunk {
+                backends::GenerateChunk::ThinkingDelta(delta) => new_thinking.push_str(&delta),
+                backends::GenerateChunk::MessageDelta(delta) => new_message.push_str(&delta),
+            },
+            Err(err) => return Err(ApiErrorResponse::BadGateway(err.to_string().to_owned())),
+        }
+    }
+
+    Ok(Json(GenerateResponse {
+        thinking: if new_thinking.is_empty() {
+            None
+        } else {
+            Some(new_thinking)
+        },
+        message: new_message,
+    }))
 }
 
 /// Generates an assistant response on the end of a chat using Featherless.
@@ -59,63 +93,21 @@ pub async fn generate(
         GenerateBackend::Featherless => {
             let featherless_config = featherless::Config::default();
             let stream = featherless_api.generate(&featherless_config, &chat);
-
-            // TODO: Figure out how to not have to copy the below stuff into
-            // each backend branch because they each return a different concrete
-            // Stream type.
-            pin_mut!(stream);
-
-            let mut new_message = String::new();
-
-            while let Some(chunk) = stream.next().await {
-                debug!("generate chunk: {chunk:#?}");
-
-                match chunk {
-                    Ok(chunk) => match chunk {
-                        backends::GenerateChunk::MessageDelta(delta) => {
-                            new_message.push_str(&delta)
-                        }
-                    },
-                    Err(err) => {
-                        return Err(ApiErrorResponse::BadGateway(err.to_string().to_owned()))
-                    }
-                }
-            }
-
-            Ok(Json(GenerateResponse {
-                message: new_message,
-            }))
+            process_stream(stream).await
         }
 
         GenerateBackend::Claude => {
-            let anthropic_config = anthropic::Config::default();
+            let anthropic_config = anthropic::Config {
+                max_tokens: 2048,
+                thinking_budget: Some(1024),
+                ..Default::default()
+            };
 
             // TODO for continue: Anthropic API returned error
             // 'invalid_request_error': messages: final assistant content cannot
             // end with trailing whitespace
             let stream = anthropic_api.generate(&anthropic_config, &chat);
-            pin_mut!(stream);
-
-            let mut new_message = String::new();
-
-            while let Some(chunk) = stream.next().await {
-                debug!("generate chunk: {chunk:#?}");
-
-                match chunk {
-                    Ok(chunk) => match chunk {
-                        backends::GenerateChunk::MessageDelta(delta) => {
-                            new_message.push_str(&delta)
-                        }
-                    },
-                    Err(err) => {
-                        return Err(ApiErrorResponse::BadGateway(err.to_string().to_owned()))
-                    }
-                }
-            }
-
-            Ok(Json(GenerateResponse {
-                message: new_message,
-            }))
+            process_stream(stream).await
         }
     }
 }

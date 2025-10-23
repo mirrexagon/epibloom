@@ -17,23 +17,21 @@ static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_P
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct Config {
-    max_tokens: u32,
-    model: String,
+    pub max_tokens: u32,
+    pub model: String,
 
-    stop_sequences: Vec<String>,
-    thinking: bool,
-    thinking_budget: u32,
+    pub stop_sequences: Vec<String>,
+    pub thinking_budget: Option<u32>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             max_tokens: 512,
-            model: "claude-3-haiku-20240307".to_string(),
+            model: "claude-haiku-4-5-20251001".to_string(),
 
             stop_sequences: Vec::new(),
-            thinking: false,
-            thinking_budget: 0,
+            thinking_budget: None,
         }
     }
 }

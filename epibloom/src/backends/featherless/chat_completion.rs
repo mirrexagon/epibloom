@@ -54,14 +54,12 @@ mod request {
 
     #[derive(Debug, Clone, Serialize)]
     pub struct StreamOptions {
-        include_obfuscation: bool,
         include_usage: bool,
     }
 
     impl Request {
         pub fn new(config: &super::super::Config, chat: &backends::Chat) -> Self {
             let stream_options = StreamOptions {
-                include_obfuscation: true,
                 include_usage: true,
             };
 
@@ -226,6 +224,10 @@ mod response {
     }
 }
 
+// TODO: Generalize to different thinking delimiter styles.
+const THINKING_START_DELIMITER: &str = "<think>";
+const THINKING_END_DELIMITER: &str = "</think>";
+
 pub fn generate<'a>(
     client: &'a reqwest::Client,
     config: &'a super::Config,
@@ -244,10 +246,9 @@ pub fn generate<'a>(
 
         if response.status() != StatusCode::OK {
             let error_response: response::ErrorResponse = response.json().await?;
-            let _ = Err(super::Error::Api {
+            return Err(super::Error::Api {
                 message: error_response.error.message,
             })?;
-            return;
         }
 
         let mut sse_body = SseStream::from_byte_stream(response.bytes_stream());
@@ -257,21 +258,24 @@ pub fn generate<'a>(
         // - One with one choice with empty string content + role + finish reason
         // - One with no choices and with usage information and "system_fingerprint"
         // - Just the string "[DONE]"
+        let mut response_string = String::new();
         while let Some(sse) = sse_body.next().await {
             let sse = sse.unwrap(); // TODO: Propagate errors.
 
             let json_string = sse.data.unwrap();
-            debug!("{json_string:#?}");
 
             if json_string == "[DONE]" {
                 break;
             }
 
             let chunk: response::ChatCompletionChunk = serde_json::from_str(&json_string).unwrap();
-            debug!("{chunk:#?}");
 
             if let Some(choice) = chunk.choices.first() {
-                yield backends::GenerateChunk::MessageDelta(choice.delta.content.clone());
+                // TODO: Parse thinking.
+                let text_delta = &choice.delta.content;
+                response_string.push_str(text_delta);
+
+                yield backends::GenerateChunk::MessageDelta(text_delta.clone());
             }
         }
     }

@@ -30,6 +30,7 @@ impl From<backends::Role> for Role {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
 enum ContentBlock {
@@ -215,13 +216,9 @@ mod request {
                 stream: true,
                 system: None,
                 temperature: None,
-                thinking: if config.thinking {
-                    Some(Thinking::Enabled {
-                        budget_tokens: config.thinking_budget,
-                    })
-                } else {
-                    None
-                },
+                thinking: config.thinking_budget.map(|num_tokens| Thinking::Enabled {
+                    budget_tokens: num_tokens,
+                }),
                 tool_choice: None,
                 tools: None,
                 top_k: None,
@@ -340,10 +337,16 @@ mod response {
     }
 
     // TODO: Handle all the types here: https://docs.claude.com/en/docs/build-with-claude/streaming#content-block-delta-types
+    // We need these variants to have these specific names. So we disable this
+    // warning that complains about the common suffix.
+    #[allow(clippy::enum_variant_names)]
     #[derive(Debug, Clone, Deserialize)]
     #[serde(rename_all = "snake_case", tag = "type")]
     pub enum ContentBlockDelta {
         TextDelta { text: String },
+        InputJsonDelta { partial_json: String },
+        ThinkingDelta { thinking: String },
+        SignatureDelta { signature: String },
     }
 
     #[derive(Debug, Clone, Deserialize)]
@@ -390,14 +393,13 @@ pub fn generate<'a>(
 
         if response.status() != StatusCode::OK {
             let error_object: serde_json::Value = response.json().await?;
-            let _ = Err(super::Error::Api {
+            return Err(super::Error::Api {
                 r#type: error_object["error"]["type"].as_str().unwrap().to_owned(),
                 message: error_object["error"]["message"]
                     .as_str()
                     .unwrap()
                     .to_owned(),
             })?;
-            return;
         }
 
         let mut sse_body = SseStream::from_byte_stream(response.bytes_stream());
@@ -406,10 +408,8 @@ pub fn generate<'a>(
             let sse = sse.unwrap();
 
             let json_string = sse.data.unwrap();
-            debug!("{json_string:#?}");
 
             let event: response::StreamingEvent = serde_json::from_str(&json_string).unwrap();
-            debug!("Claude streaming event: {:#?}", event);
 
             match event {
                 response::StreamingEvent::MessageStart { message } => {
@@ -420,17 +420,16 @@ pub fn generate<'a>(
                     }
                 }
 
-                response::StreamingEvent::ContentBlockStart { content_block, .. } => {
-                    if let ContentBlock::Text { text, .. } = content_block
-                    {
-                        yield backends::GenerateChunk::MessageDelta(text)
-                    }
+                response::StreamingEvent::ContentBlockStart { content_block: ContentBlock::Text { text, .. }, .. } => {
+                    yield backends::GenerateChunk::MessageDelta(text)
                 }
 
                 response::StreamingEvent::ContentBlockDelta { delta, .. } => {
-                    if let response::ContentBlockDelta::TextDelta { text, .. } = delta
-                    {
-                        yield backends::GenerateChunk::MessageDelta(text)
+                    match delta {
+                        response::ContentBlockDelta::ThinkingDelta { thinking, .. } => yield backends::GenerateChunk::ThinkingDelta(thinking),
+                        response::ContentBlockDelta::TextDelta { text, .. } => yield backends::GenerateChunk::MessageDelta(text),
+
+                        _ => {}
                     }
                 }
 
