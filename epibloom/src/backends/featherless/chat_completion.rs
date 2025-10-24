@@ -9,7 +9,7 @@ use sse_stream::SseStream;
 
 use super::FEATHERLESS_API_URL_BASE;
 
-use crate::backends::{self, featherless::chat_completion::response::ChatCompletion};
+use crate::backends;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -253,12 +253,14 @@ pub fn generate<'a>(
 
         let mut sse_body = SseStream::from_byte_stream(response.bytes_stream());
 
+        let mut in_thinking = false;
+        let mut skipping_whitespace = true;
+
         // From a basic text-only streaming session, we get:
         // - Lots of chunks with one choice with deltas with just content
         // - One with one choice with empty string content + role + finish reason
         // - One with no choices and with usage information and "system_fingerprint"
         // - Just the string "[DONE]"
-        let mut response_string = String::new();
         while let Some(sse) = sse_body.next().await {
             let sse = sse.unwrap(); // TODO: Propagate errors.
 
@@ -271,11 +273,47 @@ pub fn generate<'a>(
             let chunk: response::ChatCompletionChunk = serde_json::from_str(&json_string).unwrap();
 
             if let Some(choice) = chunk.choices.first() {
-                // TODO: Parse thinking.
-                let text_delta = &choice.delta.content;
-                response_string.push_str(text_delta);
+                let mut text_delta = choice.delta.content.as_str();
 
-                yield backends::GenerateChunk::MessageDelta(text_delta.clone());
+                if skipping_whitespace {
+                    text_delta = text_delta.trim();
+                }
+
+                if text_delta.is_empty() {
+                    continue;
+                } else {
+                    skipping_whitespace = false;
+                }
+
+                // Look for thinking delimiters. We assume the entire delimiter
+                // will be present in the delta because it is usually a single token.
+                let delimiter_to_find = if in_thinking { THINKING_END_DELIMITER } else { THINKING_START_DELIMITER };
+                if let Some((text_before, text_after)) = text_delta.split_once(delimiter_to_find) {
+                    skipping_whitespace = false;
+
+                    let (thinking_delta, message_delta) = if in_thinking {
+                        (text_before, text_after)
+                    } else {
+                        (text_after, text_before)
+                    };
+
+                    if !thinking_delta.is_empty() {
+                        yield backends::GenerateChunk::ThinkingDelta(thinking_delta.to_owned());
+                    }
+
+                    if !message_delta.is_empty() {
+                        yield backends::GenerateChunk::MessageDelta(message_delta.to_owned());
+                    }
+
+                    in_thinking = !in_thinking;
+                } else {
+                    #[allow(clippy::collapsible_else_if)]
+                    if in_thinking {
+                        yield backends::GenerateChunk::ThinkingDelta(text_delta.to_owned());
+                    } else {
+                        yield backends::GenerateChunk::MessageDelta(text_delta.to_owned());
+                    }
+                }
             }
         }
     }

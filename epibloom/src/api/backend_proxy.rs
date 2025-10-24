@@ -37,6 +37,7 @@ pub struct GenerateResponse {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, ToSchema, FromFormField)]
+#[serde(rename_all = "snake_case")]
 pub enum GenerateBackend {
     Featherless,
     Claude,
@@ -80,6 +81,9 @@ where
     responses(
         (status = 200, description = "Message generated succesfully.", body = GenerateResponse),
         (status = 502, description = "LLM backend error.", body = String)
+    ),
+    params(
+        ("backend" = inline(GenerateBackend), Query, description = "The LLM backend/API to use to generate the message")
     )
 )]
 #[post("/generate?<backend>", data = "<chat>")]

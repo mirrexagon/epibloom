@@ -15,24 +15,6 @@ use backends::anthropic::AnthropicApi;
 use backends::featherless::FeatherlessApi;
 const DATABASE_FILENAME: &str = "epibloom.db";
 
-// TODO: Each backend has functions that take a RenderedChat and send it to the backend
-// and return the response message.
-// System prompt in RenderedChat should be separate, like Anthropic API, not a message
-// in the chat.
-// How would this interact with lorebooks and other injections? Probably
-// post-processed chat that includes relevant lorebook info.
-// How would this interact with tool use? Needs to call back into Epibloom to
-// run the tool. See
-// https://docs.anthropic.com/en/docs/build-with-claude/tool-use/overview,
-// Claude will stop generating and say to use the tool, then you run a
-// continuation.
-//
-// TODO: For characters/system prompts, world info, etc., chats can be linked
-// to a single character and to 0 or more lorebooks. Code somewhere (maybe in
-// data::chat or some chat builder module) will read these and build a final
-// temporary backend::Chat that then each backend knows how to send to its
-// API/add instruct tokens and turn into a text blob for text completion/etc.
-
 #[launch]
 fn rocket() -> _ {
     env_logger::init();
@@ -59,10 +41,6 @@ fn rocket() -> _ {
     db_path.push(&data_dir);
     db_path.push(DATABASE_FILENAME);
 
-    // TOOD: Make these copyable in some way or make them for each request so
-    // that eg multiple /backend-proxy/generate requests can run in parallel.
-    // Long term this will be used to run LLM generations in parallel, eg. when
-    // generating NPC details.
     let anthropic_api: AnthropicApi = AnthropicApi::new_with_key_from_env().unwrap();
     let featherless_api: FeatherlessApi = FeatherlessApi::new_with_key_from_env().unwrap();
 

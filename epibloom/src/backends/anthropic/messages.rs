@@ -1,7 +1,5 @@
 //! Types and functions for the /messages endpoint.
 
-use std::str::FromStr;
-
 use async_stream::try_stream;
 use futures::Stream;
 use futures::StreamExt;

@@ -49,7 +49,7 @@ pub struct Chat {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub enum GenerateChunk {
-    ThinkingDelta(String), // TODO: Implement this.
+    ThinkingDelta(String),
     MessageDelta(String),
 }
 
