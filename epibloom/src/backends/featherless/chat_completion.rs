@@ -97,77 +97,7 @@ mod response {
     use serde::Deserialize;
     use uuid::Uuid;
 
-    #[derive(Debug, Clone, Deserialize)]
-    pub struct ChatCompletion {
-        pub id: Uuid,
-        pub object: String,
-        pub created: u64,
-        pub model: String,
-        pub choices: Vec<Choice>,
-        pub usage: Usage,
-    }
-
-    impl ChatCompletion {
-        pub fn new() -> Self {
-            Self {
-                id: Uuid::nil(),
-                object: String::new(),
-                created: 0,
-                model: String::new(),
-                choices: Vec::new(),
-                usage: Usage {
-                    prompt_tokens: 0,
-                    completion_tokens: 0,
-                    total_tokens: 0,
-                },
-            }
-        }
-
-        pub fn add_chunk(&mut self, chunk: &ChatCompletionChunk) {
-            assert_eq!("chat.completion.chunk", chunk.object);
-
-            if self.id.is_nil() {
-                self.id = chunk.id;
-            } else {
-                assert_eq!(self.id, chunk.id);
-            }
-
-            if self.model.is_empty() {
-                self.model = chunk.model.to_owned();
-            }
-
-            if let Some(ref usage) = chunk.usage {
-                self.usage = usage.clone();
-            }
-
-            if let Some(chunk_choice) = chunk.choices.first() {
-                if self.choices.is_empty() {
-                    self.choices.push(Choice {
-                        index: chunk_choice.index,
-                        message: Message {
-                            role: String::new(),
-                            content: chunk_choice.delta.content.to_owned(),
-                        },
-                        finish_reason: String::new(),
-                    });
-                } else {
-                    self.choices[0]
-                        .message
-                        .content
-                        .push_str(&chunk_choice.delta.content);
-
-                    if let Some(ref finish_reason) = chunk_choice.finish_reason {
-                        self.choices[0].finish_reason = finish_reason.to_owned();
-                    }
-
-                    if let Some(ref role) = chunk_choice.delta.role {
-                        self.choices[0].message.role = role.to_owned();
-                    }
-                }
-            }
-        }
-    }
-
+    #[allow(dead_code)]
     #[derive(Debug, Clone, Deserialize)]
     pub struct Choice {
         pub index: u32,
@@ -175,12 +105,14 @@ mod response {
         pub finish_reason: String,
     }
 
+    #[allow(dead_code)]
     #[derive(Debug, Clone, Deserialize)]
     pub struct Message {
         pub role: String,
         pub content: String,
     }
 
+    #[allow(dead_code)]
     #[derive(Debug, Clone, Deserialize)]
     pub struct Usage {
         pub prompt_tokens: u32,
@@ -188,11 +120,13 @@ mod response {
         pub total_tokens: u32,
     }
 
+    #[allow(dead_code)]
     #[derive(Debug, Clone, Deserialize)]
     pub struct ErrorResponse {
         pub error: ErrorDetail,
     }
 
+    #[allow(dead_code)]
     #[derive(Debug, Clone, Deserialize)]
     pub struct ErrorDetail {
         pub message: String,
@@ -200,6 +134,7 @@ mod response {
         pub r#type: Option<String>,
     }
 
+    #[allow(dead_code)]
     #[derive(Debug, Clone, Deserialize)]
     pub struct ChatCompletionChunk {
         pub id: Uuid,
@@ -210,6 +145,7 @@ mod response {
         pub usage: Option<Usage>,
     }
 
+    #[allow(dead_code)]
     #[derive(Debug, Clone, Deserialize)]
     pub struct ChunkChoice {
         pub index: u32,
@@ -217,6 +153,7 @@ mod response {
         pub finish_reason: Option<String>,
     }
 
+    #[allow(dead_code)]
     #[derive(Debug, Clone, Deserialize)]
     pub struct DeltaMessage {
         pub role: Option<String>,
