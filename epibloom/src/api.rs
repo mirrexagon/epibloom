@@ -1,4 +1,5 @@
 pub mod backend_proxy;
+pub mod llm_session;
 
 /// Responder that sets the status code and just responds with a string, which
 /// should be the error message.

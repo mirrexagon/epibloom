@@ -14,6 +14,10 @@ sse-stream = "0.1.3"
 futures = "0.3.31"
 async-stream = "0.3.6"
 
+[dependencies.tokio]
+version = "1.48.0"
+features = ["sync"]
+
 [dependencies.rocket]
 version = "0.5.1"
 features = ["json", "uuid"]

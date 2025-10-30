@@ -3,9 +3,11 @@ extern crate rocket;
 
 mod api;
 mod backends;
+mod llm_session;
 mod util;
 
-use std::{fs, path::PathBuf};
+use std::fs;
+use std::path::PathBuf;
 
 use etcetera::{choose_app_strategy, AppStrategy, AppStrategyArgs};
 use utoipa::OpenApi;
@@ -63,4 +65,8 @@ fn rocket() -> _ {
             SwaggerUi::new("/swagger-ui/<_..>").url("/api-docs/openapi.json", ApiDoc::openapi()),
         )
         .mount("/api/backend-proxy", routes![api::backend_proxy::generate])
+        .mount(
+            "/api/llm-session",
+            routes![api::llm_session::get_llm_sessions],
+        )
 }
