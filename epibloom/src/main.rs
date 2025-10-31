@@ -45,6 +45,7 @@ fn rocket() -> _ {
 
     let anthropic_api: AnthropicApi = AnthropicApi::new_with_key_from_env().unwrap();
     let featherless_api: FeatherlessApi = FeatherlessApi::new_with_key_from_env().unwrap();
+    let llm_session_store = llm_session::LlmSessionStore::new();
 
     #[derive(OpenApi)]
     #[openapi(
@@ -60,6 +61,7 @@ fn rocket() -> _ {
     rocket::build()
         .manage(anthropic_api)
         .manage(featherless_api)
+        .manage(llm_session_store)
         .mount(
             "/",
             SwaggerUi::new("/swagger-ui/<_..>").url("/api-docs/openapi.json", ApiDoc::openapi()),
@@ -67,6 +69,10 @@ fn rocket() -> _ {
         .mount("/api/backend-proxy", routes![api::backend_proxy::generate])
         .mount(
             "/api/llm-session",
-            routes![api::llm_session::get_llm_sessions],
+            routes![
+                api::llm_session::get_llm_sessions,
+                api::llm_session::create_session,
+                api::llm_session::stream_session
+            ],
         )
 }

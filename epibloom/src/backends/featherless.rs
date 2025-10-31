@@ -33,7 +33,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            max_tokens: 64,
+            max_tokens: 2048,
             model: "zai-org/GLM-4.6".to_string(),
             temperature: Some(0.7),
             top_p: Some(0.9),
@@ -43,6 +43,7 @@ impl Default for Config {
     }
 }
 
+#[derive(Clone)]
 pub struct FeatherlessApi {
     client: reqwest::Client,
 }

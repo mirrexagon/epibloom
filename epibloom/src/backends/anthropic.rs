@@ -36,6 +36,7 @@ impl Default for Config {
     }
 }
 
+#[derive(Clone)]
 pub struct AnthropicApi {
     client: reqwest::Client,
 }
