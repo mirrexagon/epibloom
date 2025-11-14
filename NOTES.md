@@ -72,9 +72,15 @@
 - Use Aider/Claude Code to help make this
 - If some features need support from the backend (eg. token probabilities, how sampler chose tokens), make a new backend based on llama.cpp called Epicalyx (see Epibloom README for why)
 
+# RPG Ideas
+Based on AI RPG.
+
+- Save prompts and other inputs used to generate and do things and allow them to be viewed in the UI (probably bring them up in the debug panel) - things like ComfyUI workflows and prompts used for images
+
 # Inspirations
 - Freely-editable markdown plain text as chat: https://github.com/rusiaaman/chat.md
 - More complex templates/thinking message selection: https://huggingface.co/blog/qwen-3-chat-template-deep-dive
 
 # Tools for development
 - https://docs.rs/utoipa/latest/utoipa/index.html to export OpenAPI definitions for internal API - has Rocket support
+
