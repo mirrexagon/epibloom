@@ -1,4 +1,3 @@
-use futures::stream::StreamExt;
 use rocket::{
     get, post,
     response::stream::{Event, EventStream},
@@ -6,13 +5,12 @@ use rocket::{
     State,
 };
 use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::ApiErrorResponse;
-use crate::backends::{self, anthropic::AnthropicApi, featherless::FeatherlessApi, Backend};
-use crate::llm_session::{LlmSessionMetadata, LlmSessionState, LlmSessionStore, SessionStatus};
+use crate::backends::{self, anthropic::AnthropicApi, featherless::FeatherlessApi};
+use crate::llm_session::{BackendChoice, LlmSessionMetadata, LlmSessionStore, SessionStatus};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GetLlmSessionsResponse {
@@ -28,11 +26,32 @@ pub async fn get_llm_sessions(
     Ok(Json(GetLlmSessionsResponse { llm_sessions }))
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum BackendChoice {
-    Featherless,
-    Claude,
+/// Creates a test LLM session with hard-coded chat and starts generation.
+#[post("/test")]
+pub async fn create_test_session(
+    store: &State<LlmSessionStore>,
+    anthropic_api: &State<AnthropicApi>,
+    featherless_api: &State<FeatherlessApi>,
+) -> Result<Json<LlmSessionMetadata>, ApiErrorResponse> {
+    // Create a hard-coded test chat
+    let chat = backends::Chat {
+        messages: vec![backends::Message {
+            role: backends::Role::User,
+            text: "What is the capital of France?".to_string(),
+        }],
+    };
+
+    let session = crate::llm_session::create_and_start_session(
+        "Test Session".to_string(),
+        chat,
+        BackendChoice::Claude,
+        anthropic_api.inner().clone(),
+        featherless_api.inner().clone(),
+        store.inner(),
+    )
+    .await;
+
+    Ok(Json(session.metadata.clone()))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -50,109 +69,30 @@ pub async fn create_session(
     anthropic_api: &State<AnthropicApi>,
     featherless_api: &State<FeatherlessApi>,
 ) -> Result<Json<LlmSessionMetadata>, ApiErrorResponse> {
-    let session_id = Uuid::new_v4();
-    let now = OffsetDateTime::now_utc();
+    let session = crate::llm_session::create_and_start_session(
+        request.name.clone(),
+        request.chat.clone(),
+        request.backend.clone(),
+        anthropic_api.inner().clone(),
+        featherless_api.inner().clone(),
+        store.inner(),
+    )
+    .await;
 
-    let metadata = LlmSessionMetadata {
-        id: session_id,
-        name: request.name.clone(),
-        created: now,
-        modified: now,
-    };
-
-    let session = LlmSessionState::new(metadata.clone());
-    store.add_session(session.clone()).await;
-
-    // Spawn background task to generate
-    let chat = request.chat.clone();
-    let backend = request.backend.clone();
-    let anthropic_api = anthropic_api.inner().clone();
-    let featherless_api = featherless_api.inner().clone();
-
-    tokio::spawn(async move {
-        run_generation(session, backend, chat, anthropic_api, featherless_api).await;
-    });
-
-    Ok(Json(metadata))
-}
-
-async fn run_generation(
-    session: std::sync::Arc<LlmSessionState>,
-    backend: BackendChoice,
-    chat: backends::Chat,
-    anthropic_api: AnthropicApi,
-    featherless_api: FeatherlessApi,
-) {
-    // Update status to Generating
-    *session.status.write().await = SessionStatus::Generating;
-
-    // Create the stream based on backend choice
-    let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = match backend {
-        BackendChoice::Claude => {
-            let config = backends::anthropic::Config {
-                max_tokens: 2048,
-                thinking_budget: Some(1024),
-                ..Default::default()
-            };
-            let stream = anthropic_api.generate(&config, &chat);
-            process_generation_stream(session.clone(), stream).await
-        }
-        BackendChoice::Featherless => {
-            let config = backends::featherless::Config::default();
-            let stream = featherless_api.generate(&config, &chat);
-            process_generation_stream(session.clone(), stream).await
-        }
-    };
-
-    // Update status based on result
-    match result {
-        Ok(()) => {
-            *session.status.write().await = SessionStatus::Idle;
-        }
-        Err(err) => {
-            *session.status.write().await = SessionStatus::Error(err.to_string());
-        }
-    }
-}
-
-async fn process_generation_stream<S, E>(
-    session: std::sync::Arc<LlmSessionState>,
-    stream: S,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
-where
-    S: futures::Stream<Item = Result<backends::GenerateChunk, E>>,
-    E: std::error::Error + Send + Sync + 'static,
-{
-    futures::pin_mut!(stream);
-
-    while let Some(result) = stream.next().await {
-        match result {
-            Ok(chunk) => {
-                // Add to history
-                session.history.write().await.push(chunk.clone());
-
-                // Broadcast to subscribers (ignore if no receivers)
-                let _ = session.broadcast.send(chunk);
-            }
-            Err(err) => {
-                return Err(Box::new(err));
-            }
-        }
-    }
-
-    Ok(())
+    Ok(Json(session.metadata.clone()))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum StreamEvent {
     Status { status: SessionStatus },
+    History { chat: backends::Chat },
     ThinkingDelta { delta: String },
     MessageDelta { delta: String },
 }
 
 /// Streams updates from an LLM session via SSE.
-/// First sends all historical chunks, then streams live updates.
+/// First sends chat history and status, then streams live updates.
 #[get("/<id>")]
 pub async fn stream_session(
     id: Uuid,
@@ -175,7 +115,11 @@ pub async fn stream_session(
         let status = session.status.read().await.clone();
         yield Event::json(&StreamEvent::Status { status: status.clone() });
 
-        // Send all historical chunks
+        // Send chat history as a single event
+        let chat = session.chat.read().await.clone();
+        yield Event::json(&StreamEvent::History { chat });
+
+        // Send all streaming chunks (thinking and partial messages)
         let history = session.history.read().await;
         for chunk in history.iter() {
             let event = match chunk {

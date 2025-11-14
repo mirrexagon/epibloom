@@ -71,6 +71,7 @@ fn rocket() -> _ {
             "/api/llm-session",
             routes![
                 api::llm_session::get_llm_sessions,
+                api::llm_session::create_test_session,
                 api::llm_session::create_session,
                 api::llm_session::stream_session
             ],

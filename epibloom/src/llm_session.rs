@@ -1,17 +1,13 @@
 use std::collections::HashMap;
-use std::fmt;
 use std::sync::Arc;
 
-use rusqlite::{params, Connection, Row};
 use serde::{Deserialize, Serialize};
-use time::macros::format_description;
 use time::OffsetDateTime;
 use tokio::sync::{broadcast, RwLock};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::backends;
-use crate::util;
+use crate::backends::{self, anthropic::AnthropicApi, featherless::FeatherlessApi, Backend};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LlmSessionMetadata {
@@ -38,22 +34,31 @@ pub enum SessionStatus {
     Error(String),
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BackendChoice {
+    Featherless,
+    Claude,
+}
+
 /// Runtime state for an active LLM session
 pub struct LlmSessionState {
     pub metadata: LlmSessionMetadata,
+    pub chat: RwLock<backends::Chat>,
     pub status: RwLock<SessionStatus>,
     pub history: RwLock<Vec<backends::GenerateChunk>>,
     pub broadcast: broadcast::Sender<backends::GenerateChunk>,
 }
 
 impl LlmSessionState {
-    pub fn new(metadata: LlmSessionMetadata) -> Arc<Self> {
+    pub fn new(metadata: LlmSessionMetadata, chat: backends::Chat) -> Arc<Self> {
         // 1024 capacity allows late subscribers to catch up on recent messages
         // if they subscribe while chunks are being broadcast
         let (broadcast, _) = broadcast::channel(1024);
 
         Arc::new(Self {
             metadata,
+            chat: RwLock::new(chat),
             status: RwLock::new(SessionStatus::Generating),
             history: RwLock::new(Vec::new()),
             broadcast,
@@ -100,4 +105,119 @@ impl LlmSessionStore {
         let mut sessions = self.sessions.write().await;
         sessions.remove(&id)
     }
+}
+
+/// Creates a new LLM session, adds it to the store, and starts generation in the background.
+pub async fn create_and_start_session(
+    name: String,
+    chat: backends::Chat,
+    backend: BackendChoice,
+    anthropic_api: AnthropicApi,
+    featherless_api: FeatherlessApi,
+    store: &LlmSessionStore,
+) -> Arc<LlmSessionState> {
+    let session_id = Uuid::new_v4();
+    let now = OffsetDateTime::now_utc();
+
+    let metadata = LlmSessionMetadata {
+        id: session_id,
+        name,
+        created: now,
+        modified: now,
+    };
+
+    let session = LlmSessionState::new(metadata, chat.clone());
+    store.add_session(session.clone()).await;
+
+    // Spawn background task to generate
+    let session_clone = session.clone();
+    tokio::spawn(async move {
+        run_generation(session_clone, backend, chat, anthropic_api, featherless_api).await;
+    });
+
+    session
+}
+
+async fn run_generation(
+    session: Arc<LlmSessionState>,
+    backend: BackendChoice,
+    chat: backends::Chat,
+    anthropic_api: AnthropicApi,
+    featherless_api: FeatherlessApi,
+) {
+    // Update status to Generating
+    *session.status.write().await = SessionStatus::Generating;
+
+    // Create the stream based on backend choice
+    let result: Result<String, Box<dyn std::error::Error + Send + Sync>> = match backend {
+        BackendChoice::Claude => {
+            let config = backends::anthropic::Config {
+                max_tokens: 2048,
+                thinking_budget: Some(1024),
+                ..Default::default()
+            };
+            let stream = anthropic_api.generate(&config, &chat);
+            process_generation_stream(session.clone(), stream).await
+        }
+        BackendChoice::Featherless => {
+            let config = backends::featherless::Config::default();
+            let stream = featherless_api.generate(&config, &chat);
+            process_generation_stream(session.clone(), stream).await
+        }
+    };
+
+    // Update status based on result
+    match result {
+        Ok(assistant_message) => {
+            // Add the completed assistant message to the chat
+            let mut chat = session.chat.write().await;
+            chat.messages.push(backends::Message {
+                role: backends::Role::Assistant,
+                text: assistant_message,
+            });
+            drop(chat);
+
+            *session.status.write().await = SessionStatus::Idle;
+        }
+        Err(err) => {
+            *session.status.write().await = SessionStatus::Error(err.to_string());
+        }
+    }
+}
+
+async fn process_generation_stream<S, E>(
+    session: Arc<LlmSessionState>,
+    stream: S,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>>
+where
+    S: futures::Stream<Item = Result<backends::GenerateChunk, E>>,
+    E: std::error::Error + Send + Sync + 'static,
+{
+    use futures::stream::StreamExt;
+
+    futures::pin_mut!(stream);
+
+    let mut accumulated_message = String::new();
+
+    while let Some(result) = stream.next().await {
+        match result {
+            Ok(chunk) => {
+                // Accumulate message content
+                if let backends::GenerateChunk::MessageDelta(ref delta) = chunk {
+                    accumulated_message.push_str(delta);
+                }
+
+                // Add to history
+                session.history.write().await.push(chunk.clone());
+
+                // Broadcast to subscribers (ignore if no receivers)
+                let _ = session.broadcast.send(chunk);
+            }
+            Err(err) => {
+                return Err(Box::new(err));
+            }
+        }
+    }
+
+    Ok(accumulated_message)
 }
