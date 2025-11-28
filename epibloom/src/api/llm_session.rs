@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use super::ApiErrorResponse;
 use crate::backends::{self, anthropic::AnthropicApi, featherless::FeatherlessApi};
-use crate::llm_session::{BackendChoice, LlmSessionMetadata, LlmSessionStore, SessionStatus};
+use crate::llm_session::{LlmSessionMetadata, LlmSessionStore, SessionStatus};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GetLlmSessionsResponse {
@@ -55,40 +55,11 @@ pub async fn create_test_session(
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct CreateSessionRequest {
-    pub name: String,
-    pub backend: BackendChoice,
-    pub chat: backends::Chat,
-}
-
-/// Creates a new LLM session and starts generation in the background.
-#[post("/", data = "<request>")]
-pub async fn create_session(
-    request: Json<CreateSessionRequest>,
-    store: &State<LlmSessionStore>,
-    anthropic_api: &State<AnthropicApi>,
-    featherless_api: &State<FeatherlessApi>,
-) -> Result<Json<LlmSessionMetadata>, ApiErrorResponse> {
-    let session = crate::llm_session::create_and_start_session(
-        request.name.clone(),
-        request.chat.clone(),
-        request.backend.clone(),
-        anthropic_api.inner().clone(),
-        featherless_api.inner().clone(),
-        store.inner(),
-    )
-    .await;
-
-    Ok(Json(session.metadata.clone()))
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum StreamEvent {
-    Status { status: SessionStatus },
-    History { chat: backends::Chat },
-    ThinkingDelta { delta: String },
-    MessageDelta { delta: String },
+    UserMessageDelta { delta: string },
+    AssistantThinkingDelta { delta: String },
+    AssistantMessageDelta { delta: String },
 }
 
 /// Streams updates from an LLM session via SSE.

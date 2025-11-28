@@ -7,45 +7,12 @@
 pub mod anthropic;
 pub mod featherless;
 
-use std::fmt;
-
 use futures::Stream;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, ToSchema)]
-pub enum Role {
-    #[serde(rename = "system")]
-    System,
-    #[serde(rename = "assistant")]
-    Assistant,
-    #[serde(rename = "user")]
-    User,
-}
-
-impl fmt::Display for Role {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let s = match *self {
-            Role::System => "system",
-            Role::Assistant => "assistant",
-            Role::User => "user",
-        };
-
-        write!(f, "{s}")
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct Message {
-    pub role: Role,
-    pub text: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct Chat {
-    pub messages: Vec<Message>,
-}
+use crate::data::chat::Chat;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub enum GenerateChunk {

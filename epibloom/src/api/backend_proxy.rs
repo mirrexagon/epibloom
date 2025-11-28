@@ -9,8 +9,9 @@ use crate::backends::{
     self,
     anthropic::{self, AnthropicApi},
     featherless::{self, FeatherlessApi},
-    Backend, Chat,
+    Backend,
 };
+use crate::data::chat::Chat;
 
 use super::ApiErrorResponse;
 

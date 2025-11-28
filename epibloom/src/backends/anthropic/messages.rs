@@ -9,6 +9,7 @@ use sse_stream::SseStream;
 
 use super::ANTHROPIC_API_URL_BASE;
 use crate::backends;
+use crate::data::chat;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 enum Role {
@@ -18,12 +19,12 @@ enum Role {
     User,
 }
 
-impl From<backends::Role> for Role {
-    fn from(value: backends::Role) -> Self {
+impl From<chat::Role> for Role {
+    fn from(value: chat::Role) -> Self {
         match value {
-            backends::Role::System => Role::User, // TODO: Concatenate all system messages into a single one that goes into the system message field.
-            backends::Role::Assistant => Role::Assistant,
-            backends::Role::User => Role::User,
+            chat::Role::System => Role::User, // TODO: Concatenate all system messages into a single one that goes into the system message field.
+            chat::Role::Assistant => Role::Assistant,
+            chat::Role::User => Role::User,
         }
     }
 }
@@ -169,7 +170,7 @@ struct DocumentCitations {
 mod request {
     use serde::Serialize;
 
-    use crate::backends;
+    use crate::data::chat;
 
     #[derive(Debug, Clone, Serialize)]
     pub struct Request {
@@ -199,7 +200,7 @@ mod request {
     }
 
     impl Request {
-        pub fn new(config: &super::super::Config, chat: &backends::Chat) -> Self {
+        pub fn new(config: &super::super::Config, chat: &chat::Chat) -> Self {
             Self {
                 max_tokens: config.max_tokens,
                 messages: chat.messages.iter().map(From::from).collect(),
@@ -231,8 +232,8 @@ mod request {
         pub content: Vec<super::ContentBlock>,
     }
 
-    impl From<&backends::Message> for Message {
-        fn from(message: &backends::Message) -> Self {
+    impl From<&chat::Message> for Message {
+        fn from(message: &chat::Message) -> Self {
             Message {
                 role: From::from(message.role),
                 content: vec![super::ContentBlock::Text {
@@ -376,7 +377,7 @@ mod response {
 pub fn generate<'a>(
     client: &'a reqwest::Client,
     config: &'a super::Config,
-    chat: &'a backends::Chat,
+    chat: &'a chat::Chat,
 ) -> impl Stream<Item = Result<backends::GenerateChunk, super::Error>> + 'a {
     try_stream! {
         let url = format!("{ANTHROPIC_API_URL_BASE}/messages");

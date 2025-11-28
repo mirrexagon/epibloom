@@ -3,18 +3,21 @@ extern crate rocket;
 
 mod api;
 mod backends;
-mod llm_session;
+mod data;
+//mod llm_session;
 mod util;
 
 use std::fs;
 use std::path::PathBuf;
 
 use etcetera::{choose_app_strategy, AppStrategy, AppStrategyArgs};
+use rusqlite::Connection;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use backends::anthropic::AnthropicApi;
 use backends::featherless::FeatherlessApi;
+
 const DATABASE_FILENAME: &str = "epibloom.db";
 
 #[launch]
@@ -43,9 +46,11 @@ fn rocket() -> _ {
     db_path.push(&data_dir);
     db_path.push(DATABASE_FILENAME);
 
+    let db_conn = Connection::open(db_path.as_path()).unwrap();
+    data::chat::db_init(&db_conn).unwrap();
+
     let anthropic_api: AnthropicApi = AnthropicApi::new_with_key_from_env().unwrap();
     let featherless_api: FeatherlessApi = FeatherlessApi::new_with_key_from_env().unwrap();
-    let llm_session_store = llm_session::LlmSessionStore::new();
 
     #[derive(OpenApi)]
     #[openapi(
@@ -61,19 +66,21 @@ fn rocket() -> _ {
     rocket::build()
         .manage(anthropic_api)
         .manage(featherless_api)
-        .manage(llm_session_store)
+        .manage(Mutex::new(db_conn))
         .mount(
             "/",
             SwaggerUi::new("/swagger-ui/<_..>").url("/api-docs/openapi.json", ApiDoc::openapi()),
         )
         .mount("/api/backend-proxy", routes![api::backend_proxy::generate])
-        .mount(
-            "/api/llm-session",
-            routes![
-                api::llm_session::get_llm_sessions,
-                api::llm_session::create_test_session,
-                api::llm_session::create_session,
-                api::llm_session::stream_session
-            ],
-        )
+    /*
+    .mount(
+        "/api/llm-session",
+        routes![
+            api::llm_session::get_llm_sessions,
+            api::llm_session::create_test_session,
+            api::llm_session::create_session,
+            api::llm_session::stream_session
+        ],
+    )
+    */
 }

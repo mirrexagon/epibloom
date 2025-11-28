@@ -7,7 +7,7 @@ use tokio::sync::{broadcast, RwLock};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::backends::{self, anthropic::AnthropicApi, featherless::FeatherlessApi, Backend};
+use crate::backends::{self, Backend};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LlmSessionMetadata {
@@ -19,38 +19,14 @@ pub struct LlmSessionMetadata {
     pub modified: OffsetDateTime,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LlmSession {
-    #[serde(flatten)]
     pub metadata: LlmSessionMetadata,
     pub chat: backends::Chat,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum SessionStatus {
-    Idle,
-    Generating,
-    Error(String),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum BackendChoice {
-    Featherless,
-    Claude,
-}
-
-/// Runtime state for an active LLM session
-pub struct LlmSessionState {
-    pub metadata: LlmSessionMetadata,
-    pub chat: RwLock<backends::Chat>,
-    pub status: RwLock<SessionStatus>,
-    pub history: RwLock<Vec<backends::GenerateChunk>>,
+    pub current_assistant_message: String,
     pub broadcast: broadcast::Sender<backends::GenerateChunk>,
 }
 
-impl LlmSessionState {
+impl LlmSession {
     pub fn new(metadata: LlmSessionMetadata, chat: backends::Chat) -> Arc<Self> {
         // 1024 capacity allows late subscribers to catch up on recent messages
         // if they subscribe while chunks are being broadcast

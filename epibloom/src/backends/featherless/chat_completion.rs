@@ -10,6 +10,7 @@ use sse_stream::SseStream;
 use super::FEATHERLESS_API_URL_BASE;
 
 use crate::backends;
+use crate::data::chat;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -19,12 +20,12 @@ enum Role {
     User,
 }
 
-impl From<backends::Role> for Role {
-    fn from(value: backends::Role) -> Self {
+impl From<chat::Role> for Role {
+    fn from(value: chat::Role) -> Self {
         match value {
-            backends::Role::System => Role::System,
-            backends::Role::Assistant => Role::Assistant,
-            backends::Role::User => Role::User,
+            chat::Role::System => Role::System,
+            chat::Role::Assistant => Role::Assistant,
+            chat::Role::User => Role::User,
         }
     }
 }
@@ -32,7 +33,7 @@ impl From<backends::Role> for Role {
 mod request {
     use serde::Serialize;
 
-    use crate::backends;
+    use crate::data::chat;
 
     #[derive(Debug, Clone, Serialize)]
     pub struct Request {
@@ -58,7 +59,7 @@ mod request {
     }
 
     impl Request {
-        pub fn new(config: &super::super::Config, chat: &backends::Chat) -> Self {
+        pub fn new(config: &super::super::Config, chat: &chat::Chat) -> Self {
             let stream_options = StreamOptions {
                 include_usage: true,
             };
@@ -83,8 +84,8 @@ mod request {
         pub content: String,
     }
 
-    impl From<&backends::Message> for Message {
-        fn from(message: &backends::Message) -> Self {
+    impl From<&chat::Message> for Message {
+        fn from(message: &chat::Message) -> Self {
             Message {
                 role: From::from(message.role),
                 content: message.text.clone(),
@@ -168,7 +169,7 @@ const THINKING_END_DELIMITER: &str = "</think>";
 pub fn generate<'a>(
     client: &'a reqwest::Client,
     config: &'a super::Config,
-    chat: &'a backends::Chat,
+    chat: &'a chat::Chat,
 ) -> impl Stream<Item = Result<backends::GenerateChunk, super::Error>> + 'a {
     try_stream! {
         let url = format!("{FEATHERLESS_API_URL_BASE}/chat/completions");
