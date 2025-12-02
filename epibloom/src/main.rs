@@ -9,6 +9,7 @@ mod util;
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use etcetera::{choose_app_strategy, AppStrategy, AppStrategyArgs};
 use rusqlite::Connection;
@@ -49,16 +50,20 @@ fn rocket() -> _ {
     let db_conn = Connection::open(db_path.as_path()).unwrap();
     data::chat::db_init(&db_conn).unwrap();
 
+    let chat_session_store = data::chat::ChatSessionStore::new();
+
     let anthropic_api: AnthropicApi = AnthropicApi::new_with_key_from_env().unwrap();
     let featherless_api: FeatherlessApi = FeatherlessApi::new_with_key_from_env().unwrap();
 
     #[derive(OpenApi)]
     #[openapi(
         nest(
-            (path = "/api/backend-proxy", api = api::backend_proxy::BackendProxyApiDoc)
+            (path = "/api/backend-proxy", api = api::backend_proxy::BackendProxyApiDoc),
+            (path = "/api/chat", api = api::chat::ChatApiDoc)
         ),
         tags(
-            (name = "backend-proxy", description = "Simple proxy to the LLM backends.")
+            (name = "backend-proxy", description = "Simple proxy to the LLM backends."),
+            (name = "chat", description = "Streaming internal chats used to drive the game.")
         )
     )]
     struct ApiDoc;
@@ -67,6 +72,7 @@ fn rocket() -> _ {
         .manage(anthropic_api)
         .manage(featherless_api)
         .manage(Mutex::new(db_conn))
+        .manage(chat_session_store)
         .mount(
             "/",
             SwaggerUi::new("/swagger-ui/<_..>").url("/api-docs/openapi.json", ApiDoc::openapi()),

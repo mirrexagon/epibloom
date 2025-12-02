@@ -39,5 +39,5 @@ pub trait Backend {
         &'a self,
         config: &'a Self::Config,
         chat: &'a Chat,
-    ) -> impl Stream<Item = Result<GenerateChunk, Self::Error>> + 'a;
+    ) -> impl Stream<Item = Result<GenerateChunk, Self::Error>> + Send + 'a;
 }

@@ -75,6 +75,8 @@
 # RPG Ideas
 Based on AI RPG.
 
+Start by making a simpler text adventure game with locations and exits, inventory, items in locations, and NPCs in locations.
+
 - Save prompts and other inputs used to generate and do things and allow them to be viewed in the UI (probably bring them up in the debug panel) - things like ComfyUI workflows and prompts used for images
 - Tracking what the player should know/has found out, instead of just having NPCs have descriptions and knowing their names immediately.
 
