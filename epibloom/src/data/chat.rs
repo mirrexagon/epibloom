@@ -46,10 +46,9 @@ impl ChatSessionStore {
         db_conn: &Connection,
         chat_id: Uuid,
     ) -> Option<Arc<RwLock<ChatSession>>> {
-        let mut sessions = self.sessions.write().await;
-
         if let Ok(chat) = get_chat_by_id(db_conn, chat_id) {
             let (broadcast, _) = broadcast::channel(1024);
+            let mut sessions = self.sessions.write().await;
 
             Some(
                 sessions
@@ -110,8 +109,8 @@ impl ChatSession {
         self.broadcast.subscribe()
     }
 
-    pub fn get_complete_messages(&self) -> &[Message] {
-        &self.chat.messages[..]
+    pub fn get_complete_messages(&self) -> Vec<Message> {
+        self.chat.messages.clone()
     }
 
     pub async fn start_generating<B: backends::Backend + Send + Sync + 'static>(

@@ -79,46 +79,43 @@ pub async fn stream_chat_by_id(
     chat_id: Uuid,
     store: &State<ChatSessionStore>,
 ) -> Result<EventStream![], ApiErrorResponse> {
-    let db_conn = db_conn.lock().unwrap();
-
     let session_arc =
-        store
-            .get_or_create_session(&db_conn, chat_id)
-            .await
-            .ok_or(ApiErrorResponse::NotFound(format!(
-                "Chat with id {} not found",
-                chat_id
-            )))?;
+        {
+            let db_conn = db_conn.lock().unwrap();
 
-    drop(db_conn);
+            store.get_or_create_session(&db_conn, chat_id).await.ok_or(
+                ApiErrorResponse::NotFound(format!("Chat with id {} not found", chat_id)),
+            )?
+        };
 
     Ok(EventStream! {
-        {
+        let (rx, past_messages) = {
             let session = session_arc.read().await;
+            (session.get_new_receiver(), session.get_complete_messages())
+        };
 
-            // Subscribe to live updates before sending current chat state to avoid missing messages.
-            let mut rx = session.get_new_receiver();
-
-            for (position, message) in session.get_complete_messages().into_iter().enumerate() {
-                match message.role {
-                    Role::User => {
-                        yield Event::json(&ChatSessionEvent::UserMessageStart { position });
-                        yield Event::json(&ChatSessionEvent::UserMessageDelta { delta: message.text.clone() });
-                        yield Event::json(&ChatSessionEvent::UserMessageEnd { position });
-                    }
-
-                    Role::Assistant => {
-                        yield Event::json(&ChatSessionEvent::AssistantMessageStart { position });
-                        if !message.thinking.is_empty() {
-                            yield Event::json(&ChatSessionEvent::AssistantThinkingDelta { delta: message.thinking.clone() });
-                        }
-                        yield Event::json(&ChatSessionEvent::AssistantMessageDelta { delta: message.text.clone() });
-                        yield Event::json(&ChatSessionEvent::AssistantMessageEnd { position });
-                    }
-
-                    Role::System => {}
+        // Send past messages.
+        for (position, message) in past_messages.into_iter().enumerate() {
+            match message.role {
+                Role::User => {
+                    yield Event::json(&ChatSessionEvent::UserMessageStart { position });
+                    yield Event::json(&ChatSessionEvent::UserMessageDelta { delta: message.text.clone() });
+                    yield Event::json(&ChatSessionEvent::UserMessageEnd { position });
                 }
+
+                Role::Assistant => {
+                    yield Event::json(&ChatSessionEvent::AssistantMessageStart { position });
+                    if !message.thinking.is_empty() {
+                        yield Event::json(&ChatSessionEvent::AssistantThinkingDelta { delta: message.thinking.clone() });
+                    }
+                    yield Event::json(&ChatSessionEvent::AssistantMessageDelta { delta: message.text.clone() });
+                    yield Event::json(&ChatSessionEvent::AssistantMessageEnd { position });
+                }
+
+                Role::System => {}
             }
         }
+
+      // Send any new messages as they come in.
     })
 }
