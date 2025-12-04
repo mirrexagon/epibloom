@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fmt, sync::Arc};
 
+use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, Connection, Row};
 use serde::{Deserialize, Serialize};
 use time::macros::format_description;
@@ -23,6 +24,9 @@ pub enum Error {
     #[error("message not found: chat {chat_id}, message position {position}")]
     MessageNotFound { chat_id: Uuid, position: usize },
 
+    #[error("chat is already generating")]
+    ChatAlreadyGenerating,
+
     #[error("database error: {0}")]
     Database(#[from] rusqlite::Error),
 }
@@ -43,33 +47,38 @@ impl ChatSessionStore {
     /// Returns `None` if there is no chat with the given ID.
     pub async fn get_or_create_session(
         &self,
-        db_conn: &Connection,
+        db_pool: &r2d2::Pool<SqliteConnectionManager>,
         chat_id: Uuid,
     ) -> Option<Arc<RwLock<ChatSession>>> {
-        if let Ok(chat) = get_chat_by_id(db_conn, chat_id) {
-            let (broadcast, _) = broadcast::channel(1024);
-            let mut sessions = self.sessions.write().await;
+        match get_chat_by_id(db_pool, chat_id) {
+            Ok(chat) => {
+                let (broadcast, _) = broadcast::channel(1024);
+                let mut sessions = self.sessions.write().await;
 
-            Some(
-                sessions
-                    .entry(chat_id)
-                    .or_insert_with(|| {
-                        Arc::new(RwLock::new(ChatSession {
-                            chat,
-                            current_assistant_message: String::new(),
-                            current_assistant_thinking: String::new(),
-                            broadcast,
-                            state: ChatSessionState::Idle,
-                        }))
-                    })
-                    .clone(),
-            )
-        } else {
-            None
+                Some(
+                    sessions
+                        .entry(chat_id)
+                        .or_insert_with(|| {
+                            Arc::new(RwLock::new(ChatSession {
+                                chat,
+                                current_assistant_message: String::new(),
+                                current_assistant_thinking: String::new(),
+                                broadcast,
+                                state: ChatSessionState::Idle,
+                            }))
+                        })
+                        .clone(),
+                )
+            }
+
+            Err(err) => {
+                log::error!("Failed to get or create chat session {chat_id:}: {err}");
+                None
+            }
         }
-    }
 
-    // TODO: Removing sessions when no clients are active and no generation is happening.
+        // TODO: Removing sessions when no clients are active and no generation is happening.
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -85,6 +94,7 @@ pub enum ChatSessionEvent {
     Error { message: String },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChatSessionState {
     Idle,
     Generating,
@@ -113,16 +123,38 @@ impl ChatSession {
         self.chat.messages.clone()
     }
 
+    pub fn get_in_progress_message(&self) -> (String, String) {
+        (
+            self.current_assistant_thinking.clone(),
+            self.current_assistant_message.clone(),
+        )
+    }
+
+    pub fn get_state(&self) -> ChatSessionState {
+        self.state
+    }
+
+    // TODO: This needs to tak Arcs for backend and backend_config because
+    // Backend::generate() takes references to the chat and config and the
+    // stream has those lifetimes tied to it. Break the lifetime links between
+    // argument and returned stream somehow, so the ongoing stream doesn't
+    // depend on the exact inputs.
     pub async fn start_generating<B: backends::Backend + Send + Sync + 'static>(
         session_arc: Arc<RwLock<ChatSession>>,
         backend: Arc<B>,
         backend_config: Arc<B::Config>,
-    ) where
+        db_pool: &r2d2::Pool<SqliteConnectionManager>,
+    ) -> Result<()>
+    where
         <B as backends::Backend>::Error: Send + Sync + 'static,
         <B as backends::Backend>::Config: Send + Sync + 'static,
     {
         let chat = {
             let mut session = session_arc.write().await;
+            if let ChatSessionState::Generating = session.state {
+                return Err(Error::ChatAlreadyGenerating);
+            }
+
             session.state = ChatSessionState::Generating;
             session.chat.clone()
         };
@@ -154,7 +186,11 @@ impl ChatSession {
 
                 session.chat.messages.push(Message {
                     role: Role::Assistant,
-                    thinking: new_thinking,
+                    thinking: if !new_thinking.is_empty() {
+                        Some(new_thinking)
+                    } else {
+                        None
+                    },
                     text: new_message,
                     created: time::UtcDateTime::now().into(),
                     modified: time::UtcDateTime::now().into(),
@@ -166,6 +202,8 @@ impl ChatSession {
                 session.state = ChatSessionState::Idle;
             }
         });
+
+        Ok(())
     }
 }
 
@@ -260,7 +298,7 @@ impl fmt::Display for Role {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Message {
     pub role: Role,
-    pub thinking: String,
+    pub thinking: Option<String>,
     pub text: String,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -328,7 +366,9 @@ pub struct Chat {
     pub messages: Vec<Message>,
 }
 
-pub fn db_init(db_conn: &Connection) -> Result<()> {
+pub fn db_init(db_pool: &r2d2::Pool<SqliteConnectionManager>) -> Result<()> {
+    let db_conn = db_pool.get().unwrap();
+
     db_conn.execute("PRAGMA foreign_keys = ON", [])?;
 
     db_conn.execute(
@@ -359,7 +399,9 @@ pub fn db_init(db_conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-pub fn list_chats(db_conn: &Connection) -> Result<Vec<ChatMetadata>> {
+pub fn list_chats(db_pool: &r2d2::Pool<SqliteConnectionManager>) -> Result<Vec<ChatMetadata>> {
+    let db_conn = db_pool.get().unwrap();
+
     let mut statement =
         db_conn.prepare("SELECT id, name, created, modified FROM chats ORDER BY created DESC")?;
 
@@ -369,7 +411,9 @@ pub fn list_chats(db_conn: &Connection) -> Result<Vec<ChatMetadata>> {
         .map_err(From::from)
 }
 
-fn chat_exists(db_conn: &Connection, chat_id: Uuid) -> Result<bool> {
+fn chat_exists(db_pool: &r2d2::Pool<SqliteConnectionManager>, chat_id: Uuid) -> Result<bool> {
+    let db_conn = db_pool.get().unwrap();
+
     db_conn
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM chats WHERE id = ?1);",
@@ -380,7 +424,12 @@ fn chat_exists(db_conn: &Connection, chat_id: Uuid) -> Result<bool> {
 }
 
 /// Returns `None` if there is no chat with the given ID.
-fn get_chat_metadata_by_id(db_conn: &Connection, chat_id: Uuid) -> Result<ChatMetadata> {
+fn get_chat_metadata_by_id(
+    db_pool: &r2d2::Pool<SqliteConnectionManager>,
+    chat_id: Uuid,
+) -> Result<ChatMetadata> {
+    let db_conn = db_pool.get().unwrap();
+
     let mut statement =
         db_conn.prepare("SELECT id, name, created, modified FROM chats WHERE id = ?1")?;
 
@@ -394,9 +443,13 @@ fn get_chat_metadata_by_id(db_conn: &Connection, chat_id: Uuid) -> Result<ChatMe
     }
 }
 
-fn update_chat_last_modified_time(db_conn: &Connection, chat_id: Uuid) -> Result<()> {
+fn update_chat_last_modified_time(
+    db_pool: &r2d2::Pool<SqliteConnectionManager>,
+    chat_id: Uuid,
+) -> Result<()> {
     let current_unix_timestamp = util::get_current_unix_timestamp();
 
+    let db_conn = db_pool.get().unwrap();
     let num_rows_affected = db_conn.execute(
         "UPDATE chats SET modified = ?1 WHERE id = ?2",
         params![current_unix_timestamp, chat_id],
@@ -409,12 +462,17 @@ fn update_chat_last_modified_time(db_conn: &Connection, chat_id: Uuid) -> Result
     Ok(())
 }
 
-pub fn get_chat_by_id(db_conn: &Connection, chat_id: Uuid) -> Result<Chat> {
-    let metadata = get_chat_metadata_by_id(db_conn, chat_id)?;
+pub fn get_chat_by_id(
+    db_pool: &r2d2::Pool<SqliteConnectionManager>,
+    chat_id: Uuid,
+) -> Result<Chat> {
+    let db_conn = db_pool.get().unwrap();
+
+    let metadata = get_chat_metadata_by_id(db_pool, chat_id)?;
 
     let messages = {
         let mut statement = db_conn.prepare(
-                "SELECT role, text, created, modified FROM chat_messages WHERE chat_id = ?1 ORDER BY position ASC",
+                "SELECT role, thinking, text, created, modified FROM chat_messages WHERE chat_id = ?1 ORDER BY position ASC",
             )?;
 
         let messages = statement.query_map([chat_id], Message::from_row)?;
@@ -426,15 +484,16 @@ pub fn get_chat_by_id(db_conn: &Connection, chat_id: Uuid) -> Result<Chat> {
 
 /// Set `position` to `None` to get the last message.
 pub fn get_message(
-    db_conn: &Connection,
+    db_pool: &r2d2::Pool<SqliteConnectionManager>,
     chat_id: Uuid,
     position: Option<usize>,
 ) -> Result<Message> {
-    let position = get_message_position_default_latest(db_conn, chat_id, position)?;
+    let position = get_message_position_default_latest(db_pool, chat_id, position)?;
 
+    let db_conn = db_pool.get().unwrap();
     db_conn
             .query_row(
-                "SELECT role, text, created, modified FROM chat_messages WHERE chat_id = ?1 AND position = ?2",
+                "SELECT role, thinking, text, created, modified FROM chat_messages WHERE chat_id = ?1 AND position = ?2",
                 params![chat_id, position],
                 Message::from_row,
             )
@@ -444,28 +503,31 @@ pub fn get_message(
 }
 
 fn get_message_position_default_latest(
-    db_conn: &Connection,
+    db_pool: &r2d2::Pool<SqliteConnectionManager>,
     chat_id: Uuid,
     position: Option<usize>,
 ) -> Result<usize> {
-    if !chat_exists(db_conn, chat_id)? {
+    if !chat_exists(db_pool, chat_id)? {
         return Err(Error::ChatNotFound(chat_id));
     }
 
     if let Some(position) = position {
         Ok(position)
     } else {
-        get_latest_message_position(db_conn, chat_id)
+        get_latest_message_position(db_pool, chat_id)
     }
 }
 
-pub fn new_chat(db_conn: &Connection, name: Option<&str>) -> Result<ChatMetadata> {
+pub fn new_chat(
+    db_pool: &r2d2::Pool<SqliteConnectionManager>,
+    name: Option<&str>,
+) -> Result<ChatMetadata> {
     let mut new_chat_id;
 
     loop {
         new_chat_id = Uuid::new_v4();
 
-        match get_chat_metadata_by_id(db_conn, new_chat_id) {
+        match get_chat_metadata_by_id(db_pool, new_chat_id) {
             Err(Error::ChatNotFound(_)) => break,
             Ok(_) => continue,
 
@@ -486,6 +548,7 @@ pub fn new_chat(db_conn: &Connection, name: Option<&str>) -> Result<ChatMetadata
 
     let current_unix_timestamp = current_datetime.unix_timestamp();
 
+    let db_conn = db_pool.get().unwrap();
     db_conn.execute(
         "INSERT INTO chats (id, name, created, modified) VALUES (?1, ?2, ?3, ?4)",
         params![
@@ -507,8 +570,13 @@ pub fn new_chat(db_conn: &Connection, name: Option<&str>) -> Result<ChatMetadata
 // TODO: Inserting a message in the middle:
 // https://softwareengineering.stackexchange.com/a/304597
 
-fn get_latest_message_position(db_conn: &Connection, chat_id: Uuid) -> Result<usize> {
-    if !chat_exists(db_conn, chat_id)? {
+fn get_latest_message_position(
+    db_pool: &r2d2::Pool<SqliteConnectionManager>,
+    chat_id: Uuid,
+) -> Result<usize> {
+    let db_conn = db_pool.get().unwrap();
+
+    if !chat_exists(db_pool, chat_id)? {
         return Err(Error::ChatNotFound(chat_id));
     }
 
@@ -524,9 +592,14 @@ fn get_latest_message_position(db_conn: &Connection, chat_id: Uuid) -> Result<us
     }
 }
 
-pub fn push_message(db_conn: &Connection, chat_id: Uuid, role: Role, text: &str) -> Result<()> {
+pub fn push_message(
+    db_pool: &r2d2::Pool<SqliteConnectionManager>,
+    chat_id: Uuid,
+    role: Role,
+    text: &str,
+) -> Result<()> {
     // This will as a side effect confirm that the chat exists.
-    let next_position = match get_latest_message_position(db_conn, chat_id) {
+    let next_position = match get_latest_message_position(db_pool, chat_id) {
         Ok(position) => position + 1,
         Err(Error::ChatHasNoMessages(_)) => 0,
         Err(err) => return Err(err),
@@ -534,33 +607,35 @@ pub fn push_message(db_conn: &Connection, chat_id: Uuid, role: Role, text: &str)
 
     let current_unix_timestamp = util::get_current_unix_timestamp();
 
+    let db_conn = db_pool.get().unwrap();
     db_conn.execute(
             "INSERT INTO chat_messages (chat_id, position, created, modified, role, text) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![chat_id, next_position, current_unix_timestamp, current_unix_timestamp, role.to_string(), text],
         )?;
 
-    update_chat_last_modified_time(db_conn, chat_id)?;
+    update_chat_last_modified_time(db_pool, chat_id)?;
 
     Ok(())
 }
 
 /// Set `position` to `None` to update the last message.
 pub fn update_message(
-    db_conn: &Connection,
+    db_pool: &r2d2::Pool<SqliteConnectionManager>,
     chat_id: Uuid,
     position: Option<usize>,
     text: &str,
 ) -> Result<()> {
     let current_unix_timestamp = util::get_current_unix_timestamp();
 
-    let position = get_message_position_default_latest(db_conn, chat_id, position)?;
+    let position = get_message_position_default_latest(db_pool, chat_id, position)?;
 
+    let db_conn = db_pool.get().unwrap();
     db_conn.execute(
         "UPDATE chat_messages SET modified = ?1, text = ?2 WHERE chat_id = ?3 AND position = ?4",
         params![current_unix_timestamp, text, chat_id, position],
     )?;
 
-    update_chat_last_modified_time(db_conn, chat_id)?;
+    update_chat_last_modified_time(db_pool, chat_id)?;
 
     Ok(())
 }

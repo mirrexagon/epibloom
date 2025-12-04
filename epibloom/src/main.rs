@@ -9,10 +9,9 @@ mod util;
 
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Mutex;
 
 use etcetera::{choose_app_strategy, AppStrategy, AppStrategyArgs};
-use rusqlite::Connection;
+use r2d2_sqlite::SqliteConnectionManager;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -47,8 +46,9 @@ fn rocket() -> _ {
     db_path.push(&data_dir);
     db_path.push(DATABASE_FILENAME);
 
-    let db_conn = Connection::open(db_path.as_path()).unwrap();
-    data::chat::db_init(&db_conn).unwrap();
+    let manager = SqliteConnectionManager::file(db_path.as_path());
+    let db_pool = r2d2::Pool::new(manager).unwrap();
+    data::chat::db_init(&db_pool).unwrap();
 
     let chat_session_store = data::chat::ChatSessionStore::new();
 
@@ -71,22 +71,19 @@ fn rocket() -> _ {
     rocket::build()
         .manage(anthropic_api)
         .manage(featherless_api)
-        .manage(Mutex::new(db_conn))
+        .manage(db_pool)
         .manage(chat_session_store)
         .mount(
             "/",
             SwaggerUi::new("/swagger-ui/<_..>").url("/api-docs/openapi.json", ApiDoc::openapi()),
         )
         .mount("/api/backend-proxy", routes![api::backend_proxy::generate])
-    /*
-    .mount(
-        "/api/llm-session",
-        routes![
-            api::llm_session::get_llm_sessions,
-            api::llm_session::create_test_session,
-            api::llm_session::create_session,
-            api::llm_session::stream_session
-        ],
-    )
-    */
+        .mount(
+            "/api/chat",
+            routes![
+                api::chat::get_chats,
+                api::chat::stream_chat_by_id,
+                api::chat::test_generate
+            ],
+        )
 }

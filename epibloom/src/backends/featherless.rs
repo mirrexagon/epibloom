@@ -17,17 +17,17 @@ static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_P
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct Config {
-    max_tokens: u32,
-    model: String,
+    pub max_tokens: u32,
+    pub model: String,
 
     #[serde(default)]
-    temperature: Option<f32>,
+    pub temperature: Option<f32>,
     #[serde(default)]
-    top_p: Option<f32>,
+    pub top_p: Option<f32>,
     #[serde(default)]
-    top_k: Option<i32>,
+    pub top_k: Option<i32>,
     #[serde(default)]
-    stop: Vec<String>,
+    pub stop: Vec<String>,
 }
 
 impl Default for Config {

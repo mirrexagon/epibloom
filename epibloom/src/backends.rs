@@ -20,7 +20,7 @@ pub enum GenerateChunk {
     MessageDelta(String),
 }
 
-pub trait Backend {
+pub trait Backend: Clone {
     type Config: JsonSchema;
     type Error: std::error::Error;
 

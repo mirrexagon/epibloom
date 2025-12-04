@@ -10,6 +10,9 @@ pub enum ApiErrorResponse {
     #[response(status = 404)]
     NotFound(String),
 
+    #[response(status = 409)]
+    Conflict(String),
+
     #[response(status = 500)]
     InternalServerError(String),
 
