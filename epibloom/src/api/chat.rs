@@ -148,6 +148,7 @@ pub async fn stream_chat_by_id(
             match rx.recv().await {
                 Ok(event) => {
                     // TODO: Sometimes getting just a `:` on the stream as a client once the stream is over?
+                    // Seems to be probably a heartbeat, eg. https://stackoverflow.com/questions/76004062/how-to-send-a-ping-event-in-sse-spring-web
                     log::debug!("Channel received event: {event:#?}");
                     yield Event::json(&event);
                 }
