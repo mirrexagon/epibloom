@@ -18,7 +18,7 @@ use crate::{
         featherless::{self, FeatherlessApi},
         Backend,
     },
-    data::chat::{self, Chat, ChatMetadata, ChatSession, ChatSessionEvent, ChatSessionStore, Role},
+    data::chat::{self, Chat, ChatMetadata, Role, Session, SessionEvent, SessionStore},
 };
 
 use super::ApiErrorResponse;
@@ -30,6 +30,9 @@ impl From<chat::Error> for ApiErrorResponse {
             | chat::Error::ChatHasNoMessages(_)
             | chat::Error::MessageNotFound { .. } => ApiErrorResponse::NotFound(value.to_string()),
             chat::Error::ChatAlreadyGenerating => ApiErrorResponse::Conflict(value.to_string()),
+            chat::Error::ThinkingSuppliedForNonAssistantMessage => {
+                ApiErrorResponse::BadRequest(value.to_string())
+            }
             chat::Error::Database(_) => ApiErrorResponse::InternalServerError(value.to_string()),
         }
     }
@@ -59,7 +62,7 @@ pub fn get_chats(
 ) -> Result<Json<GetChatsResponse>, ApiErrorResponse> {
     let db_conn = db_pool.get().unwrap();
 
-    let chats_list = chat::list_chats(db_pool)?;
+    let chats_list = chat::db::list_chats(db_pool)?;
 
     let mut response = GetChatsResponse { chats: Vec::new() };
     for chat_metadata in chats_list.iter() {
@@ -80,7 +83,7 @@ pub fn get_chats(
 pub async fn stream_chat_by_id(
     db_pool: &State<r2d2::Pool<SqliteConnectionManager>>,
     chat_id: Uuid,
-    store: &State<ChatSessionStore>,
+    store: &State<SessionStore>,
 ) -> Result<EventStream![], ApiErrorResponse> {
     let session_arc =
         store
@@ -104,18 +107,18 @@ pub async fn stream_chat_by_id(
 
             match message.role {
                 Role::User => {
-                    yield Event::json(&ChatSessionEvent::UserMessageStart { position });
-                    yield Event::json(&ChatSessionEvent::UserMessageDelta { delta: message.text.clone() });
-                    yield Event::json(&ChatSessionEvent::UserMessageEnd { position });
+                    yield Event::json(&SessionEvent::UserMessageStart { position });
+                    yield Event::json(&SessionEvent::UserMessageDelta { delta: message.text.clone() });
+                    yield Event::json(&SessionEvent::UserMessageEnd { position });
                 }
 
                 Role::Assistant => {
-                    yield Event::json(&ChatSessionEvent::AssistantMessageStart { position });
+                    yield Event::json(&SessionEvent::AssistantMessageStart { position });
                     if let Some(ref thinking) = message.thinking {
-                        yield Event::json(&ChatSessionEvent::AssistantThinkingDelta { delta: thinking.clone() });
+                        yield Event::json(&SessionEvent::AssistantThinkingDelta { delta: thinking.clone() });
                     }
-                    yield Event::json(&ChatSessionEvent::AssistantMessageDelta { delta: message.text.clone() });
-                    yield Event::json(&ChatSessionEvent::AssistantMessageEnd { position });
+                    yield Event::json(&SessionEvent::AssistantMessageDelta { delta: message.text.clone() });
+                    yield Event::json(&SessionEvent::AssistantMessageEnd { position });
                 }
 
                 Role::System => {}
@@ -123,15 +126,15 @@ pub async fn stream_chat_by_id(
         }
 
         // Send current message so far.
-        if let chat::ChatSessionState::Generating = state {
-            yield Event::json(&ChatSessionEvent::AssistantMessageStart { position: past_messages.len() });
+        if let chat::SessionState::Generating = state {
+            yield Event::json(&SessionEvent::AssistantMessageStart { position: past_messages.len() });
 
             if !current_assistant_thinking.is_empty() {
-                yield Event::json(&ChatSessionEvent::AssistantThinkingDelta { delta: current_assistant_thinking });
+                yield Event::json(&SessionEvent::AssistantThinkingDelta { delta: current_assistant_thinking });
             }
 
             if !current_assistant_message.is_empty() {
-                yield Event::json(&ChatSessionEvent::AssistantMessageDelta { delta: current_assistant_message });
+                yield Event::json(&SessionEvent::AssistantMessageDelta { delta: current_assistant_message });
             }
         }
 
@@ -164,7 +167,7 @@ pub async fn stream_chat_by_id(
 #[post("/testgenerate")]
 pub async fn test_generate(
     db_pool: &State<r2d2::Pool<SqliteConnectionManager>>,
-    store: &State<ChatSessionStore>,
+    store: &State<SessionStore>,
     featherless_api: &State<FeatherlessApi>,
 ) -> Result<Json<ChatMetadata>, ApiErrorResponse> {
     let db_conn = db_pool
@@ -184,6 +187,7 @@ pub async fn test_generate(
         db_pool,
         new_chat_metadata.id,
         Role::User,
+        None,
         "What are the primary nutrients in orange juice?",
     )
     .map_err(|err| ApiErrorResponse::InternalServerError(err.to_string()))?;
@@ -199,7 +203,7 @@ pub async fn test_generate(
     let backend = Arc::new((*featherless_api).clone());
     let config = Arc::new(featherless::Config::default());
 
-    chat::ChatSession::start_generating(session, backend, config, db_pool)
+    chat::Session::start_generating(session, backend, config, db_pool)
         .await
         .map_err(|err| ApiErrorResponse::InternalServerError(err.to_string()))?;
 

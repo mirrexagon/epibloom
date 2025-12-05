@@ -3,8 +3,9 @@ extern crate rocket;
 
 mod api;
 mod backends;
+// TODO: Move chat up one level, since it has its own db submodule and has
+// session logic so isn't really just data anymore
 mod data;
-//mod llm_session;
 mod util;
 
 use std::fs;
@@ -50,7 +51,7 @@ fn rocket() -> _ {
     let db_pool = r2d2::Pool::new(manager).unwrap();
     data::chat::db_init(&db_pool).unwrap();
 
-    let chat_session_store = data::chat::ChatSessionStore::new();
+    let chat_session_store = data::chat::SessionStore::new();
 
     let anthropic_api: AnthropicApi = AnthropicApi::new_with_key_from_env().unwrap();
     let featherless_api: FeatherlessApi = FeatherlessApi::new_with_key_from_env().unwrap();

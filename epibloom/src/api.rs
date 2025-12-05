@@ -7,6 +7,9 @@ pub mod chat;
 #[derive(Debug, Clone, Responder)]
 #[allow(dead_code)]
 pub enum ApiErrorResponse {
+    #[response(status = 400)]
+    BadRequest(String),
+
     #[response(status = 404)]
     NotFound(String),
 
