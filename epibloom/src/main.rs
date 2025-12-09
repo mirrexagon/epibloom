@@ -51,7 +51,7 @@ fn rocket() -> _ {
     let db_pool = r2d2::Pool::new(manager).unwrap();
     data::chat::db_init(&db_pool).unwrap();
 
-    let chat_session_store = data::chat::SessionStore::new();
+    let chat_session_store = data::chat::ChatStore::new();
 
     let anthropic_api: AnthropicApi = AnthropicApi::new_with_key_from_env().unwrap();
     let featherless_api: FeatherlessApi = FeatherlessApi::new_with_key_from_env().unwrap();

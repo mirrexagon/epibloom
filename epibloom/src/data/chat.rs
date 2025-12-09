@@ -17,7 +17,7 @@ use crate::data;
 use crate::util;
 
 pub use db::db_init;
-pub use session::{Session, SessionEvent, SessionStore};
+pub use session::{Session, ChatEvent, ChatStore};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, ToSchema)]
 pub enum Role {

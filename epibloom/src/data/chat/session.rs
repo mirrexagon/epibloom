@@ -1,5 +1,7 @@
 use std::{collections::HashMap, fmt, sync::Arc};
 
+use async_stream::stream;
+use futures::{Stream, StreamExt};
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, Connection, Row};
 use serde::{Deserialize, Serialize};
@@ -15,11 +17,24 @@ use crate::util;
 
 use super::{db, Chat, ChatMetadata, Error, Message};
 
-pub struct SessionStore {
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ChatEvent {
+    UserMessageStart { position: usize },
+    UserMessageDelta { delta: String },
+    UserMessageEnd { position: usize },
+    AssistantMessageStart { position: usize },
+    AssistantThinkingDelta { delta: String },
+    AssistantMessageDelta { delta: String },
+    AssistantMessageEnd { position: usize },
+    Error { message: String },
+}
+
+pub struct ChatStore {
     sessions: Arc<RwLock<HashMap<Uuid, Arc<RwLock<Session>>>>>,
 }
 
-impl SessionStore {
+impl ChatStore {
     pub fn new() -> Self {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
@@ -32,17 +47,31 @@ impl SessionStore {
         db::list_chats(db_pool)
     }
 
-    pub async fn push_message() {
+    pub async fn push_message(chat_id: Uuid) -> Result<usize, Error> {
         // TODO: Make sure there is no active session, then push message into database
 
         unimplemented!()
     }
 
-    pub async fn get_chat_stream() {
+    pub async fn get_chat_stream(
+        &self,
+        db_pool: &r2d2::Pool<SqliteConnectionManager>,
+        chat_id: Uuid,
+    ) -> Result<impl Stream<Item = ChatEvent>, Error> {
         // TODO: Return a stream that yields all messages up to this point, any in-progress message, and any future events.
         // The session will have to live until all such streams are dropped and
         // no generation is happening, so it somehow needs to know when all its
         // streams are dropped.
+
+        let session_arc = match self.get_or_create_session(db_pool, chat_id).await {
+            Some(session_arc) => Ok(session_arc),
+            None => Err(Error::ChatNotFound(chat_id)),
+        }?;
+
+        Ok(stream! {
+            // TODO: Implement the stream
+            yield ChatEvent::UserMessageStart { position: 0 };
+        })
     }
 
     // TODO: Removing sessions when no clients are active and no generation is happening.
@@ -67,7 +96,7 @@ impl SessionStore {
                                 current_assistant_message: String::new(),
                                 current_assistant_thinking: String::new(),
                                 broadcast,
-                                state: SessionState::Idle,
+                                state: State::Idle,
                             }))
                         })
                         .clone(),
@@ -82,21 +111,8 @@ impl SessionStore {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum SessionEvent {
-    UserMessageStart { position: usize },
-    UserMessageDelta { delta: String },
-    UserMessageEnd { position: usize },
-    AssistantMessageStart { position: usize },
-    AssistantThinkingDelta { delta: String },
-    AssistantMessageDelta { delta: String },
-    AssistantMessageEnd { position: usize },
-    Error { message: String },
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SessionState {
+enum State {
     Idle,
     Generating,
 }
@@ -104,15 +120,15 @@ pub enum SessionState {
 /// Live chat streaming sessions created on demand when either starting
 /// generation or requesting a session. These are used mainly to be the single
 /// source of streaming generation for the chat.
-pub struct Session {
+struct Session {
     chat: Chat,
 
     current_assistant_thinking: String,
     /// Current incomplete assistant message. Will be added to the chat once it is complete.
     current_assistant_message: String,
 
-    broadcast: broadcast::Sender<SessionEvent>,
-    state: SessionState,
+    broadcast: broadcast::Sender<ChatEvent>,
+    state: State,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -124,22 +140,22 @@ pub enum StartGeneratingError {
 }
 
 impl Session {
-    pub fn get_new_receiver(&self) -> broadcast::Receiver<SessionEvent> {
+    fn get_new_receiver(&self) -> broadcast::Receiver<ChatEvent> {
         self.broadcast.subscribe()
     }
 
-    pub fn get_complete_messages(&self) -> Vec<Message> {
+    fn get_complete_messages(&self) -> Vec<Message> {
         self.chat.messages.clone()
     }
 
-    pub fn get_in_progress_message(&self) -> (String, String) {
+    fn get_in_progress_message(&self) -> (String, String) {
         (
             self.current_assistant_thinking.clone(),
             self.current_assistant_message.clone(),
         )
     }
 
-    pub fn get_state(&self) -> SessionState {
+    fn get_state(&self) -> State {
         self.state
     }
 
@@ -148,7 +164,7 @@ impl Session {
     // stream has those lifetimes tied to it. Break the lifetime links between
     // argument and returned stream somehow, so the ongoing stream doesn't
     // depend on the exact inputs.
-    pub async fn start_generating<B: backends::Backend + Send + Sync + 'static>(
+    async fn start_generating<B: backends::Backend + Send + Sync + 'static>(
         session_arc: Arc<RwLock<Session>>,
         backend: Arc<B>,
         backend_config: Arc<B::Config>,
@@ -160,11 +176,11 @@ impl Session {
     {
         let chat = {
             let mut session = session_arc.write().await;
-            if let SessionState::Generating = session.state {
+            if let State::Generating = session.state {
                 return Err(StartGeneratingError::ChatAlreadyGenerating);
             }
 
-            session.state = SessionState::Generating;
+            session.state = State::Generating;
             session.chat.clone()
         };
 
@@ -208,7 +224,7 @@ impl Session {
                 session.current_assistant_message.truncate(0);
                 session.current_assistant_thinking.truncate(0);
 
-                session.state = SessionState::Idle;
+                session.state = State::Idle;
             }
         });
 
@@ -231,7 +247,7 @@ where
 
     {
         let session = session_arc.write().await;
-        let _ = session.broadcast.send(SessionEvent::AssistantMessageStart {
+        let _ = session.broadcast.send(ChatEvent::AssistantMessageStart {
             position: message_position,
         });
     }
@@ -244,21 +260,19 @@ where
                     session.current_assistant_thinking.push_str(delta);
 
                     // Ignore failure to send as there may be no receivers.
-                    let _ = session
-                        .broadcast
-                        .send(SessionEvent::AssistantThinkingDelta {
-                            delta: delta.clone(),
-                        });
+                    let _ = session.broadcast.send(ChatEvent::AssistantThinkingDelta {
+                        delta: delta.clone(),
+                    });
                 }
                 backends::GenerateChunk::MessageDelta(ref delta) => {
                     session.current_assistant_message.push_str(delta);
-                    let _ = session.broadcast.send(SessionEvent::AssistantMessageDelta {
+                    let _ = session.broadcast.send(ChatEvent::AssistantMessageDelta {
                         delta: delta.clone(),
                     });
                 }
             },
             Err(err) => {
-                let _ = session.broadcast.send(SessionEvent::Error {
+                let _ = session.broadcast.send(ChatEvent::Error {
                     message: err.to_string(),
                 });
                 return Err(Box::new(err));
@@ -268,7 +282,7 @@ where
 
     {
         let session = session_arc.write().await;
-        let _ = session.broadcast.send(SessionEvent::AssistantMessageEnd {
+        let _ = session.broadcast.send(ChatEvent::AssistantMessageEnd {
             position: message_position,
         });
     }

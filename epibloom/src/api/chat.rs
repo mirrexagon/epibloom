@@ -18,7 +18,7 @@ use crate::{
         featherless::{self, FeatherlessApi},
         Backend,
     },
-    data::chat::{self, Chat, ChatMetadata, Role, Session, SessionEvent, SessionStore},
+    data::chat::{self, Chat, ChatEvent, ChatMetadata, ChatStore, Role, Session},
 };
 
 use super::ApiErrorResponse;
@@ -83,7 +83,7 @@ pub fn get_chats(
 pub async fn stream_chat_by_id(
     db_pool: &State<r2d2::Pool<SqliteConnectionManager>>,
     chat_id: Uuid,
-    store: &State<SessionStore>,
+    store: &State<ChatStore>,
 ) -> Result<EventStream![], ApiErrorResponse> {
     let session_arc =
         store
@@ -107,18 +107,18 @@ pub async fn stream_chat_by_id(
 
             match message.role {
                 Role::User => {
-                    yield Event::json(&SessionEvent::UserMessageStart { position });
-                    yield Event::json(&SessionEvent::UserMessageDelta { delta: message.text.clone() });
-                    yield Event::json(&SessionEvent::UserMessageEnd { position });
+                    yield Event::json(&ChatEvent::UserMessageStart { position });
+                    yield Event::json(&ChatEvent::UserMessageDelta { delta: message.text.clone() });
+                    yield Event::json(&ChatEvent::UserMessageEnd { position });
                 }
 
                 Role::Assistant => {
-                    yield Event::json(&SessionEvent::AssistantMessageStart { position });
+                    yield Event::json(&ChatEvent::AssistantMessageStart { position });
                     if let Some(ref thinking) = message.thinking {
-                        yield Event::json(&SessionEvent::AssistantThinkingDelta { delta: thinking.clone() });
+                        yield Event::json(&ChatEvent::AssistantThinkingDelta { delta: thinking.clone() });
                     }
-                    yield Event::json(&SessionEvent::AssistantMessageDelta { delta: message.text.clone() });
-                    yield Event::json(&SessionEvent::AssistantMessageEnd { position });
+                    yield Event::json(&ChatEvent::AssistantMessageDelta { delta: message.text.clone() });
+                    yield Event::json(&ChatEvent::AssistantMessageEnd { position });
                 }
 
                 Role::System => {}
@@ -127,14 +127,14 @@ pub async fn stream_chat_by_id(
 
         // Send current message so far.
         if let chat::SessionState::Generating = state {
-            yield Event::json(&SessionEvent::AssistantMessageStart { position: past_messages.len() });
+            yield Event::json(&ChatEvent::AssistantMessageStart { position: past_messages.len() });
 
             if !current_assistant_thinking.is_empty() {
-                yield Event::json(&SessionEvent::AssistantThinkingDelta { delta: current_assistant_thinking });
+                yield Event::json(&ChatEvent::AssistantThinkingDelta { delta: current_assistant_thinking });
             }
 
             if !current_assistant_message.is_empty() {
-                yield Event::json(&SessionEvent::AssistantMessageDelta { delta: current_assistant_message });
+                yield Event::json(&ChatEvent::AssistantMessageDelta { delta: current_assistant_message });
             }
         }
 
@@ -167,7 +167,7 @@ pub async fn stream_chat_by_id(
 #[post("/testgenerate")]
 pub async fn test_generate(
     db_pool: &State<r2d2::Pool<SqliteConnectionManager>>,
-    store: &State<SessionStore>,
+    store: &State<ChatStore>,
     featherless_api: &State<FeatherlessApi>,
 ) -> Result<Json<ChatMetadata>, ApiErrorResponse> {
     let db_conn = db_pool
