@@ -11,7 +11,7 @@ use crate::backends::{
     featherless::{self, FeatherlessApi},
     Backend,
 };
-use crate::data::chat::Chat;
+use crate::chat::Chat;
 
 use super::ApiErrorResponse;
 

@@ -13,8 +13,6 @@ thiserror = "2"
 sse-stream = "0.2.1"
 futures = "0.3.31"
 async-stream = "0.3.6"
-r2d2 = "0.8.10"
-r2d2_sqlite = "0.31.0"
 
 [dependencies.tokio]
 version = "1.48.0"
@@ -26,7 +24,7 @@ features = ["json", "uuid"]
 
 [dependencies.uuid]
 version = "1.19.0"
-features = ["v4", "serde"]
+features = ["v4", "v7", "serde"]
 
 [dependencies.serde]
 version = "1.0.228"
@@ -39,10 +37,6 @@ features = ["formatting", "local-offset", "serde"]
 [dependencies.reqwest]
 version = "0.12.24"
 features = ["json", "stream"]
-
-[dependencies.rusqlite]
-version = "0.37.0"
-features = ["bundled", "uuid"]
 
 [dependencies.schemars]
 version = "1.1.0"

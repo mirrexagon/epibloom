@@ -10,7 +10,7 @@ use sse_stream::SseStream;
 use super::FEATHERLESS_API_URL_BASE;
 
 use crate::backends;
-use crate::data::chat;
+use crate::chat;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -33,7 +33,7 @@ impl From<chat::Role> for Role {
 mod request {
     use serde::Serialize;
 
-    use crate::data::chat;
+    use crate::chat;
 
     #[derive(Debug, Clone, Serialize)]
     pub struct Request {
@@ -166,15 +166,15 @@ mod response {
 const THINKING_START_DELIMITER: &str = "<think>";
 const THINKING_END_DELIMITER: &str = "</think>";
 
-pub fn generate<'a>(
-    client: &'a reqwest::Client,
-    config: &'a super::Config,
-    chat: &'a chat::Chat,
-) -> impl Stream<Item = Result<backends::GenerateChunk, super::Error>> + 'a {
+pub fn generate(
+    client: reqwest::Client,
+    config: super::Config,
+    chat: chat::Chat,
+) -> impl Stream<Item = Result<backends::GenerateChunk, super::Error>> {
     try_stream! {
         let url = format!("{FEATHERLESS_API_URL_BASE}/chat/completions");
 
-        let body = request::Request::new(config, chat);
+        let body = request::Request::new(&config, &chat);
         debug!(
             "Featherless chat completions request: {}",
             serde_json::to_string_pretty(&body).unwrap()

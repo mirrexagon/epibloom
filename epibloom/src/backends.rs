@@ -7,12 +7,14 @@
 pub mod anthropic;
 pub mod featherless;
 
+use std::pin::Pin;
+
 use futures::Stream;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::data::chat::Chat;
+use crate::chat::Chat;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub enum GenerateChunk {
@@ -21,7 +23,7 @@ pub enum GenerateChunk {
 }
 
 pub trait Backend: Clone {
-    type Config: JsonSchema;
+    type Config: JsonSchema + Clone;
     type Error: std::error::Error;
 
     // TODO: On config structs, use
@@ -35,9 +37,9 @@ pub trait Backend: Clone {
     }
     */
 
-    fn generate<'a>(
-        &'a self,
-        config: &'a Self::Config,
-        chat: &'a Chat,
-    ) -> impl Stream<Item = Result<GenerateChunk, Self::Error>> + Send + 'a;
+    fn generate(
+        &self,
+        config: &Self::Config,
+        chat: &Chat,
+    ) -> Pin<Box<dyn Stream<Item = Result<GenerateChunk, Self::Error>> + Send>>;
 }

@@ -9,7 +9,7 @@ use sse_stream::SseStream;
 
 use super::ANTHROPIC_API_URL_BASE;
 use crate::backends;
-use crate::data::chat;
+use crate::chat;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 enum Role {
@@ -170,7 +170,7 @@ struct DocumentCitations {
 mod request {
     use serde::Serialize;
 
-    use crate::data::chat;
+    use crate::chat;
 
     #[derive(Debug, Clone, Serialize)]
     pub struct Request {
@@ -374,15 +374,15 @@ mod response {
     }
 }
 
-pub fn generate<'a>(
-    client: &'a reqwest::Client,
-    config: &'a super::Config,
-    chat: &'a chat::Chat,
-) -> impl Stream<Item = Result<backends::GenerateChunk, super::Error>> + 'a {
+pub fn generate(
+    client: reqwest::Client,
+    config: super::Config,
+    chat: chat::Chat,
+) -> impl Stream<Item = Result<backends::GenerateChunk, super::Error>> {
     try_stream! {
         let url = format!("{ANTHROPIC_API_URL_BASE}/messages");
 
-        let body = request::Request::new(config, chat);
+        let body = request::Request::new(&config, &chat);
         debug!(
             "Anthropic messages request: {}",
             serde_json::to_string_pretty(&body).unwrap()

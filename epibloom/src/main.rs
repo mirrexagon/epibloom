@@ -3,16 +3,13 @@ extern crate rocket;
 
 mod api;
 mod backends;
-// TODO: Move chat up one level, since it has its own db submodule and has
-// session logic so isn't really just data anymore
-mod data;
+mod chat;
 mod util;
 
 use std::fs;
 use std::path::PathBuf;
 
 use etcetera::{choose_app_strategy, AppStrategy, AppStrategyArgs};
-use r2d2_sqlite::SqliteConnectionManager;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -43,15 +40,7 @@ fn rocket() -> _ {
 
     fs::create_dir_all(&data_dir).unwrap();
 
-    let mut db_path = PathBuf::new();
-    db_path.push(&data_dir);
-    db_path.push(DATABASE_FILENAME);
-
-    let manager = SqliteConnectionManager::file(db_path.as_path());
-    let db_pool = r2d2::Pool::new(manager).unwrap();
-    data::chat::db_init(&db_pool).unwrap();
-
-    let chat_session_store = data::chat::ChatStore::new();
+    let chat_session_store = chat::ChatStore::new();
 
     let anthropic_api: AnthropicApi = AnthropicApi::new_with_key_from_env().unwrap();
     let featherless_api: FeatherlessApi = FeatherlessApi::new_with_key_from_env().unwrap();
@@ -72,7 +61,6 @@ fn rocket() -> _ {
     rocket::build()
         .manage(anthropic_api)
         .manage(featherless_api)
-        .manage(db_pool)
         .manage(chat_session_store)
         .mount(
             "/",

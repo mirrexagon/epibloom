@@ -2,6 +2,7 @@ mod messages;
 mod models;
 
 use std::env;
+use std::pin::Pin;
 
 use futures::Stream;
 use schemars::JsonSchema;
@@ -15,7 +16,7 @@ const ANTHROPIC_API_URL_BASE: &str = "https://api.anthropic.com/v1";
 
 static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, JsonSchema, Clone)]
 pub struct Config {
     pub max_tokens: u32,
     pub model: String,
@@ -89,11 +90,16 @@ impl super::Backend for AnthropicApi {
     type Config = Config;
     type Error = Error;
 
-    fn generate<'a>(
-        &'a self,
-        config: &'a Self::Config,
-        chat: &'a backends::Chat,
-    ) -> impl Stream<Item = std::result::Result<backends::GenerateChunk, Self::Error>> + 'a {
-        messages::generate(&self.client, config, chat)
+    fn generate(
+        &self,
+        config: &Self::Config,
+        chat: &backends::Chat,
+    ) -> Pin<Box<dyn Stream<Item = std::result::Result<backends::GenerateChunk, Self::Error>> + Send>>
+    {
+        Box::pin(messages::generate(
+            self.clone().client,
+            config.clone(),
+            chat.clone(),
+        ))
     }
 }
