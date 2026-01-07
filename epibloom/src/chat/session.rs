@@ -128,8 +128,6 @@ impl ChatStore {
 
             // Send past messages.
             for (position, message) in past_messages.iter().enumerate() {
-                log::debug!("Sending past message {position}: {message:#?}");
-
                 match message.role {
                     Role::User => {
                         yield ChatEvent::UserMessageStart { position };
@@ -187,7 +185,6 @@ impl ChatStore {
             loop {
                 match rx.recv().await {
                     Ok(event) => {
-                        log::debug!("Channel received event: {event:#?}");
                         yield event;
                     }
                     Err(RecvError::Lagged(num_skipped_messages)) => {
