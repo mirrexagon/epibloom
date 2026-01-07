@@ -1,28 +1,16 @@
-use std::{
-    pin::pin,
-    sync::{Arc, Mutex},
-};
-
-use futures::{Stream, StreamExt};
+use futures::StreamExt;
 use rocket::{
     get,
-    response::status,
     response::stream::{Event, EventStream},
     serde::json::Json,
     State,
 };
 use serde::{Deserialize, Serialize};
-use utoipa::{IntoParams, OpenApi, ToSchema};
+use utoipa::{OpenApi, ToSchema};
 use uuid::Uuid;
 
-use crate::{
-    backends::{
-        anthropic::{self, AnthropicApi},
-        featherless::{self, FeatherlessApi},
-        Backend,
-    },
-    chat::{self, Chat, ChatEvent, ChatMetadata, ChatStore, Role},
-};
+use crate::backends::featherless::{self, FeatherlessApi};
+use crate::chat::{self, Chat, ChatMetadata, ChatStore, Role};
 
 use super::ApiErrorResponse;
 
@@ -86,8 +74,7 @@ pub async fn stream_chat_by_id(
     let chat_stream = store.get_chat_stream(chat_id).await.map_err(|err| {
         ApiErrorResponse::NotFound(format!(
             "Could not get stream for chat {}: {}",
-            chat_id,
-            err.to_string()
+            chat_id, err
         ))
     })?;
 

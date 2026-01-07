@@ -1,16 +1,13 @@
-use std::{collections::HashMap, fmt, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use async_stream::stream;
-use futures::{Stream, StreamExt};
+use futures::Stream;
 use serde::{Deserialize, Serialize};
-use time::macros::format_description;
-use time::OffsetDateTime;
 use tokio::sync::{broadcast, RwLock};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::backends;
-use crate::util;
 
 use super::{Chat, ChatMetadata, Error, Message, Role};
 

@@ -4,10 +4,8 @@ extern crate rocket;
 mod api;
 mod backends;
 mod chat;
-mod util;
 
 use std::fs;
-use std::path::PathBuf;
 
 use etcetera::{choose_app_strategy, AppStrategy, AppStrategyArgs};
 use utoipa::OpenApi;
@@ -15,8 +13,6 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use backends::anthropic::AnthropicApi;
 use backends::featherless::FeatherlessApi;
-
-const DATABASE_FILENAME: &str = "epibloom.db";
 
 #[launch]
 fn rocket() -> _ {
