@@ -110,6 +110,9 @@ pub enum Error {
     #[error("thinking was supplied for a non-assistant message")]
     ThinkingSuppliedForNonAssistantMessage,
 
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
+
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 }

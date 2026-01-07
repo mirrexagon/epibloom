@@ -34,9 +34,12 @@ fn rocket() -> _ {
     let _state_dir = strategy.state_dir();
     let _runtime_dir = strategy.runtime_dir();
 
-    fs::create_dir_all(&data_dir).unwrap();
+    let chats_dir = data_dir.join("chats");
 
-    let chat_session_store = chat::ChatStore::new();
+    fs::create_dir_all(&data_dir).unwrap();
+    fs::create_dir_all(&chats_dir).unwrap();
+
+    let chat_session_store = chat::ChatStore::new(&chats_dir);
 
     let anthropic_api: AnthropicApi = AnthropicApi::new_with_key_from_env().unwrap();
     let featherless_api: FeatherlessApi = FeatherlessApi::new_with_key_from_env().unwrap();

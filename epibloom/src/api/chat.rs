@@ -27,7 +27,9 @@ impl From<chat::Error> for ApiErrorResponse {
             chat::Error::ThinkingSuppliedForNonAssistantMessage => {
                 ApiErrorResponse::BadRequest(value.to_string())
             }
-            chat::Error::Io(_) => ApiErrorResponse::InternalServerError(value.to_string()),
+            chat::Error::Io(_) | chat::Error::Json(_) => {
+                ApiErrorResponse::InternalServerError(value.to_string())
+            }
         }
     }
 }

@@ -16,7 +16,7 @@ async-stream = "0.3.6"
 
 [dependencies.tokio]
 version = "1.48.0"
-features = ["sync"]
+features = ["full"]
 
 [dependencies.rocket]
 version = "0.5.1"
