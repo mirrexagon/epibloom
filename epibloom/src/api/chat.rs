@@ -9,7 +9,10 @@ use serde::{Deserialize, Serialize};
 use utoipa::{OpenApi, ToSchema};
 use uuid::Uuid;
 
-use crate::backends::featherless::{self, FeatherlessApi};
+use crate::backends::{
+    anthropic::{self, AnthropicApi},
+    featherless::{self, FeatherlessApi},
+};
 use crate::chat::{self, Chat, ChatMetadata, ChatStore, Role};
 
 use super::ApiErrorResponse;
@@ -91,6 +94,7 @@ pub async fn stream_chat_by_id(
 pub async fn test_generate(
     store: &State<ChatStore>,
     featherless_api: &State<FeatherlessApi>,
+    anthropic_api: &State<AnthropicApi>,
 ) -> Result<Json<ChatMetadata>, ApiErrorResponse> {
     let new_chat_id = store.new_chat(None).await?;
     let new_chat_metadata = store.get_chat_copy(new_chat_id).await?.metadata;
@@ -105,9 +109,9 @@ pub async fn test_generate(
         )
         .await?;
 
-    let config = featherless::Config::default();
+    let config = anthropic::Config::default();
     store
-        .start_generating(new_chat_id, &**featherless_api, &config)
+        .start_generating(new_chat_id, &**anthropic_api, &config)
         .await?;
 
     Ok(Json(new_chat_metadata))

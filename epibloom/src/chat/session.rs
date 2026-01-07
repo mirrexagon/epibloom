@@ -80,6 +80,10 @@ impl ChatStore {
         thinking: Option<&str>,
         text: &str,
     ) -> Result<usize, Error> {
+        if thinking.is_some() && role != Role::Assistant {
+            return Err(Error::ThinkingSuppliedForNonAssistantMessage);
+        }
+
         let session_arc = self.get_session_arc(chat_id).await?;
         let mut session = session_arc.write().await;
 
@@ -97,7 +101,42 @@ impl ChatStore {
             modified: now,
         });
 
-        // TODO: Broadcast new message
+        session.chat.metadata.modified = now;
+
+        let new_message_position = session.chat.messages.len() - 1;
+
+        let _ = session.broadcast.send(match role {
+            Role::System | Role::User => ChatEvent::UserMessageStart {
+                position: new_message_position,
+            },
+            Role::Assistant => ChatEvent::AssistantMessageStart {
+                position: new_message_position,
+            },
+        });
+
+        if let Some(thinking) = thinking {
+            let _ = session.broadcast.send(ChatEvent::AssistantThinkingDelta {
+                delta: thinking.to_owned(),
+            });
+        }
+
+        let _ = session.broadcast.send(match role {
+            Role::System | Role::User => ChatEvent::UserMessageDelta {
+                delta: text.to_owned(),
+            },
+            Role::Assistant => ChatEvent::AssistantMessageDelta {
+                delta: text.to_owned(),
+            },
+        });
+
+        let _ = session.broadcast.send(match role {
+            Role::System | Role::User => ChatEvent::UserMessageStart {
+                position: new_message_position,
+            },
+            Role::Assistant => ChatEvent::AssistantMessageStart {
+                position: new_message_position,
+            },
+        });
 
         Ok(session.chat.messages.len() - 1)
     }
@@ -285,6 +324,8 @@ impl Session {
                 let new_thinking = session.current_assistant_thinking.clone();
                 let new_message = session.current_assistant_message.clone();
 
+                let now = time::OffsetDateTime::now_local().unwrap();
+
                 session.chat.messages.push(Message {
                     role: Role::Assistant,
                     thinking: if !new_thinking.is_empty() {
@@ -293,12 +334,14 @@ impl Session {
                         None
                     },
                     text: new_message,
-                    created: time::OffsetDateTime::now_local().unwrap(),
-                    modified: time::OffsetDateTime::now_local().unwrap(),
+                    created: now,
+                    modified: now,
                 });
 
                 session.current_assistant_message.truncate(0);
                 session.current_assistant_thinking.truncate(0);
+
+                session.chat.metadata.modified = now;
 
                 session.state = State::Idle;
             }
