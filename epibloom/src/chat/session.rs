@@ -7,7 +7,7 @@ use tokio::sync::{broadcast, RwLock};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::backends;
+use crate::{backends, chat::session};
 
 use super::{Chat, ChatMetadata, Error, Message, Role};
 
@@ -35,8 +35,18 @@ impl ChatStore {
         }
     }
 
-    pub fn list_chats(&self) -> Result<Vec<ChatMetadata>, super::Error> {
-        todo!()
+    pub async fn list_chats(&self) -> Result<Vec<ChatMetadata>, super::Error> {
+        let sessions = self.sessions.read().await;
+
+        // TODO: This is inefficient since it has to lock every chat. Is there a
+        // better way to store chats so the metadata is more easily accessible?
+        let mut chats = Vec::new();
+        for (_, session_arc) in sessions.iter() {
+            let session = session_arc.read().await;
+            chats.push(session.chat.metadata.clone());
+        }
+
+        Ok(chats)
     }
 
     pub async fn new_chat(&self, name: Option<&str>) -> Result<Uuid, Error> {

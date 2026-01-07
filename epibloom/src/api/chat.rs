@@ -51,8 +51,10 @@ pub struct GetChatsResponse {
     )
 )]
 #[get("/")]
-pub fn get_chats(store: &State<ChatStore>) -> Result<Json<GetChatsResponse>, ApiErrorResponse> {
-    let chats_list = store.list_chats()?;
+pub async fn get_chats(
+    store: &State<ChatStore>,
+) -> Result<Json<GetChatsResponse>, ApiErrorResponse> {
+    let chats_list = store.list_chats().await?;
 
     let mut response = GetChatsResponse { chats: Vec::new() };
     for chat_metadata in chats_list.iter() {
