@@ -1,10 +1,12 @@
 mod session;
 
 use std::fmt;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use time::macros::format_description;
 use time::OffsetDateTime;
+use tokio::fs;
 use utoipa::ToSchema;
 use uuid::{NoContext, Timestamp, Uuid};
 
@@ -91,10 +93,49 @@ impl Chat {
             messages: Vec::new(),
         }
     }
+
+    pub async fn load_all_from_chats_directory() -> Result<Vec<Self>, Error> {
+        let mut chats = Vec::new();
+
+        let mut dir = fs::read_dir(crate::CHATS_DIR.get().unwrap()).await?;
+        while let Some(entry) = dir.next_entry().await? {
+            chats.push(Self::load_from_file(entry.path()).await?);
+        }
+
+        Ok(chats)
+    }
+
+    pub async fn load_from_chats_directory(chat_id: Uuid) -> Result<Self, Error> {
+        let mut file_path = crate::CHATS_DIR.get().unwrap().clone();
+        file_path.push(format!("{}.json", chat_id.hyphenated()));
+
+        Self::load_from_file(&file_path).await
+    }
+
+    pub async fn save_to_chats_directory(&self) -> Result<(), Error> {
+        let mut file_path = crate::CHATS_DIR.get().unwrap().clone();
+        file_path.push(format!("{}.json", self.metadata.id.hyphenated()));
+        self.save_to_file(&file_path).await?;
+        Ok(())
+    }
+
+    pub async fn load_from_file<P: AsRef<Path>>(file_path: P) -> Result<Self, Error> {
+        let text = fs::read(file_path).await?;
+        let chat = serde_json::from_slice(&text)?;
+        Ok(chat)
+    }
+
+    pub async fn save_to_file<P: AsRef<Path>>(&self, file_path: P) -> Result<(), Error> {
+        fs::write(&file_path, serde_json::to_string_pretty(self)?).await?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    // TODO: Remove context information from errors, always log that at the
+    // caller receiving the error. Getting chats failing in the API already
+    // does.
     #[error("chat not found: {0}")]
     ChatNotFound(Uuid),
 

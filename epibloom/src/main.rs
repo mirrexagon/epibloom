@@ -6,13 +6,18 @@ mod backends;
 mod chat;
 
 use std::fs;
+use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use etcetera::{choose_app_strategy, AppStrategy, AppStrategyArgs};
+use rocket::fairing::AdHoc;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use backends::anthropic::AnthropicApi;
 use backends::featherless::FeatherlessApi;
+
+static CHATS_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 #[launch]
 fn rocket() -> _ {
@@ -34,12 +39,12 @@ fn rocket() -> _ {
     let _state_dir = strategy.state_dir();
     let _runtime_dir = strategy.runtime_dir();
 
-    let chats_dir = data_dir.join("chats");
+    CHATS_DIR.set(data_dir.join("chats")).unwrap();
 
     fs::create_dir_all(&data_dir).unwrap();
-    fs::create_dir_all(&chats_dir).unwrap();
+    fs::create_dir_all(CHATS_DIR.get().unwrap()).unwrap();
 
-    let chat_session_store = chat::ChatStore::new(&chats_dir);
+    let chat_store = chat::ChatStore::new();
 
     let anthropic_api: AnthropicApi = AnthropicApi::new_with_key_from_env().unwrap();
     let featherless_api: FeatherlessApi = FeatherlessApi::new_with_key_from_env().unwrap();
@@ -60,7 +65,27 @@ fn rocket() -> _ {
     rocket::build()
         .manage(anthropic_api)
         .manage(featherless_api)
-        .manage(chat_session_store)
+        .manage(chat_store)
+        .attach(AdHoc::try_on_ignite("Load chats from files", |rocket| {
+            Box::pin(async move {
+                let chat_store: &chat::ChatStore = match rocket.state() {
+                    Some(chat_store) => chat_store,
+                    None => return Err(rocket),
+                };
+
+                match chat_store.load_chats_from_chats_directory().await {
+                    Ok(_) => {}
+                    Err(err) => {
+                        log::error!("Couldn't load chats: {}", err);
+                        return Err(rocket);
+                    }
+                }
+
+                log::info!("Loaded chats succesfully");
+
+                Ok(rocket)
+            })
+        }))
         .mount(
             "/",
             SwaggerUi::new("/swagger-ui/<_..>").url("/api-docs/openapi.json", ApiDoc::openapi()),

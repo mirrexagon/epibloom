@@ -5,7 +5,6 @@ use std::sync::Arc;
 use async_stream::stream;
 use futures::Stream;
 use serde::{Deserialize, Serialize};
-use tokio::fs;
 use tokio::sync::{broadcast, RwLock};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -28,40 +27,40 @@ pub enum ChatEvent {
 }
 
 pub struct ChatStore {
-    chat_directory: PathBuf,
     sessions: Arc<RwLock<HashMap<Uuid, Arc<RwLock<Session>>>>>,
 }
 
 impl ChatStore {
-    pub fn new<P: AsRef<Path>>(chat_directory: P) -> Self {
+    pub fn new() -> Self {
         Self {
-            chat_directory: chat_directory.as_ref().to_owned(),
             sessions: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
-    async fn save_chat(&self, chat_id: Uuid) -> Result<(), Error> {
-        let mut file_path = self.chat_directory.clone();
-        let sessions = self.sessions.read().await;
+    pub async fn load_chats_from_chats_directory(&self) -> Result<(), Error> {
+        let chats = Chat::load_all_from_chats_directory().await?;
 
-        let session_arc = sessions.get(&chat_id).ok_or(Error::ChatNotFound(chat_id))?;
-        let session = session_arc.read().await;
-
-        file_path.push(format!("{}.json", session.chat.metadata.id.hyphenated()));
-        fs::write(&file_path, serde_json::to_string_pretty(&session.chat)?).await?;
+        for chat in chats {
+            self.add_chat(chat).await?;
+        }
 
         Ok(())
     }
 
+    pub async fn save_chat(&self, chat_id: Uuid) -> Result<(), Error> {
+        let sessions = self.sessions.read().await;
+        let session_arc = sessions.get(&chat_id).ok_or(Error::ChatNotFound(chat_id))?;
+        let session = session_arc.read().await;
+        session.chat.save_to_chats_directory().await?;
+        Ok(())
+    }
+
     pub async fn save_all_chats(&self) -> Result<(), Error> {
-        let mut file_path = self.chat_directory.clone();
         let sessions = self.sessions.read().await;
 
         for (_, session_arc) in sessions.iter() {
             let session = session_arc.read().await;
-            file_path.push(format!("{}.json", session.chat.metadata.id.hyphenated()));
-            fs::write(&file_path, serde_json::to_string_pretty(&session.chat)?).await?;
-            file_path.pop();
+            session.chat.save_to_chats_directory().await?;
         }
 
         Ok(())
@@ -82,28 +81,29 @@ impl ChatStore {
     }
 
     pub async fn new_chat(&self, name: Option<&str>) -> Result<Uuid, Error> {
-        let new_chat_id = {
-            let (broadcast, _) = broadcast::channel(1024);
-            let chat = Chat::new(name);
-            let new_chat_id = chat.metadata.id;
-            let new_session = Session {
-                chat,
-                current_assistant_message: String::new(),
-                current_assistant_thinking: String::new(),
-                broadcast,
-                state: State::Idle,
-            };
+        let chat = Chat::new(name);
+        let new_chat_id = chat.metadata.id;
+        chat.save_to_chats_directory().await?;
+        self.add_chat(chat).await?;
+        Ok(new_chat_id)
+    }
 
-            let mut sessions = self.sessions.write().await;
-
-            sessions.insert(new_chat_id, Arc::new(RwLock::new(new_session)));
-
-            new_chat_id
+    async fn add_chat(&self, chat: Chat) -> Result<(), Error> {
+        let (broadcast, _) = broadcast::channel(1024);
+        let new_chat_id = chat.metadata.id;
+        let new_session = Session {
+            chat,
+            current_assistant_message: String::new(),
+            current_assistant_thinking: String::new(),
+            broadcast,
+            state: State::Idle,
         };
 
-        self.save_chat(new_chat_id).await?;
+        let mut sessions = self.sessions.write().await;
 
-        Ok(new_chat_id)
+        sessions.insert(new_chat_id, Arc::new(RwLock::new(new_session)));
+
+        Ok(())
     }
 
     async fn get_session_arc(&self, chat_id: Uuid) -> Result<Arc<RwLock<Session>>, Error> {
@@ -128,69 +128,63 @@ impl ChatStore {
         thinking: Option<&str>,
         text: &str,
     ) -> Result<usize, Error> {
-        let new_message_position = {
-            if thinking.is_some() && role != Role::Assistant {
-                return Err(Error::ThinkingSuppliedForNonAssistantMessage);
-            }
+        if thinking.is_some() && role != Role::Assistant {
+            return Err(Error::ThinkingSuppliedForNonAssistantMessage);
+        }
 
-            let session_arc = self.get_session_arc(chat_id).await?;
-            let mut session = session_arc.write().await;
+        let session_arc = self.get_session_arc(chat_id).await?;
+        let mut session = session_arc.write().await;
 
-            if session.get_state() == State::Generating {
-                return Err(Error::ChatAlreadyGenerating);
-            }
+        if session.get_state() == State::Generating {
+            return Err(Error::ChatAlreadyGenerating);
+        }
 
-            let now = time::OffsetDateTime::now_local().unwrap();
+        let now = time::OffsetDateTime::now_local().unwrap();
 
-            session.chat.messages.push(Message {
-                role,
-                thinking: thinking.map(|s| s.to_owned()),
-                text: text.to_owned(),
-                created: now,
-                modified: now,
+        session.chat.messages.push(Message {
+            role,
+            thinking: thinking.map(|s| s.to_owned()),
+            text: text.to_owned(),
+            created: now,
+            modified: now,
+        });
+        session.chat.metadata.modified = now;
+        session.chat.save_to_chats_directory().await?;
+
+        let new_message_position = session.chat.messages.len() - 1;
+
+        let _ = session.broadcast.send(match role {
+            Role::System | Role::User => ChatEvent::UserMessageStart {
+                position: new_message_position,
+            },
+            Role::Assistant => ChatEvent::AssistantMessageStart {
+                position: new_message_position,
+            },
+        });
+
+        if let Some(thinking) = thinking {
+            let _ = session.broadcast.send(ChatEvent::AssistantThinkingDelta {
+                delta: thinking.to_owned(),
             });
+        }
 
-            session.chat.metadata.modified = now;
+        let _ = session.broadcast.send(match role {
+            Role::System | Role::User => ChatEvent::UserMessageDelta {
+                delta: text.to_owned(),
+            },
+            Role::Assistant => ChatEvent::AssistantMessageDelta {
+                delta: text.to_owned(),
+            },
+        });
 
-            let new_message_position = session.chat.messages.len() - 1;
-
-            let _ = session.broadcast.send(match role {
-                Role::System | Role::User => ChatEvent::UserMessageStart {
-                    position: new_message_position,
-                },
-                Role::Assistant => ChatEvent::AssistantMessageStart {
-                    position: new_message_position,
-                },
-            });
-
-            if let Some(thinking) = thinking {
-                let _ = session.broadcast.send(ChatEvent::AssistantThinkingDelta {
-                    delta: thinking.to_owned(),
-                });
-            }
-
-            let _ = session.broadcast.send(match role {
-                Role::System | Role::User => ChatEvent::UserMessageDelta {
-                    delta: text.to_owned(),
-                },
-                Role::Assistant => ChatEvent::AssistantMessageDelta {
-                    delta: text.to_owned(),
-                },
-            });
-
-            let _ = session.broadcast.send(match role {
-                Role::System | Role::User => ChatEvent::UserMessageStart {
-                    position: new_message_position,
-                },
-                Role::Assistant => ChatEvent::AssistantMessageStart {
-                    position: new_message_position,
-                },
-            });
-
-            new_message_position
-        };
-
-        self.save_chat(chat_id).await?;
+        let _ = session.broadcast.send(match role {
+            Role::System | Role::User => ChatEvent::UserMessageStart {
+                position: new_message_position,
+            },
+            Role::Assistant => ChatEvent::AssistantMessageStart {
+                position: new_message_position,
+            },
+        });
 
         Ok(new_message_position)
     }
@@ -311,9 +305,6 @@ enum State {
     Generating,
 }
 
-/// Live chat streaming sessions created on demand when either starting
-/// generation or requesting a session. These are used mainly to be the single
-/// source of streaming generation for the chat.
 struct Session {
     chat: Chat,
 
@@ -367,9 +358,10 @@ impl Session {
         let stream = backend.generate(backend_config, &chat);
 
         tokio::spawn(async move {
-            process_generation_stream(session_arc.clone(), stream, chat.messages.len())
-                .await
-                .unwrap();
+            let _ =
+                process_generation_stream(session_arc.clone(), stream, chat.messages.len()).await;
+            // If an error occurs in process_generation_stream(), a
+            // ChatEvent::Error will be sent on the session's broadcast channel.
 
             // Stream has completed.
             {
@@ -396,11 +388,14 @@ impl Session {
                 session.current_assistant_thinking.truncate(0);
 
                 session.chat.metadata.modified = now;
-
                 session.state = State::Idle;
-            }
 
-            // TODO: Save chat here.
+                if let Err(err) = session.chat.save_to_chats_directory().await {
+                    let _ = session.broadcast.send(ChatEvent::Error {
+                        message: err.to_string(),
+                    });
+                }
+            }
         });
 
         Ok(())
