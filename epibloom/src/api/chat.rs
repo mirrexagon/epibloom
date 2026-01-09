@@ -113,9 +113,9 @@ pub async fn test_generate(
         )
         .await?;
 
-    let config = anthropic::Config::default();
+    let config = featherless::Config::default();
     store
-        .start_generating(new_chat_id, &**anthropic_api, &config)
+        .start_generating(new_chat_id, &**featherless_api, &config)
         .await?;
 
     Ok(Json(new_chat_metadata))
