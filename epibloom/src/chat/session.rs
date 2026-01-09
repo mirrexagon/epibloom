@@ -256,12 +256,6 @@ impl ChatStore {
                 }
             }
 
-            // TODO: Is there ever a case where the above events occur and the
-            // message is also complete and we would have to send a message end
-            // event here? Ideally this should be impossible, either the message is
-            // in progress and the complete will come later, or it is not generating
-            // and the most recent message is part of the past messages.
-
             // Send any new events/messages as they come in.
             use tokio::sync::broadcast::error::RecvError;
 

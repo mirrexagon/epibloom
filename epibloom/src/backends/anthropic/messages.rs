@@ -22,9 +22,10 @@ enum Role {
 impl From<chat::Role> for Role {
     fn from(value: chat::Role) -> Self {
         match value {
-            chat::Role::System => Role::User, // TODO: Concatenate all system messages into a single one that goes into the system message field.
             chat::Role::Assistant => Role::Assistant,
             chat::Role::User => Role::User,
+
+            chat::Role::System => panic!("chat converted to Claude format had system messages - this should be prevented by a pre-processing step"),
         }
     }
 }
@@ -244,11 +245,6 @@ mod request {
             }
         }
     }
-
-    // TODO: impl From<response::Message> for Message
-    // so that we can transform the response message into a request message to
-    // send back to the model?
-    // But this will be done through backends always anyway.
 
     impl Default for Message {
         fn default() -> Self {
