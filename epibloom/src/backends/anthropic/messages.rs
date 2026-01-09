@@ -374,15 +374,33 @@ mod response {
     }
 }
 
+fn extract_system_prompt_from_chat(chat: &mut chat::Chat) -> Option<String> {
+    let system_messages: Vec<_> = chat
+        .messages
+        .extract_if(.., |m| m.role == chat::Role::System)
+        .map(|m| m.text)
+        .collect();
+
+    let system_prompt = system_messages.join("\n\n");
+
+    if system_prompt.is_empty() {
+        None
+    } else {
+        Some(system_prompt)
+    }
+}
+
 pub fn generate(
     client: reqwest::Client,
     config: super::Config,
-    chat: chat::Chat,
+    mut chat: chat::Chat,
 ) -> impl Stream<Item = Result<backends::GenerateChunk, super::Error>> {
     try_stream! {
         let url = format!("{ANTHROPIC_API_URL_BASE}/messages");
 
-        let body = request::Request::new(&config, &chat);
+        let system_prompt = extract_system_prompt_from_chat(&mut chat);
+        let mut body = request::Request::new(&config, &chat);
+        body.system = system_prompt;
         let request_json = serde_json::to_string_pretty(&body)?;
         debug!("Anthropic messages request: {}", request_json);
 
