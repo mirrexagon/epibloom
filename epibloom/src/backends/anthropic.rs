@@ -46,20 +46,31 @@ pub struct AnthropicApi {
 pub enum Error {
     #[error("Anthropic API returned error '{type}': {message}")]
     Api { r#type: String, message: String },
+
+    #[error("streaming event has no data")]
+    StreamingEventHasNoData,
+
+    #[error("Server-sent event error: {0}")]
+    Sse(#[from] sse_stream::Error),
+
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
+
     #[error("HTTP client error: {0}")]
     HttpClient(#[from] reqwest::Error),
+
+    #[error("Environment variable error: {0}")]
+    EnvVar(#[from] std::env::VarError),
 }
 
-type Result<T> = std::result::Result<T, Error>;
-
 impl AnthropicApi {
-    pub fn new_with_key_from_env() -> Result<Self> {
+    pub fn new_with_key_from_env() -> Result<Self, Error> {
         use reqwest::{
             header::{self, HeaderMap, HeaderValue},
             Client,
         };
 
-        let api_key = env::var("ANTHROPIC_API_KEY").unwrap();
+        let api_key = env::var("ANTHROPIC_API_KEY")?;
 
         let mut default_headers = HeaderMap::new();
 
@@ -81,7 +92,7 @@ impl AnthropicApi {
         Ok(AnthropicApi { client })
     }
 
-    pub async fn list_models(&self) -> Result<Vec<models::ModelInfo>> {
+    pub async fn list_models(&self) -> Result<Vec<models::ModelInfo>, Error> {
         models::list_models(&self.client).await
     }
 }
@@ -94,8 +105,7 @@ impl super::Backend for AnthropicApi {
         &self,
         config: &Self::Config,
         chat: &backends::Chat,
-    ) -> Pin<Box<dyn Stream<Item = std::result::Result<backends::GenerateChunk, Self::Error>> + Send>>
-    {
+    ) -> Pin<Box<dyn Stream<Item = Result<backends::GenerateChunk, Self::Error>> + Send>> {
         Box::pin(messages::generate(
             self.clone().client,
             config.clone(),

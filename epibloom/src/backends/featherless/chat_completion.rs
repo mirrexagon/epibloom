@@ -175,10 +175,8 @@ pub fn generate(
         let url = format!("{FEATHERLESS_API_URL_BASE}/chat/completions");
 
         let body = request::Request::new(&config, &chat);
-        debug!(
-            "Featherless chat completions request: {}",
-            serde_json::to_string_pretty(&body).unwrap()
-        );
+        let request_json = serde_json::to_string_pretty(&body)?;
+        debug!("Featherless chat completions request: {}", request_json);
 
         let response = client.post(url).json(&body).send().await?;
 
@@ -200,15 +198,15 @@ pub fn generate(
         // - One with no choices and with usage information and "system_fingerprint"
         // - Just the string "[DONE]"
         while let Some(sse) = sse_body.next().await {
-            let sse = sse.unwrap(); // TODO: Propagate errors.
+            let sse = sse?;
 
-            let json_string = sse.data.unwrap();
+            let json_string = sse.data.ok_or(super::Error::StreamingEventHasNoData)?;
 
             if json_string == "[DONE]" {
                 break;
             }
 
-            let chunk: response::ChatCompletionChunk = serde_json::from_str(&json_string).unwrap();
+            let chunk: response::ChatCompletionChunk = serde_json::from_str(&json_string)?;
 
             if let Some(choice) = chunk.choices.first() {
                 let mut text_delta = choice.delta.content.as_str();

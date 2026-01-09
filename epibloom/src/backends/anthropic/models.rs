@@ -22,7 +22,7 @@ struct ModelInfoPage {
     last_id: String,
 }
 
-pub async fn list_models(client: &reqwest::Client) -> super::Result<Vec<ModelInfo>> {
+pub async fn list_models(client: &reqwest::Client) -> Result<Vec<ModelInfo>, super::Error> {
     let url = format!("{ANTHROPIC_API_URL_BASE}/models");
 
     let response = client.get(url).send().await?;

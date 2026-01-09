@@ -383,10 +383,8 @@ pub fn generate(
         let url = format!("{ANTHROPIC_API_URL_BASE}/messages");
 
         let body = request::Request::new(&config, &chat);
-        debug!(
-            "Anthropic messages request: {}",
-            serde_json::to_string_pretty(&body).unwrap()
-        );
+        let request_json = serde_json::to_string_pretty(&body)?;
+        debug!("Anthropic messages request: {}", request_json);
 
         let response = client.post(url).json(&body).send().await?;
 
@@ -404,11 +402,11 @@ pub fn generate(
         let mut sse_body = SseStream::from_byte_stream(response.bytes_stream());
 
         while let Some(sse) = sse_body.next().await {
-            let sse = sse.unwrap();
+            let sse = sse?;
 
-            let json_string = sse.data.unwrap();
+            let json_string = sse.data.ok_or(super::Error::StreamingEventHasNoData)?;
 
-            let event: response::StreamingEvent = serde_json::from_str(&json_string).unwrap();
+            let event: response::StreamingEvent = serde_json::from_str(&json_string)?;
 
             match event {
                 response::StreamingEvent::MessageStart { message } => {

@@ -53,10 +53,21 @@ pub struct FeatherlessApi {
 pub enum Error {
     #[error("Featherless API returned error: {message}")]
     Api { message: String },
+
+    #[error("streaming event has no data")]
+    StreamingEventHasNoData,
+
+    #[error("Server-sent event error: {0}")]
+    Sse(#[from] sse_stream::Error),
+
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
+
     #[error("HTTP client error: {0}")]
     HttpClient(#[from] reqwest::Error),
-    #[error("Invalid response format: {0}")]
-    InvalidResponse(String),
+
+    #[error("Environment variable error: {0}")]
+    EnvVar(#[from] std::env::VarError),
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -67,7 +78,7 @@ impl FeatherlessApi {
             Client,
         };
 
-        let api_key = env::var("FEATHERLESS_API_KEY").unwrap();
+        let api_key = env::var("FEATHERLESS_API_KEY")?;
 
         let mut default_headers = HeaderMap::new();
 
