@@ -5,7 +5,7 @@ use rocket::{serde::json::Json, State};
 use serde::{Deserialize, Serialize};
 use utoipa::{OpenApi, ToSchema};
 
-use crate::backends::{
+use crate::backend::{
     self,
     anthropic::{self, AnthropicApi},
     featherless::{self, FeatherlessApi},
@@ -47,7 +47,7 @@ pub enum GenerateBackend {
 /// Helper function to process a stream of chunks from any backend.
 async fn process_stream<S, E>(stream: S) -> Result<Json<GenerateResponse>, ApiErrorResponse>
 where
-    S: Stream<Item = Result<backends::GenerateChunk, E>>,
+    S: Stream<Item = Result<backend::GenerateChunk, E>>,
     E: std::error::Error,
 {
     pin_mut!(stream);
@@ -60,8 +60,8 @@ where
 
         match chunk {
             Ok(chunk) => match chunk {
-                backends::GenerateChunk::ThinkingDelta(delta) => new_thinking.push_str(&delta),
-                backends::GenerateChunk::MessageDelta(delta) => new_message.push_str(&delta),
+                backend::GenerateChunk::ThinkingDelta(delta) => new_thinking.push_str(&delta),
+                backend::GenerateChunk::MessageDelta(delta) => new_message.push_str(&delta),
             },
             Err(err) => return Err(ApiErrorResponse::BadGateway(err.to_string().to_owned())),
         }

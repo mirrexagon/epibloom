@@ -11,7 +11,7 @@ use futures::Stream;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::backends;
+use crate::backend;
 
 const FEATHERLESS_API_URL_BASE: &str = "https://api.featherless.ai/v1";
 static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
@@ -107,8 +107,8 @@ impl super::Backend for FeatherlessApi {
     fn generate(
         &self,
         config: &Self::Config,
-        chat: &backends::Chat,
-    ) -> Pin<Box<dyn Stream<Item = std::result::Result<backends::GenerateChunk, Self::Error>> + Send>>
+        chat: &backend::Chat,
+    ) -> Pin<Box<dyn Stream<Item = std::result::Result<backend::GenerateChunk, Self::Error>> + Send>>
     {
         // TODO: See if we can get away with not cloning here, since technically
         // the stream should have no lifetime attachment to anything passed in,

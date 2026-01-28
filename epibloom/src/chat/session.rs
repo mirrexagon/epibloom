@@ -8,7 +8,7 @@ use tokio::sync::{broadcast, RwLock};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::backends;
+use crate::backend;
 
 use super::{Chat, ChatMetadata, Error, Message, Role};
 
@@ -276,15 +276,15 @@ impl ChatStore {
         })
     }
 
-    pub async fn start_generating<B: backends::Backend>(
+    pub async fn start_generating<B: backend::Backend>(
         &self,
         chat_id: Uuid,
         backend: &B,
         backend_config: &B::Config,
     ) -> Result<(), Error>
     where
-        <B as backends::Backend>::Config: Send + Sync + 'static,
-        <B as backends::Backend>::Error: Send + Sync + 'static,
+        <B as backend::Backend>::Config: Send + Sync + 'static,
+        <B as backend::Backend>::Error: Send + Sync + 'static,
     {
         let session_arc = self.get_session_arc(chat_id).await?;
         Session::start_generating(session_arc, backend, backend_config).await?;
@@ -329,14 +329,14 @@ impl Session {
         self.state
     }
 
-    async fn start_generating<B: backends::Backend>(
+    async fn start_generating<B: backend::Backend>(
         session_arc: Arc<RwLock<Session>>,
         backend: &B,
         backend_config: &B::Config,
     ) -> Result<(), Error>
     where
-        <B as backends::Backend>::Config: Send + Sync + 'static,
-        <B as backends::Backend>::Error: Send + Sync + 'static,
+        <B as backend::Backend>::Config: Send + Sync + 'static,
+        <B as backend::Backend>::Error: Send + Sync + 'static,
     {
         let chat = {
             let mut session = session_arc.write().await;
@@ -401,7 +401,7 @@ async fn process_generation_stream<S, E>(
     message_position: usize,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 where
-    S: futures::Stream<Item = Result<backends::GenerateChunk, E>>,
+    S: futures::Stream<Item = Result<backend::GenerateChunk, E>>,
     E: std::error::Error + Send + Sync + 'static,
 {
     use futures::stream::StreamExt;
@@ -419,7 +419,7 @@ where
         let mut session = session_arc.write().await;
         match result {
             Ok(chunk) => match chunk {
-                backends::GenerateChunk::ThinkingDelta(ref delta) => {
+                backend::GenerateChunk::ThinkingDelta(ref delta) => {
                     session.current_assistant_thinking.push_str(delta);
 
                     // Ignore failure to send as there may be no receivers.
@@ -427,7 +427,7 @@ where
                         delta: delta.clone(),
                     });
                 }
-                backends::GenerateChunk::MessageDelta(ref delta) => {
+                backend::GenerateChunk::MessageDelta(ref delta) => {
                     session.current_assistant_message.push_str(delta);
                     let _ = session.broadcast.send(ChatEvent::AssistantMessageDelta {
                         delta: delta.clone(),

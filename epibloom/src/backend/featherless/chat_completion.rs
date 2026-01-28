@@ -9,7 +9,7 @@ use sse_stream::SseStream;
 
 use super::FEATHERLESS_API_URL_BASE;
 
-use crate::backends;
+use crate::backend;
 use crate::chat;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
@@ -170,7 +170,7 @@ pub fn generate(
     client: reqwest::Client,
     config: super::Config,
     chat: chat::Chat,
-) -> impl Stream<Item = Result<backends::GenerateChunk, super::Error>> {
+) -> impl Stream<Item = Result<backend::GenerateChunk, super::Error>> {
     try_stream! {
         let url = format!("{FEATHERLESS_API_URL_BASE}/chat/completions");
 
@@ -234,20 +234,20 @@ pub fn generate(
                     };
 
                     if !thinking_delta.is_empty() {
-                        yield backends::GenerateChunk::ThinkingDelta(thinking_delta.to_owned());
+                        yield backend::GenerateChunk::ThinkingDelta(thinking_delta.to_owned());
                     }
 
                     if !message_delta.is_empty() {
-                        yield backends::GenerateChunk::MessageDelta(message_delta.to_owned());
+                        yield backend::GenerateChunk::MessageDelta(message_delta.to_owned());
                     }
 
                     in_thinking = !in_thinking;
                 } else {
                     #[allow(clippy::collapsible_else_if)]
                     if in_thinking {
-                        yield backends::GenerateChunk::ThinkingDelta(text_delta.to_owned());
+                        yield backend::GenerateChunk::ThinkingDelta(text_delta.to_owned());
                     } else {
-                        yield backends::GenerateChunk::MessageDelta(text_delta.to_owned());
+                        yield backend::GenerateChunk::MessageDelta(text_delta.to_owned());
                     }
                 }
             }

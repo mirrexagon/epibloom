@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::{OpenApi, ToSchema};
 use uuid::Uuid;
 
-use crate::backends::{
+use crate::backend::{
     anthropic::{self, AnthropicApi},
     featherless::{self, FeatherlessApi},
 };

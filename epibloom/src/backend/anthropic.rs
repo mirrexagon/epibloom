@@ -8,7 +8,7 @@ use futures::Stream;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::backends;
+use crate::backend;
 
 // https://docs.anthropic.com/en/api/versioning
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
@@ -104,8 +104,8 @@ impl super::Backend for AnthropicApi {
     fn generate(
         &self,
         config: &Self::Config,
-        chat: &backends::Chat,
-    ) -> Pin<Box<dyn Stream<Item = Result<backends::GenerateChunk, Self::Error>> + Send>> {
+        chat: &backend::Chat,
+    ) -> Pin<Box<dyn Stream<Item = Result<backend::GenerateChunk, Self::Error>> + Send>> {
         Box::pin(messages::generate(
             self.clone().client,
             config.clone(),

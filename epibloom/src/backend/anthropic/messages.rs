@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use sse_stream::SseStream;
 
 use super::ANTHROPIC_API_URL_BASE;
-use crate::backends;
+use crate::backend;
 use crate::chat;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
@@ -390,7 +390,7 @@ pub fn generate(
     client: reqwest::Client,
     config: super::Config,
     mut chat: chat::Chat,
-) -> impl Stream<Item = Result<backends::GenerateChunk, super::Error>> {
+) -> impl Stream<Item = Result<backend::GenerateChunk, super::Error>> {
     try_stream! {
         let url = format!("{ANTHROPIC_API_URL_BASE}/messages");
 
@@ -426,19 +426,19 @@ pub fn generate(
                 response::StreamingEvent::MessageStart { message } => {
                     for content_block in message.content {
                         if let ContentBlock::Text { text, .. } = content_block {
-                            yield backends::GenerateChunk::MessageDelta(text);
+                            yield backend::GenerateChunk::MessageDelta(text);
                         }
                     }
                 }
 
                 response::StreamingEvent::ContentBlockStart { content_block: ContentBlock::Text { text, .. }, .. } => {
-                    yield backends::GenerateChunk::MessageDelta(text)
+                    yield backend::GenerateChunk::MessageDelta(text)
                 }
 
                 response::StreamingEvent::ContentBlockDelta { delta, .. } => {
                     match delta {
-                        response::ContentBlockDelta::ThinkingDelta { thinking, .. } => yield backends::GenerateChunk::ThinkingDelta(thinking),
-                        response::ContentBlockDelta::TextDelta { text, .. } => yield backends::GenerateChunk::MessageDelta(text),
+                        response::ContentBlockDelta::ThinkingDelta { thinking, .. } => yield backend::GenerateChunk::ThinkingDelta(thinking),
+                        response::ContentBlockDelta::TextDelta { text, .. } => yield backend::GenerateChunk::MessageDelta(text),
 
                         _ => {}
                     }

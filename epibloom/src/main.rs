@@ -2,7 +2,7 @@
 extern crate rocket;
 
 mod api;
-mod backends;
+mod backend;
 mod chat;
 mod script;
 
@@ -15,8 +15,8 @@ use rocket::fairing::AdHoc;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-use backends::anthropic::AnthropicApi;
-use backends::featherless::FeatherlessApi;
+use backend::anthropic::AnthropicApi;
+use backend::featherless::FeatherlessApi;
 
 static CHATS_DIR: OnceLock<PathBuf> = OnceLock::new();
 
