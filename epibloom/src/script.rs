@@ -7,7 +7,13 @@
 // Scripts can go in global and local config locations, eg. /etc/epibloom/scripts and ~/.config/epibloom/scripts, and the user one is higher in package.path
 //
 // There is a POST API endpoint /api/script/<script name> which looks up scripts, passes the body JSON as Lua values to the script, runs it.
-// - How do results come back? Via a global event endpoint that streams events? (should this endpoint also just send the current state of the application as the first thing, like chat streams do?)
+// - How do results come back? Via a global event endpoint that streams events? (should this endpoint also just send the current state of the application as the first thing, like chat streams do?) Response has the return values of the script?
 // - Each script in its own Lua state or all use the same one? If same one, then can't run scripts in background waiting for things unless using some coroutine async thing - I want to try coroutine and async (mlua has support) where possible.
 //
-// Chat objects in Lua wrap a Uuid and internally the methods call back to the chat store.
+// Where to store game/global state? If same Lua state for all scripts, can be in Lua state and get loaded and saved to/from JSON when needed.
+//
+// Being able to run multiple scripts in parallel allows for doing multiple unrelated things at once, but eg. game scripts probably should be executed one after the other. Note that some game actions may want to run multiple chats at once, but one script can start multiple chat generations and wait on them all to do what it needs to.
+// Perhaps the API should be `/api/script/<script context name>/<script name>` to execute a script in a named Lua state context. The game can default to using either just "game" or an ID for the game session (as in a instantiation of the game, an overall persistent session, including all save files made for that session).
+//
+// Chat objects in Lua wrap a Uuid and internally the methods call back to the chat store, yielding back where the Rust implementation awaits for the thing to happen.
+//
