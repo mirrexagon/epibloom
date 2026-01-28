@@ -116,6 +116,10 @@ impl Context {
     /// up. This means the future won't resolve until then.
     pub async fn run_script(
         &self,
+        // TODO: Make this a relative path (example input
+        // `game/move_to_location`). If publishing for general use, ensure
+        // that the path is relative and doesn't go up and escape the scripts
+        // fdirectory.
         script_name: &str,
         input: serde_json::Value,
     ) -> Result<serde_json::Value, Error> {
