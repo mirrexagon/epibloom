@@ -58,4 +58,4 @@ features = ["rocket"]
 
 [dependencies.mlua]
 version = "0.11.6"
-features = ["lua55", "vendored", "async", "serde", "macros"]
+features = ["lua55", "vendored", "send", "async", "serde", "macros"]

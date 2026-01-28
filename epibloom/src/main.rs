@@ -20,6 +20,7 @@ use backend::featherless::FeatherlessApi;
 
 static CHATS_DIR: OnceLock<PathBuf> = OnceLock::new();
 static SCRIPTS_DIR: OnceLock<PathBuf> = OnceLock::new();
+static SCRIPT_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 #[launch]
 fn rocket() -> _ {
@@ -43,11 +44,14 @@ fn rocket() -> _ {
 
     CHATS_DIR.set(data_dir.join("chats")).unwrap();
     SCRIPTS_DIR.set(config_dir.join("scripts")).unwrap();
+    SCRIPT_DATA_DIR.set(config_dir.join("data")).unwrap();
 
     fs::create_dir_all(CHATS_DIR.get().unwrap()).unwrap();
     fs::create_dir_all(SCRIPTS_DIR.get().unwrap()).unwrap();
+    fs::create_dir_all(SCRIPT_DATA_DIR.get().unwrap()).unwrap();
 
     let chat_store = chat::ChatStore::new();
+    let script_context_store = script::ContextStore::new(&chat_store);
 
     let anthropic_api: AnthropicApi = AnthropicApi::new_with_key_from_env().unwrap();
     let featherless_api: FeatherlessApi = FeatherlessApi::new_with_key_from_env().unwrap();
@@ -69,6 +73,7 @@ fn rocket() -> _ {
         .manage(anthropic_api)
         .manage(featherless_api)
         .manage(chat_store)
+        .manage(script_context_store)
         .attach(AdHoc::try_on_ignite("Load chats from files", |rocket| {
             Box::pin(async move {
                 let chat_store: &chat::ChatStore = match rocket.state() {

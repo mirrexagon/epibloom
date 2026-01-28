@@ -25,6 +25,7 @@ pub enum ChatEvent {
     Error { message: String },
 }
 
+#[derive(Clone)]
 pub struct ChatStore {
     sessions: Arc<RwLock<HashMap<Uuid, Arc<RwLock<Session>>>>>,
 }

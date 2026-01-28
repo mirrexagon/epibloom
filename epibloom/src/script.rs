@@ -17,9 +17,48 @@
 //
 // Chat objects in Lua wrap a Uuid and internally the methods call back to the chat store, yielding back where the Rust implementation awaits for the thing to happen.
 
-use mlua::{Lua, LuaSerdeExt};
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use mlua::{Lua, LuaSerdeExt, ObjectLike, Table};
 use tokio::fs;
 use tokio::sync::Mutex;
+
+use crate::chat::ChatStore;
+
+pub struct ContextStore {
+    contexts: Arc<Mutex<HashMap<String, Arc<Context>>>>,
+
+    /// For scripts to interact with chats.
+    chat_store: ChatStore,
+}
+
+impl ContextStore {
+    pub fn new(chat_store: &ChatStore) -> Self {
+        Self {
+            contexts: Arc::new(Mutex::new(HashMap::new())),
+
+            // `chat_store.clone()` clones the inner Arc, so this is still a
+            // reference to the same chat store.
+            chat_store: chat_store.clone(),
+        }
+    }
+
+    /// Creates the context if it doesn't exist.
+    pub async fn get_context(&self, name: &str) -> Result<Arc<Context>, Error> {
+        let mut contexts = self.contexts.lock().await;
+        let key = name.to_owned();
+
+        match contexts.get(name) {
+            Some(context) => Ok(Arc::clone(context)),
+            None => {
+                let new_context = Arc::new(Context::new(&name)?);
+                contexts.insert(key, Arc::clone(&new_context));
+                Ok(new_context)
+            }
+        }
+    }
+}
 
 /// A script execution context. Script runs on the same context share a
 /// persistent Lua state.
@@ -32,17 +71,44 @@ pub struct Context {
 }
 
 impl Context {
-    pub fn new(name: &str) -> Self {
+    pub fn new(name: &str) -> Result<Self, Error> {
         let lua = Lua::new();
 
-        // TODO: Load standard libraries
+        // TODO: If publishing for general use, sandbox scripts, eg. remove
+        // access to io library and provide functions to read and write from the
+        // script data directory.
+
+        let globals = lua.globals();
+
+        // Setup `package.path` to include `SCRIPTS_DIR`, so modules can be `require()`d.
+        {
+            let scripts_dir = crate::SCRIPTS_DIR
+                .get()
+                .unwrap()
+                .to_str()
+                .expect("SCRIPTS_DIR was not valid UTF-8");
+
+            let package_config: String = globals.get_path("package.config")?;
+            let path_separator = package_config.chars().nth(0).unwrap();
+            let template_separator = package_config.chars().nth(1).unwrap();
+
+            let mut package_path: String = globals.get_path("package.path")?;
+            package_path.insert_str(
+                0,
+                &format!(
+                    "{scripts_dir}{path_separator}?.lua{template_separator}{scripts_dir}{path_separator}/?/init.lua"
+                ),
+            );
+            let package: Table = globals.get("package")?;
+            package.set("path", package_path)?;
+        }
 
         // TODO: Add chat, uuid, logging, etc. libraries
 
-        Self {
+        Ok(Self {
             name: name.to_owned(),
             lua: Mutex::new(lua),
-        }
+        })
     }
 
     /// If there is already a script running on this context and/or if there are
@@ -53,13 +119,20 @@ impl Context {
         script_name: &str,
         input: serde_json::Value,
     ) -> Result<serde_json::Value, Error> {
+        info!(
+            "Request to run script {script_name} on context {}",
+            self.name
+        );
+
         let lua = self.lua.lock().await;
 
         let input = lua.to_value(&input);
 
         let mut script_path = crate::SCRIPTS_DIR.get().unwrap().clone();
-        script_path.set_file_name(&format!("{script_name}.lua"));
+        script_path.set_file_name(format!("{script_name}.lua"));
         let script_content = fs::read_to_string(&script_path).await?;
+
+        info!("Running script {script_path} on context {}", self.name);
 
         let result = lua.load(script_content).call_async(input).await?;
 
