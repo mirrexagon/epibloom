@@ -19,6 +19,7 @@ use backend::anthropic::AnthropicApi;
 use backend::featherless::FeatherlessApi;
 
 static CHATS_DIR: OnceLock<PathBuf> = OnceLock::new();
+static SCRIPTS_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 #[launch]
 fn rocket() -> _ {
@@ -34,16 +35,17 @@ fn rocket() -> _ {
     })
     .unwrap();
 
-    let _config_dir = strategy.config_dir();
+    let config_dir = strategy.config_dir();
     let data_dir = strategy.data_dir();
     let _cache_dir = strategy.cache_dir();
     let _state_dir = strategy.state_dir();
     let _runtime_dir = strategy.runtime_dir();
 
     CHATS_DIR.set(data_dir.join("chats")).unwrap();
+    SCRIPTS_DIR.set(config_dir.join("scripts")).unwrap();
 
-    fs::create_dir_all(&data_dir).unwrap();
     fs::create_dir_all(CHATS_DIR.get().unwrap()).unwrap();
+    fs::create_dir_all(SCRIPTS_DIR.get().unwrap()).unwrap();
 
     let chat_store = chat::ChatStore::new();
 

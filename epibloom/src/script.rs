@@ -17,17 +17,61 @@
 //
 // Chat objects in Lua wrap a Uuid and internally the methods call back to the chat store, yielding back where the Rust implementation awaits for the thing to happen.
 
-/// A script execution context. Scripts run on the same Context can only run one after the other, and
-pub struct Context {}
+use mlua::{Lua, LuaSerdeExt};
+use tokio::fs;
+use tokio::sync::Mutex;
+
+/// A script execution context. Script runs on the same context share a
+/// persistent Lua state.
+pub struct Context {
+    name: String,
+    lua: Mutex<Lua>,
+}
 
 impl Context {
+    pub fn new(name: &str) -> Self {
+        let lua = Lua::new();
+
+        // TODO: Load standard libraries
+
+        // TODO: Add chat, uuid, logging, etc. libraries
+
+        Self {
+            name: name.to_owned(),
+            lua: Mutex::new(lua),
+        }
+    }
+
     /// If there is already a script running on this context and/or if there are
     /// some queued up, this script won't run until its spot in the queue comes
     /// up. This means the future won't resolve until then.
     pub async fn run_script(
-        &mut self,
+        &self,
         script_name: &str,
-    ) -> Result<serde_json::Value, mlua::Error> {
-        todo!()
+        input: serde_json::Value,
+    ) -> Result<serde_json::Value, Error> {
+        let lua = self.lua.lock().await;
+
+        let input = lua.to_value(&input);
+
+        let mut script_path = crate::SCRIPTS_DIR.get().unwrap().clone();
+        script_path.set_file_name(&format!("{script_name}.lua"));
+        let script_content = fs::read_to_string(&script_path).await?;
+
+        let result = lua.load(script_content).call_async(input).await?;
+
+        Ok(lua.from_value(result)?)
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("Lua error: {0}")]
+    Lua(#[from] mlua::Error),
+
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
 }
