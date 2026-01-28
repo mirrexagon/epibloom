@@ -4,6 +4,7 @@ extern crate rocket;
 mod api;
 mod backends;
 mod chat;
+mod script;
 
 use std::fs;
 use std::path::PathBuf;

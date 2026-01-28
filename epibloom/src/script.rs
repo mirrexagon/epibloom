@@ -16,4 +16,18 @@
 // Perhaps the API should be `/api/script/<script context name>/<script name>` to execute a script in a named Lua state context. The game can default to using either just "game" or an ID for the game session (as in a instantiation of the game, an overall persistent session, including all save files made for that session).
 //
 // Chat objects in Lua wrap a Uuid and internally the methods call back to the chat store, yielding back where the Rust implementation awaits for the thing to happen.
-//
+
+/// A script execution context. Scripts run on the same Context can only run one after the other, and
+pub struct Context {}
+
+impl Context {
+    /// If there is already a script running on this context and/or if there are
+    /// some queued up, this script won't run until its spot in the queue comes
+    /// up. This means the future won't resolve until then.
+    pub async fn run_script(
+        &mut self,
+        script_name: &str,
+    ) -> Result<serde_json::Value, mlua::Error> {
+        todo!()
+    }
+}
