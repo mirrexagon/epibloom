@@ -87,3 +87,5 @@ Start by making a simpler text adventure game with locations and exits, inventor
 # Tools for development
 - https://docs.rs/utoipa/latest/utoipa/index.html to export OpenAPI definitions for internal API - has Rocket support
 
+# Scripting
+- Implement lorebooks with scripting, have lorebooks be folders and entries be Markdown files with YAML front matter for any metadata

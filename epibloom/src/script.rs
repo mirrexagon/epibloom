@@ -25,6 +25,9 @@ use tokio::sync::Mutex;
 /// persistent Lua state.
 pub struct Context {
     name: String,
+
+    // The Tokio mutex unlocks to clients in FIFO order, so callers will
+    // automatically implicitly queue for access.
     lua: Mutex<Lua>,
 }
 
