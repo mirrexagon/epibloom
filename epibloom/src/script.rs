@@ -74,6 +74,7 @@ pub struct Context {
 impl Context {
     pub fn new(name: &str) -> Result<Self, Error> {
         let lua = Lua::new();
+        lua.set_named_registry_value("epibloom.context.name", name)?;
 
         // TODO: If publishing for general use, sandbox scripts, eg. remove
         // access to io library and provide functions to read and write from the
@@ -106,6 +107,84 @@ impl Context {
         }
 
         // TODO: Add chat, uuid, logging, etc. libraries
+
+        // Logging module.
+        {
+            let log_module = lua.create_table()?;
+
+            log_module.set(
+                "log",
+                lua.create_function(|lua, (level, message): (String, String)| {
+                    let level = match level.as_str() {
+                        "error" => log::Level::Error,
+                        "warn" => log::Level::Warn,
+                        "info" => log::Level::Info,
+                        "debug" => log::Level::Debug,
+                        "trace" => log::Level::Trace,
+                        _ => {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "provided log level {level} is not valid"
+                            )))
+                        }
+                    };
+
+                    let context_name: String = lua.named_registry_value("epibloom.context.name")?;
+                    let log_target = format!("script context '{context_name}'");
+
+                    log::log!(target: &log_target, level, "{message}");
+
+                    Ok(())
+                })?,
+            )?;
+
+            let package_loaded: Table = globals.get_path("package.loaded")?;
+            package_loaded.set("epibloom.log", log_module)?;
+
+            lua.load(
+                r#"
+                    local log = require("epibloom.log")
+
+                    for _, level in ipairs{ "error", "warn", "info", "debug", "trace" } do
+                        log[level] = function(message, ...)
+                            log.log(level, string.format(tostring(message), ...))
+                        end
+                    end
+
+                    _G.print = function(...args)
+                        for i = 1, args.n do
+                            args[i] = tostring(args[i])
+                        end
+
+                        log.info(table.concat(args, "\t"))
+                    end
+                "#,
+            )
+            .eval()?;
+        }
+
+        // UUID module.
+        {
+            let uuid_module = lua.create_table()?;
+
+            uuid_module.set(
+                "new",
+                lua.create_function(|_lua, _: ()| {
+                    let new_uuid = uuid::Uuid::now_v7();
+                    Ok(format!("{}", new_uuid.hyphenated()))
+                })?,
+            )?;
+
+            let package_loaded: Table = globals.get_path("package.loaded")?;
+            package_loaded.set("epibloom.uuid", uuid_module)?;
+        }
+
+        // Chat module.
+        {
+            let chat_module = lua.create_table()?;
+
+            let package_loaded: Table = globals.get_path("package.loaded")?;
+            package_loaded.set("epibloom.chat", chat_module)?;
+        }
 
         Ok(Self {
             name: name.to_owned(),
@@ -151,6 +230,8 @@ impl Context {
         let result = lua.load(script_content).call_async(input).await?;
 
         Ok(lua.from_value(result)?)
+
+        // TODO: Log any errors that happen here, currently they only come back in the HTTP request.
     }
 }
 
