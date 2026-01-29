@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
+use futures::FutureExt;
 use mlua::{Lua, LuaSerdeExt, ObjectLike, Table, UserData};
 use tokio::fs;
 use tokio::sync::Mutex;
@@ -29,20 +30,17 @@ use uuid::Uuid;
 use crate::chat::ChatStore;
 
 pub struct ContextStore {
-    contexts: Arc<Mutex<HashMap<String, Arc<Context>>>>,
+    contexts: Mutex<HashMap<String, Arc<Context>>>,
 
     /// For scripts to interact with chats.
-    chat_store: ChatStore,
+    chat_store: Arc<ChatStore>,
 }
 
 impl ContextStore {
-    pub fn new(chat_store: &ChatStore) -> Self {
+    pub fn new(chat_store: Arc<ChatStore>) -> Self {
         Self {
-            contexts: Arc::new(Mutex::new(HashMap::new())),
-
-            // `chat_store.clone()` clones the inner Arc, so this is still a
-            // reference to the same chat store.
-            chat_store: chat_store.clone(),
+            contexts: Mutex::new(HashMap::new()),
+            chat_store,
         }
     }
 
@@ -54,7 +52,7 @@ impl ContextStore {
         match contexts.get(name) {
             Some(context) => Ok(Arc::clone(context)),
             None => {
-                let new_context = Arc::new(Context::new(name, &self.chat_store)?);
+                let new_context = Arc::new(Context::new(name, Arc::clone(&self.chat_store))?);
                 contexts.insert(key, Arc::clone(&new_context));
                 Ok(new_context)
             }
@@ -72,11 +70,11 @@ pub struct Context {
     lua: Mutex<Lua>,
 
     /// For scripts to interact with chats.
-    chat_store: ChatStore,
+    chat_store: Arc<ChatStore>,
 }
 
 impl Context {
-    pub fn new(name: &str, chat_store: &ChatStore) -> Result<Self, Error> {
+    pub fn new(name: &str, chat_store: Arc<ChatStore>) -> Result<Self, Error> {
         let lua = Lua::new();
         lua.set_named_registry_value("epibloom.context.name", name)?;
 
@@ -154,7 +152,7 @@ impl Context {
                         end
                     end
 
-                    _G.print = function(...args)
+                    print = function(...args)
                         for i = 1, args.n do
                             args[i] = tostring(args[i])
                         end
@@ -186,21 +184,6 @@ impl Context {
         {
             let chat_module = lua.create_table()?;
 
-            // local all_chats = chats.get_all()
-            // -- all_chats = { chat_id = chat_object }
-            //
-            // local chat = chats.new(name)
-            // local chat = chats.get(chat_id)
-            //
-            // chat.messages = { { role = "user", text = "blah" }. ... }
-            // -- Can't get while generating
-            // -- Get an error when trying to set messages or something in it
-            //
-            // chat.push_message(role, text)
-            //
-            // chat.generate(backend, backend_config)
-            // chat.wait_for_generation()
-
             // chat_module.set(
             //     "new",
             //     lua.create_async_function(|lua, name: Option<String>| {
@@ -227,7 +210,7 @@ impl Context {
         Ok(Self {
             name: name.to_owned(),
             lua: Mutex::new(lua),
-            chat_store: chat_store.clone(),
+            chat_store: Arc::clone(&chat_store),
         })
     }
 
@@ -274,15 +257,57 @@ impl Context {
     }
 }
 
+struct LuaChatStore {
+    chat_store: Arc<ChatStore>,
+}
+
+// local all_chats = chats.get_all()
+// -- all_chats = { chat_id = chat_object }
+//
+// local chat = chats.new(name)
+// local chat = chats.get(chat_id)
+//
+// chat.messages = { { role = "user", text = "blah" }. ... }
+// -- can't get while generating
+// -- get an error when trying to set messages or something in it
+//
+// chat.push_message(role, text)
+//
+// chat.generate(backend, backend_config)
+// chat.wait_for_generation()
+
+impl UserData for LuaChatStore {
+    fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {}
+
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_async_method("new", async |lua, cs, name: Option<String>| {
+            let new_chat_id = cs
+                .chat_store
+                .new_chat(name.as_deref())
+                .await
+                .map_err(|err| mlua::Error::RuntimeError(err.to_string()))?;
+
+            Ok(LuaChat {
+                id: new_chat_id,
+                chat_store: Arc::clone(&cs.chat_store),
+            })
+        });
+    }
+}
+
 struct LuaChat {
     id: Uuid,
-    chat_store: ChatStore,
+    chat_store: Arc<ChatStore>,
 }
 
 impl UserData for LuaChat {
-    fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {}
+    fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
+        // TODO: messages
+    }
 
-    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {}
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        // TODO: push_message and generate
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

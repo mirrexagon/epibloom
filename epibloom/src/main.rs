@@ -8,7 +8,7 @@ mod script;
 
 use std::fs;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use etcetera::{choose_app_strategy, AppStrategy, AppStrategyArgs};
 use rocket::fairing::AdHoc;
@@ -50,8 +50,8 @@ fn rocket() -> _ {
     fs::create_dir_all(SCRIPTS_DIR.get().unwrap()).unwrap();
     fs::create_dir_all(SCRIPT_DATA_DIR.get().unwrap()).unwrap();
 
-    let chat_store = chat::ChatStore::new();
-    let script_context_store = script::ContextStore::new(&chat_store);
+    let chat_store = Arc::new(chat::ChatStore::new());
+    let script_context_store = script::ContextStore::new(Arc::clone(&chat_store));
 
     let anthropic_api: AnthropicApi = AnthropicApi::new_with_key_from_env().unwrap();
     let featherless_api: FeatherlessApi = FeatherlessApi::new_with_key_from_env().unwrap();
@@ -76,7 +76,7 @@ fn rocket() -> _ {
         .manage(script_context_store)
         .attach(AdHoc::try_on_ignite("Load chats from files", |rocket| {
             Box::pin(async move {
-                let chat_store: &chat::ChatStore = match rocket.state() {
+                let chat_store: &Arc<chat::ChatStore> = match rocket.state() {
                     Some(chat_store) => chat_store,
                     None => return Err(rocket),
                 };

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use futures::StreamExt;
 use rocket::{
     get,
@@ -10,7 +12,7 @@ use utoipa::{OpenApi, ToSchema};
 use uuid::Uuid;
 
 use crate::backend::{
-    anthropic::AnthropicApi,
+    anthropic::{self, AnthropicApi},
     featherless::{self, FeatherlessApi},
 };
 use crate::chat::{self, Chat, ChatMetadata, ChatStore, Role};
@@ -54,7 +56,7 @@ pub struct GetChatsResponse {
 )]
 #[get("/")]
 pub async fn get_chats(
-    store: &State<ChatStore>,
+    store: &State<Arc<ChatStore>>,
 ) -> Result<Json<GetChatsResponse>, ApiErrorResponse> {
     let chats_list = store.list_chats().await?;
 
@@ -76,7 +78,7 @@ pub async fn get_chats(
 #[get("/<chat_id>")]
 pub async fn stream_chat_by_id(
     chat_id: Uuid,
-    store: &State<ChatStore>,
+    store: &State<Arc<ChatStore>>,
 ) -> Result<EventStream![], ApiErrorResponse> {
     let chat_stream = store.get_chat_stream(chat_id).await.map_err(|err| {
         ApiErrorResponse::NotFound(format!(
@@ -96,7 +98,7 @@ pub async fn stream_chat_by_id(
 
 #[post("/testgenerate")]
 pub async fn test_generate(
-    store: &State<ChatStore>,
+    store: &State<Arc<ChatStore>>,
     featherless_api: &State<FeatherlessApi>,
     anthropic_api: &State<AnthropicApi>,
 ) -> Result<Json<ChatMetadata>, ApiErrorResponse> {
@@ -113,9 +115,9 @@ pub async fn test_generate(
         )
         .await?;
 
-    let config = featherless::Config::default();
+    let config = anthropic::Config::default();
     store
-        .start_generating(new_chat_id, &**featherless_api, &config)
+        .start_generating(new_chat_id, &**anthropic_api, &config)
         .await?;
 
     Ok(Json(new_chat_metadata))
