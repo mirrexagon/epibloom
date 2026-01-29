@@ -78,6 +78,7 @@ impl Context {
         // TODO: If publishing for general use, sandbox scripts, eg. remove
         // access to io library and provide functions to read and write from the
         // script data directory.
+        // Also reduce package.path to just Epibloom scripts directory (though scripts can change this, try to avoid that).
 
         let globals = lua.globals();
 
@@ -91,13 +92,13 @@ impl Context {
 
             let package_config: String = globals.get_path("package.config")?;
             let path_separator = package_config.chars().nth(0).unwrap();
-            let template_separator = package_config.chars().nth(1).unwrap();
+            let template_separator = package_config.chars().nth(2).unwrap();
 
             let mut package_path: String = globals.get_path("package.path")?;
             package_path.insert_str(
                 0,
                 &format!(
-                    "{scripts_dir}{path_separator}?.lua{template_separator}{scripts_dir}{path_separator}/?/init.lua"
+                    "{scripts_dir}{path_separator}?.lua{template_separator}{scripts_dir}{path_separator}?{path_separator}init.lua{template_separator}"
                 ),
             );
             let package: Table = globals.get("package")?;
