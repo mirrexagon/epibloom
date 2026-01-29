@@ -21,9 +21,10 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use mlua::{Lua, LuaSerdeExt, ObjectLike, Table};
+use mlua::{Lua, LuaSerdeExt, ObjectLike, Table, UserData};
 use tokio::fs;
 use tokio::sync::Mutex;
+use uuid::Uuid;
 
 use crate::chat::ChatStore;
 
@@ -53,7 +54,7 @@ impl ContextStore {
         match contexts.get(name) {
             Some(context) => Ok(Arc::clone(context)),
             None => {
-                let new_context = Arc::new(Context::new(name)?);
+                let new_context = Arc::new(Context::new(name, &self.chat_store)?);
                 contexts.insert(key, Arc::clone(&new_context));
                 Ok(new_context)
             }
@@ -69,10 +70,13 @@ pub struct Context {
     // The Tokio mutex unlocks to clients in FIFO order, so callers will
     // automatically implicitly queue for access.
     lua: Mutex<Lua>,
+
+    /// For scripts to interact with chats.
+    chat_store: ChatStore,
 }
 
 impl Context {
-    pub fn new(name: &str) -> Result<Self, Error> {
+    pub fn new(name: &str, chat_store: &ChatStore) -> Result<Self, Error> {
         let lua = Lua::new();
         lua.set_named_registry_value("epibloom.context.name", name)?;
 
@@ -159,7 +163,7 @@ impl Context {
                     end
                 "#,
             )
-            .eval()?;
+            .eval::<()>()?;
         }
 
         // UUID module.
@@ -169,7 +173,7 @@ impl Context {
             uuid_module.set(
                 "new",
                 lua.create_function(|_lua, _: ()| {
-                    let new_uuid = uuid::Uuid::now_v7();
+                    let new_uuid = Uuid::now_v7();
                     Ok(format!("{}", new_uuid.hyphenated()))
                 })?,
             )?;
@@ -182,13 +186,48 @@ impl Context {
         {
             let chat_module = lua.create_table()?;
 
+            // local all_chats = chats.get_all()
+            // -- all_chats = { chat_id = chat_object }
+            //
+            // local chat = chats.new(name)
+            // local chat = chats.get(chat_id)
+            //
+            // chat.messages = { { role = "user", text = "blah" }. ... }
+            // -- Can't get while generating
+            // -- Get an error when trying to set messages or something in it
+            //
+            // chat.push_message(role, text)
+            //
+            // chat.generate(backend, backend_config)
+            // chat.wait_for_generation()
+
+            // chat_module.set(
+            //     "new",
+            //     lua.create_async_function(|lua, name: Option<String>| {
+            //         let chat_store = chat_store
+            //         self.chat_store
+            //     })?,
+            // )?;
+
             let package_loaded: Table = globals.get_path("package.loaded")?;
             package_loaded.set("epibloom.chat", chat_module)?;
+        }
+
+        // Filesystem module.
+        {
+            let filesystem_module = lua.create_table()?;
+
+            // local f = assert(io.open(filesystem.data_file("game1/save1.json"), "w"))
+            // -- Opens "~/.local/share/epibloom/data/game1/save1.json"
+
+            let package_loaded: Table = globals.get_path("package.loaded")?;
+            package_loaded.set("epibloom.filesystem", filesystem_module)?;
         }
 
         Ok(Self {
             name: name.to_owned(),
             lua: Mutex::new(lua),
+            chat_store: chat_store.clone(),
         })
     }
 
@@ -233,6 +272,17 @@ impl Context {
 
         // TODO: Log any errors that happen here, currently they only come back in the HTTP request.
     }
+}
+
+struct LuaChat {
+    id: Uuid,
+    chat_store: ChatStore,
+}
+
+impl UserData for LuaChat {
+    fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {}
+
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {}
 }
 
 #[derive(Debug, thiserror::Error)]

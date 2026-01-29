@@ -25,6 +25,8 @@ pub enum ChatEvent {
     Error { message: String },
 }
 
+// TODO: Would it make sense for the outer Arc to be outside this struct?
+// Similar for script ContextStore.
 #[derive(Clone)]
 pub struct ChatStore {
     sessions: Arc<RwLock<HashMap<Uuid, Arc<RwLock<Session>>>>>,

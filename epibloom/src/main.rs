@@ -44,7 +44,7 @@ fn rocket() -> _ {
 
     CHATS_DIR.set(data_dir.join("chats")).unwrap();
     SCRIPTS_DIR.set(config_dir.join("scripts")).unwrap();
-    SCRIPT_DATA_DIR.set(config_dir.join("data")).unwrap();
+    SCRIPT_DATA_DIR.set(data_dir.join("data")).unwrap();
 
     fs::create_dir_all(CHATS_DIR.get().unwrap()).unwrap();
     fs::create_dir_all(SCRIPTS_DIR.get().unwrap()).unwrap();
