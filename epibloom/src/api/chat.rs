@@ -10,7 +10,7 @@ use utoipa::{OpenApi, ToSchema};
 use uuid::Uuid;
 
 use crate::backend::{
-    anthropic::{self, AnthropicApi},
+    anthropic::AnthropicApi,
     featherless::{self, FeatherlessApi},
 };
 use crate::chat::{self, Chat, ChatMetadata, ChatStore, Role};

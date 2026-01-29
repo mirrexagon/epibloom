@@ -18,6 +18,7 @@
 // Chat objects in Lua wrap a Uuid and internally the methods call back to the chat store, yielding back where the Rust implementation awaits for the thing to happen.
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 use mlua::{Lua, LuaSerdeExt, ObjectLike, Table};
@@ -52,7 +53,7 @@ impl ContextStore {
         match contexts.get(name) {
             Some(context) => Ok(Arc::clone(context)),
             None => {
-                let new_context = Arc::new(Context::new(&name)?);
+                let new_context = Arc::new(Context::new(name)?);
                 contexts.insert(key, Arc::clone(&new_context));
                 Ok(new_context)
             }
@@ -112,19 +113,17 @@ impl Context {
     }
 
     /// If there is already a script running on this context and/or if there are
-    /// some queued up, this script won't run until its spot in the queue comes
-    /// up. This means the future won't resolve until then.
-    pub async fn run_script(
+    /// some queued up, this script won't run until all previously-queued
+    /// scripts are run. This means the future won't resolve until then.
+    pub async fn run_script<P: AsRef<Path>>(
         &self,
-        // TODO: Make this a relative path (example input
-        // `game/move_to_location`). If publishing for general use, ensure
-        // that the path is relative and doesn't go up and escape the scripts
-        // fdirectory.
-        script_name: &str,
+        script_path: P,
         input: serde_json::Value,
     ) -> Result<serde_json::Value, Error> {
+        let script_path = script_path.as_ref();
+
         info!(
-            "Request to run script {script_name} on context {}",
+            "Request to run script {script_path:?} on context {}",
             self.name
         );
 
@@ -132,11 +131,21 @@ impl Context {
 
         let input = lua.to_value(&input);
 
-        let mut script_path = crate::SCRIPTS_DIR.get().unwrap().clone();
-        script_path.set_file_name(format!("{script_name}.lua"));
-        let script_content = fs::read_to_string(&script_path).await?;
+        let mut filesystem_script_path = crate::SCRIPTS_DIR.get().unwrap().clone();
+        filesystem_script_path.push(script_path);
+        filesystem_script_path.set_extension("lua");
+        filesystem_script_path.canonicalize()?;
 
-        info!("Running script {script_path} on context {}", self.name);
+        if !filesystem_script_path.starts_with(crate::SCRIPTS_DIR.get().unwrap()) {
+            return Err(Error::ScriptPathEscapesScriptDirectory);
+        }
+
+        let script_content = fs::read_to_string(&filesystem_script_path).await?;
+
+        info!(
+            "Running script {filesystem_script_path:?} on context {}",
+            self.name
+        );
 
         let result = lua.load(script_content).call_async(input).await?;
 
@@ -146,6 +155,9 @@ impl Context {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("Script path escapes the script directory")]
+    ScriptPathEscapesScriptDirectory,
+
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 

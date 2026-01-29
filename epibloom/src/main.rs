@@ -107,4 +107,5 @@ fn rocket() -> _ {
                 api::chat::test_generate
             ],
         )
+        .mount("/api/script", routes![api::script::run_script,])
 }

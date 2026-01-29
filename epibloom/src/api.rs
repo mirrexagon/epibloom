@@ -10,6 +10,9 @@ pub enum ApiErrorResponse {
     #[response(status = 400)]
     BadRequest(String),
 
+    #[response(status = 403)]
+    Forbidden(String),
+
     #[response(status = 404)]
     NotFound(String),
 
