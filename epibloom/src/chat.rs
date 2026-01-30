@@ -1,7 +1,7 @@
 mod session;
 
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use time::macros::format_description;
@@ -37,8 +37,8 @@ impl fmt::Display for Role {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Message {
     pub role: Role,
-    pub thinking: Option<String>,
     pub text: String,
+    pub thinking: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]

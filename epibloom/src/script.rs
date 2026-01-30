@@ -21,13 +21,12 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use futures::FutureExt;
 use mlua::{Lua, LuaSerdeExt, ObjectLike, Table, UserData};
 use tokio::fs;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::chat::ChatStore;
+use crate::chat::{self, Chat, ChatStore, Role};
 
 pub struct ContextStore {
     contexts: Mutex<HashMap<String, Arc<Context>>>,
@@ -161,6 +160,7 @@ impl Context {
                     end
                 "#,
             )
+            .set_name("epibloom.log module setup")
             .eval::<()>()?;
         }
 
@@ -182,18 +182,12 @@ impl Context {
 
         // Chat module.
         {
-            let chat_module = lua.create_table()?;
-
-            // chat_module.set(
-            //     "new",
-            //     lua.create_async_function(|lua, name: Option<String>| {
-            //         let chat_store = chat_store
-            //         self.chat_store
-            //     })?,
-            // )?;
+            let chats = lua.create_userdata(LuaChatStore {
+                chat_store: Arc::clone(&chat_store),
+            })?;
 
             let package_loaded: Table = globals.get_path("package.loaded")?;
-            package_loaded.set("epibloom.chat", chat_module)?;
+            package_loaded.set("epibloom.chat", chats)?;
         }
 
         // Filesystem module.
@@ -280,7 +274,7 @@ impl UserData for LuaChatStore {
     fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {}
 
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_async_method("new", async |lua, cs, name: Option<String>| {
+        methods.add_async_method("new", async |_lua, cs, name: Option<String>| {
             let new_chat_id = cs
                 .chat_store
                 .new_chat(name.as_deref())
@@ -307,6 +301,31 @@ impl UserData for LuaChat {
 
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         // TODO: push_message and generate
+
+        methods.add_async_method("push_message", async |_lua, chat, (role, text, thinking): (String, String, Option<String>)| {
+            let role = match role.as_str() {
+                "system" => Role::System,
+                "assistant" => Role::Assistant,
+                "user" => Role::User,
+                _ => return Err(mlua::Error::RuntimeError(format!(r#"bad argument #1: one of "system", "user", "assistant" expected, got '{role}'"#))),
+            };
+
+            chat.chat_store.push_message(chat.id, role, &text, thinking.as_deref()).await?;
+
+            Ok(())
+        });
+
+        methods.add_async_method("generate", async |_lua, chat, _: ()| {
+            todo!();
+
+            Ok(())
+        });
+    }
+}
+
+impl From<chat::Error> for mlua::Error {
+    fn from(value: chat::Error) -> Self {
+        mlua::Error::RuntimeError(value.to_string())
     }
 }
 

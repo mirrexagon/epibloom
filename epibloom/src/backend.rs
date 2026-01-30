@@ -8,6 +8,7 @@ pub mod anthropic;
 pub mod featherless;
 
 use std::pin::Pin;
+use std::sync::Arc;
 
 use futures::Stream;
 use schemars::JsonSchema;
@@ -22,7 +23,7 @@ pub enum GenerateChunk {
     MessageDelta(String),
 }
 
-pub trait Backend: Clone {
+pub trait Backend {
     type Config: JsonSchema + Clone;
     type Error: std::error::Error;
 
@@ -42,4 +43,19 @@ pub trait Backend: Clone {
         config: &Self::Config,
         chat: &Chat,
     ) -> Pin<Box<dyn Stream<Item = Result<GenerateChunk, Self::Error>> + Send>>;
+}
+
+pub struct Backends {
+    backends: RwLock<Vec<Backend>>,
+}
+
+impl Backends {
+    pub fn new() -> Self {
+        Self {
+            backends: RwLock::new(Vec::new()),
+        }
+    }
+
+    /// Get a backend, or construct it if it hasn't been instantiated yet.
+    pub fn get<B: Backend>(&self) -> Result<Arc<dyn Backend>, std::io::Error> {}
 }

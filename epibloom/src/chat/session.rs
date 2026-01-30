@@ -8,7 +8,7 @@ use tokio::sync::{broadcast, RwLock};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::backend;
+use crate::backend::{self, Backend};
 
 use super::{Chat, ChatMetadata, Error, Message, Role};
 
@@ -124,8 +124,8 @@ impl ChatStore {
         &self,
         chat_id: Uuid,
         role: Role,
-        thinking: Option<&str>,
         text: &str,
+        thinking: Option<&str>,
     ) -> Result<usize, Error> {
         if thinking.is_some() && role != Role::Assistant {
             return Err(Error::ThinkingSuppliedForNonAssistantMessage);

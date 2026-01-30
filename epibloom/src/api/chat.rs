@@ -110,8 +110,8 @@ pub async fn test_generate(
         .push_message(
             new_chat_id,
             Role::User,
-            None,
             "What are the primary nutrients in orange juice?",
+            None,
         )
         .await?;
 
