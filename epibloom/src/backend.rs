@@ -45,17 +45,15 @@ pub trait Backend {
     ) -> Pin<Box<dyn Stream<Item = Result<GenerateChunk, Self::Error>> + Send>>;
 }
 
-pub struct Backends {
-    backends: RwLock<Vec<Backend>>,
-}
+pub struct Backends {}
 
 impl Backends {
     pub fn new() -> Self {
-        Self {
-            backends: RwLock::new(Vec::new()),
-        }
+        Self {}
     }
 
     /// Get a backend, or construct it if it hasn't been instantiated yet.
-    pub fn get<B: Backend>(&self) -> Result<Arc<dyn Backend>, std::io::Error> {}
+    pub fn get<B: Backend>(&self) -> Result<Arc<B>, std::io::Error> {
+        todo!()
+    }
 }
