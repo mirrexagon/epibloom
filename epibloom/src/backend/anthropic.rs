@@ -64,7 +64,16 @@ pub enum Error {
 }
 
 impl AnthropicApi {
-    pub fn new_with_key_from_env() -> Result<Self, Error> {
+    pub async fn list_models(&self) -> Result<Vec<models::ModelInfo>, Error> {
+        models::list_models(&self.client).await
+    }
+}
+
+impl super::Backend for AnthropicApi {
+    type Config = Config;
+    type Error = Error;
+
+    fn new_with_key_from_env() -> Result<Self, Error> {
         use reqwest::{
             header::{self, HeaderMap, HeaderValue},
             Client,
@@ -91,15 +100,6 @@ impl AnthropicApi {
 
         Ok(AnthropicApi { client })
     }
-
-    pub async fn list_models(&self) -> Result<Vec<models::ModelInfo>, Error> {
-        models::list_models(&self.client).await
-    }
-}
-
-impl super::Backend for AnthropicApi {
-    type Config = Config;
-    type Error = Error;
 
     fn generate(
         &self,

@@ -71,8 +71,13 @@ pub enum Error {
 }
 
 type Result<T> = std::result::Result<T, Error>;
-impl FeatherlessApi {
-    pub fn new_with_key_from_env() -> Result<Self> {
+impl FeatherlessApi {}
+
+impl super::Backend for FeatherlessApi {
+    type Config = Config;
+    type Error = Error;
+
+    fn new_with_key_from_env() -> Result<Self> {
         use reqwest::{
             header::{self, HeaderMap, HeaderValue},
             Client,
@@ -98,11 +103,6 @@ impl FeatherlessApi {
 
         Ok(FeatherlessApi { client })
     }
-}
-
-impl super::Backend for FeatherlessApi {
-    type Config = Config;
-    type Error = Error;
 
     fn generate(
         &self,

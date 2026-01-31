@@ -151,6 +151,9 @@ pub enum Error {
     #[error("thinking was supplied for a non-assistant message")]
     ThinkingSuppliedForNonAssistantMessage,
 
+    #[error("Backend error: {0}")]
+    Backend(String),
+
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 

@@ -15,9 +15,6 @@ use rocket::fairing::AdHoc;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-use backend::anthropic::AnthropicApi;
-use backend::featherless::FeatherlessApi;
-
 static CHATS_DIR: OnceLock<PathBuf> = OnceLock::new();
 static SCRIPTS_DIR: OnceLock<PathBuf> = OnceLock::new();
 static SCRIPT_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
@@ -53,25 +50,18 @@ fn rocket() -> _ {
     let chat_store = Arc::new(chat::ChatStore::new());
     let script_context_store = script::ContextStore::new(Arc::clone(&chat_store));
 
-    let anthropic_api: AnthropicApi = AnthropicApi::new_with_key_from_env().unwrap();
-    let featherless_api: FeatherlessApi = FeatherlessApi::new_with_key_from_env().unwrap();
-
     #[derive(OpenApi)]
     #[openapi(
         nest(
-            (path = "/api/backend-proxy", api = api::backend_proxy::BackendProxyApiDoc),
             (path = "/api/chat", api = api::chat::ChatApiDoc)
         ),
         tags(
-            (name = "backend-proxy", description = "Simple proxy to the LLM backends."),
             (name = "chat", description = "Streaming internal chats used to drive the game.")
         )
     )]
     struct ApiDoc;
 
     rocket::build()
-        .manage(anthropic_api)
-        .manage(featherless_api)
         .manage(chat_store)
         .manage(script_context_store)
         .attach(AdHoc::try_on_ignite("Load chats from files", |rocket| {
@@ -98,7 +88,6 @@ fn rocket() -> _ {
             "/",
             SwaggerUi::new("/swagger-ui/<_..>").url("/api-docs/openapi.json", ApiDoc::openapi()),
         )
-        .mount("/api/backend-proxy", routes![api::backend_proxy::generate])
         .mount(
             "/api/chat",
             routes![

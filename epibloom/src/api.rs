@@ -1,4 +1,3 @@
-pub mod backend_proxy;
 pub mod chat;
 pub mod script;
 

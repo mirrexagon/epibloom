@@ -32,6 +32,7 @@ impl From<chat::Error> for ApiErrorResponse {
             chat::Error::Io(_) | chat::Error::Json(_) => {
                 ApiErrorResponse::InternalServerError(value.to_string())
             }
+            chat::Error::Backend(err) => ApiErrorResponse::BadGateway(err),
         }
     }
 }
@@ -99,8 +100,6 @@ pub async fn stream_chat_by_id(
 #[post("/testgenerate")]
 pub async fn test_generate(
     store: &State<Arc<ChatStore>>,
-    featherless_api: &State<FeatherlessApi>,
-    anthropic_api: &State<AnthropicApi>,
 ) -> Result<Json<ChatMetadata>, ApiErrorResponse> {
     let new_chat_id = store.new_chat(None).await?;
     let new_chat_metadata = store.get_chat_copy(new_chat_id).await?.metadata;
@@ -117,7 +116,7 @@ pub async fn test_generate(
 
     let config = anthropic::Config::default();
     store
-        .start_generating(new_chat_id, &**anthropic_api, &config)
+        .start_generating::<AnthropicApi>(new_chat_id, config)
         .await?;
 
     Ok(Json(new_chat_metadata))

@@ -418,6 +418,7 @@ dependencies = [
  "thiserror",
  "time",
  "tokio",
+ "typemap_rev",
  "utoipa",
  "utoipa-swagger-ui",
  "uuid",
@@ -2601,6 +2602,12 @@ name = "typeid"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc7d623258602320d5c55d1bc22793b57daff0ec7efc270ea7d55ce1d5f5471c"
+
+[[package]]
+name = "typemap_rev"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2b09e0a8b1bc7863de68ec5d2d132b45751b82b5049a4761e6cfc22e1e56780"
 
 [[package]]
 name = "typenum"

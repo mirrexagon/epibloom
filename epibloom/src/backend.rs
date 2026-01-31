@@ -13,6 +13,7 @@ use std::sync::Arc;
 use futures::Stream;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use typemap_rev::{TypeMap, TypeMapKey};
 use utoipa::ToSchema;
 
 use crate::chat::Chat;
@@ -25,7 +26,7 @@ pub enum GenerateChunk {
 
 pub trait Backend {
     type Config: JsonSchema + Clone;
-    type Error: std::error::Error;
+    type Error: std::error::Error + Send + Sync;
 
     // TODO: On config structs, use
     // https://graham.cool/schemars/deriving/attributes/#extend to add a field for
@@ -38,6 +39,10 @@ pub trait Backend {
     }
     */
 
+    fn new_with_key_from_env() -> Result<Self, Self::Error>
+    where
+        Self: Sized;
+
     fn generate(
         &self,
         config: &Self::Config,
@@ -45,15 +50,41 @@ pub trait Backend {
     ) -> Pin<Box<dyn Stream<Item = Result<GenerateChunk, Self::Error>> + Send>>;
 }
 
-pub struct Backends {}
+impl typemap_rev::TypeMapKey for anthropic::AnthropicApi {
+    type Value = Arc<anthropic::AnthropicApi>;
+}
+
+impl typemap_rev::TypeMapKey for featherless::FeatherlessApi {
+    type Value = Arc<featherless::FeatherlessApi>;
+}
+
+pub struct Backends {
+    backends: typemap_rev::TypeMap,
+}
 
 impl Backends {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            backends: TypeMap::new(),
+        }
     }
 
     /// Get a backend, or construct it if it hasn't been instantiated yet.
-    pub fn get<B: Backend>(&self) -> Result<Arc<B>, std::io::Error> {
-        todo!()
+    pub fn get<B: Backend + TypeMapKey<Value = Arc<B>> + Send + Sync>(
+        &mut self,
+    ) -> Result<Arc<B>, Box<dyn std::error::Error + Send + Sync>> {
+        match self.backends.get::<B>() {
+            Some(backend_arc) => Ok(Arc::clone(backend_arc)),
+            None => {
+                log::info!(
+                    "Creating new backend on-demand: {}",
+                    std::any::type_name::<B>()
+                );
+
+                let new_backend = Arc::new(B::new_with_key_from_env()?);
+                self.backends.insert::<B>(Arc::clone(&new_backend));
+                Ok(new_backend)
+            }
+        }
     }
 }
