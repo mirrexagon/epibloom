@@ -301,6 +301,8 @@ impl ChatStore {
         Session::start_generating::<B>(session_arc, backend, backend_config).await?;
         Ok(())
     }
+
+    // TODO: Cancel a chat that is generating
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

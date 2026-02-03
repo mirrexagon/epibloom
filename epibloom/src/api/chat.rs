@@ -96,28 +96,3 @@ pub async fn stream_chat_by_id(
         }
     })
 }
-
-#[post("/testgenerate")]
-pub async fn test_generate(
-    store: &State<Arc<ChatStore>>,
-) -> Result<Json<ChatMetadata>, ApiErrorResponse> {
-    let new_chat_id = store.new_chat(None).await?;
-    let new_chat_metadata = store.get_chat_copy(new_chat_id).await?.metadata;
-    log::info!("Created new chat: {:#?}", new_chat_metadata);
-
-    store
-        .push_message(
-            new_chat_id,
-            Role::User,
-            "What are the primary nutrients in orange juice?",
-            None,
-        )
-        .await?;
-
-    let config = anthropic::Config::default();
-    store
-        .start_generating::<AnthropicApi>(new_chat_id, config)
-        .await?;
-
-    Ok(Json(new_chat_metadata))
-}

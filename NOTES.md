@@ -88,4 +88,10 @@ Start by making a simpler text adventure game with locations and exits, inventor
 - https://docs.rs/utoipa/latest/utoipa/index.html to export OpenAPI definitions for internal API - has Rocket support
 
 # Scripting
+- Implement script sessions that the UI doesn't have to be connected to complete, or make sure that scripts that are started and then the client disconnects are still run to completion. It doesn't matter if the response is not heard, as the client needs to be able to get the current state at any time anyway.
+
 - Implement lorebooks with scripting, have lorebooks be folders and entries be Markdown files with YAML front matter for any metadata
+- Implement normal chat, trees with scripting:
+    - Streaming can be viewed in the debug chat panel, and each message can have a reference to the debug chat used to generate it. The UI can expose a button to open the debug chat associated with a message.
+    - Cancel can be done by running a script to cancel the generation on another context.
+

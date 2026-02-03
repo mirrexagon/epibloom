@@ -97,7 +97,7 @@ impl Chat {
     pub async fn load_all_from_chats_directory() -> Result<Vec<Self>, Error> {
         let mut chats = Vec::new();
 
-        let mut dir = fs::read_dir(crate::CHATS_DIR.get().unwrap()).await?;
+        let mut dir = fs::read_dir(crate::DEBUG_CHATS_DIR.get().unwrap()).await?;
         while let Some(entry) = dir.next_entry().await? {
             chats.push(Self::load_from_file(entry.path()).await?);
         }
@@ -106,14 +106,14 @@ impl Chat {
     }
 
     pub async fn load_from_chats_directory(chat_id: Uuid) -> Result<Self, Error> {
-        let mut file_path = crate::CHATS_DIR.get().unwrap().clone();
+        let mut file_path = crate::DEBUG_CHATS_DIR.get().unwrap().clone();
         file_path.push(format!("{}.json", chat_id.hyphenated()));
 
         Self::load_from_file(&file_path).await
     }
 
     pub async fn save_to_chats_directory(&self) -> Result<(), Error> {
-        let mut file_path = crate::CHATS_DIR.get().unwrap().clone();
+        let mut file_path = crate::DEBUG_CHATS_DIR.get().unwrap().clone();
         file_path.push(format!("{}.json", self.metadata.id.hyphenated()));
         self.save_to_file(&file_path).await?;
         Ok(())

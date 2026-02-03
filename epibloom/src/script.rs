@@ -70,9 +70,6 @@ pub struct Context {
     // The Tokio mutex unlocks to clients in FIFO order, so callers will
     // automatically implicitly queue for access.
     lua: Mutex<Lua>,
-
-    /// For scripts to interact with chats.
-    chat_store: Arc<ChatStore>,
 }
 
 impl Context {
@@ -207,7 +204,6 @@ impl Context {
         Ok(Self {
             name: name.to_owned(),
             lua: Mutex::new(lua),
-            chat_store: Arc::clone(&chat_store),
         })
     }
 

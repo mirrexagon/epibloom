@@ -15,7 +15,7 @@ use rocket::fairing::AdHoc;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-static CHATS_DIR: OnceLock<PathBuf> = OnceLock::new();
+static DEBUG_CHATS_DIR: OnceLock<PathBuf> = OnceLock::new();
 static SCRIPTS_DIR: OnceLock<PathBuf> = OnceLock::new();
 static SCRIPT_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
@@ -39,11 +39,11 @@ fn rocket() -> _ {
     let _state_dir = strategy.state_dir();
     let _runtime_dir = strategy.runtime_dir();
 
-    CHATS_DIR.set(data_dir.join("chats")).unwrap();
+    DEBUG_CHATS_DIR.set(data_dir.join("debugchats")).unwrap();
     SCRIPTS_DIR.set(config_dir.join("scripts")).unwrap();
     SCRIPT_DATA_DIR.set(data_dir.join("data")).unwrap();
 
-    fs::create_dir_all(CHATS_DIR.get().unwrap()).unwrap();
+    fs::create_dir_all(DEBUG_CHATS_DIR.get().unwrap()).unwrap();
     fs::create_dir_all(SCRIPTS_DIR.get().unwrap()).unwrap();
     fs::create_dir_all(SCRIPT_DATA_DIR.get().unwrap()).unwrap();
 
@@ -90,11 +90,7 @@ fn rocket() -> _ {
         )
         .mount(
             "/api/chat",
-            routes![
-                api::chat::get_chats,
-                api::chat::stream_chat_by_id,
-                api::chat::test_generate
-            ],
+            routes![api::chat::get_chats, api::chat::stream_chat_by_id,],
         )
         .mount("/api/script", routes![api::script::run_script,])
 }
