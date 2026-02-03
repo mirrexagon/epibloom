@@ -84,6 +84,17 @@ fn rocket() -> _ {
                 Ok(rocket)
             })
         }))
+        .attach(AdHoc::on_liftoff("Log location of API docs", |rocket| {
+            Box::pin(async move {
+                let config = rocket.config();
+                let address = config.address;
+                let port = config.port;
+
+                log::info!(
+                    "See API docs at http://{address}:{port}/swagger-ui/\nOpenAPI description: http://{address}:{port}/api-docs/openapi.json",
+                );
+            })
+        }))
         .mount(
             "/",
             SwaggerUi::new("/swagger-ui/<_..>").url("/api-docs/openapi.json", ApiDoc::openapi()),

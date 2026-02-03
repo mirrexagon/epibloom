@@ -4,18 +4,12 @@ use futures::StreamExt;
 use rocket::{
     get,
     response::stream::{Event, EventStream},
-    serde::json::Json,
     State,
 };
-use serde::{Deserialize, Serialize};
-use utoipa::{OpenApi, ToSchema};
+use utoipa::OpenApi;
 use uuid::Uuid;
 
-use crate::backend::{
-    anthropic::{self, AnthropicApi},
-    featherless::{self, FeatherlessApi},
-};
-use crate::chat::{self, Chat, ChatMetadata, ChatStore, Role};
+use crate::chat::{self, ChatEvent, ChatStore, ChatStoreEvent};
 
 use super::ApiErrorResponse;
 
@@ -41,18 +35,14 @@ impl From<chat::Error> for ApiErrorResponse {
 #[openapi(paths(stream_chat_store_events, stream_chat_by_id))]
 pub struct ChatApiDoc;
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct GetChatsResponse {
-    chats: Vec<chat::ChatMetadata>,
-}
-
-/// Stream a list of all chats in the database as additions, then stream any subsequent chats being added or removed.
+/// Stream all current debug chats as additions, then stream any subsequent
+/// chats being added or removed.
 ///
 /// Just includes metadata, no messages.
 #[utoipa::path(
     responses(
-        (status = 200, description = "Got chat list succesfully.", body = GetChatsResponse),
-        (status = 500, description = "Database operation failed.", body = String)
+        (status = 200, description = "An SSE stream of chat additions or removals.", body = ChatStoreEvent),
+        (status = 500, description = "An error occurred starting the stream.", body = String)
     )
 )]
 #[get("/")]
@@ -60,7 +50,10 @@ pub async fn stream_chat_store_events(
     store: &State<Arc<ChatStore>>,
 ) -> Result<EventStream![], ApiErrorResponse> {
     let chat_store_stream = store.get_chat_store_event_stream().await.map_err(|err| {
-        ApiErrorResponse::NotFound(format!("Could not get chat store event stream: {}", err))
+        ApiErrorResponse::InternalServerError(format!(
+            "Could not get chat store event stream: {}",
+            err
+        ))
     })?;
 
     Ok(EventStream! {
@@ -75,8 +68,8 @@ pub async fn stream_chat_store_events(
 /// Stream the current state of the chat and any future message deltas.
 #[utoipa::path(
     responses(
-        (status = 200, description = "Got chat succesfully.", body = Chat),
-        (status = 500, description = "Database operation failed.", body = String)
+        (status = 200, description = "An SSE stream of message events.", body = ChatEvent),
+        (status = 500, description = "An error occurred starting the stream.", body = String)
     )
 )]
 #[get("/<chat_id>")]

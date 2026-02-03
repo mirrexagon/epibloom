@@ -10,7 +10,7 @@ use tokio::fs;
 use utoipa::ToSchema;
 use uuid::{NoContext, Timestamp, Uuid};
 
-pub use session::ChatStore;
+pub use session::{ChatEvent, ChatStore, ChatStoreEvent};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, ToSchema)]
 pub enum Role {
