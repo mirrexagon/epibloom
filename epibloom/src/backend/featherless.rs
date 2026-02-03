@@ -28,7 +28,7 @@ pub struct Config {
     #[serde(default)]
     pub top_k: Option<i32>,
     #[serde(default)]
-    pub stop: Vec<String>,
+    pub stop_sequences: Vec<String>,
 }
 
 impl Default for Config {
@@ -39,7 +39,7 @@ impl Default for Config {
             temperature: Some(0.7),
             top_p: Some(0.9),
             top_k: None,
-            stop: Vec::new(),
+            stop_sequences: Vec::new(),
         }
     }
 }

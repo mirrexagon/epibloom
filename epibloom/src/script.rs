@@ -322,6 +322,7 @@ impl UserData for LuaChat {
             "generate",
             async |lua, chat, (backend, config): (String, Option<Table>)| {
                 match backend.as_ref() {
+                    // TODO: Reduce this duplication.
                     "anthropic" => {
                         let config = match config {
                             Some(config_table) => backend::anthropic::Config::from_lua(
@@ -337,7 +338,14 @@ impl UserData for LuaChat {
                     }
 
                     "featherless" => {
-                        let config = { todo!() };
+                        let config = match config {
+                            Some(config_table) => backend::featherless::Config::from_lua(
+                                Value::Table(config_table),
+                                &lua,
+                            )?,
+                            None => backend::featherless::Config::default(),
+                        };
+
                         chat.chat_store
                             .start_generating::<backend::featherless::FeatherlessApi>(
                                 chat.id, config,
@@ -364,8 +372,7 @@ impl FromLua for backend::anthropic::Config {
             Value::Table(config_table) => {
                 let mut config = Self::default();
 
-                // TODO: Try to use FromLua implementations for each field.
-
+                // TODO: Reduce this duplication.
                 let max_tokens: Option<u32> =
                     FromLua::from_lua(config_table.get::<Value>("max_tokens")?, lua)?;
                 if let Some(max_tokens) = max_tokens {
@@ -393,6 +400,59 @@ impl FromLua for backend::anthropic::Config {
 
             value => Err(mlua::Error::runtime(format!(
                 "Anthropic config should be a table, got {:#?}",
+                value
+            ))),
+        }
+    }
+}
+
+impl FromLua for backend::featherless::Config {
+    fn from_lua(value: Value, lua: &Lua) -> mlua::Result<Self> {
+        match value {
+            Value::Table(config_table) => {
+                let mut config = Self::default();
+
+                let max_tokens: Option<u32> =
+                    FromLua::from_lua(config_table.get::<Value>("max_tokens")?, lua)?;
+                if let Some(max_tokens) = max_tokens {
+                    config.max_tokens = max_tokens;
+                }
+
+                let model: Option<String> =
+                    FromLua::from_lua(config_table.get::<Value>("model")?, lua)?;
+                if let Some(model) = model {
+                    config.model = model;
+                }
+
+                let temperature: Option<f32> =
+                    FromLua::from_lua(config_table.get::<Value>("temperature")?, lua)?;
+                if temperature.is_some() {
+                    config.temperature = temperature;
+                }
+
+                let top_p: Option<f32> =
+                    FromLua::from_lua(config_table.get::<Value>("top_p")?, lua)?;
+                if top_p.is_some() {
+                    config.top_p = top_p;
+                }
+
+                let top_k: Option<i32> =
+                    FromLua::from_lua(config_table.get::<Value>("top_k")?, lua)?;
+                if top_k.is_some() {
+                    config.top_k = top_k;
+                }
+
+                let stop_sequences: Option<Vec<String>> =
+                    FromLua::from_lua(config_table.get::<Value>("stop_sequences")?, lua)?;
+                if let Some(stop_sequences) = stop_sequences {
+                    config.stop_sequences = stop_sequences;
+                }
+
+                Ok(config)
+            }
+
+            value => Err(mlua::Error::runtime(format!(
+                "Featherless config should be a table, got {:#?}",
                 value
             ))),
         }

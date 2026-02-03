@@ -50,7 +50,7 @@ mod request {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub top_k: Option<i32>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
-        pub stop: Vec<String>,
+        pub stop_sequences: Vec<String>,
     }
 
     #[derive(Debug, Clone, Serialize)]
@@ -73,7 +73,7 @@ mod request {
                 temperature: config.temperature,
                 top_p: config.top_p,
                 top_k: config.top_k,
-                stop: config.stop.clone(),
+                stop_sequences: config.stop_sequences.clone(),
             }
         }
     }
