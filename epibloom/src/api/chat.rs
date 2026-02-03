@@ -38,7 +38,7 @@ impl From<chat::Error> for ApiErrorResponse {
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(get_chats, stream_chat_by_id))]
+#[openapi(paths(stream_chat_store_events, stream_chat_by_id))]
 pub struct ChatApiDoc;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -46,7 +46,7 @@ pub struct GetChatsResponse {
     chats: Vec<chat::ChatMetadata>,
 }
 
-/// Gets a list of all chats in the database.
+/// Stream a list of all chats in the database as additions, then stream any subsequent chats being added or removed.
 ///
 /// Just includes metadata, no messages.
 #[utoipa::path(
@@ -56,17 +56,20 @@ pub struct GetChatsResponse {
     )
 )]
 #[get("/")]
-pub async fn get_chats(
+pub async fn stream_chat_store_events(
     store: &State<Arc<ChatStore>>,
-) -> Result<Json<GetChatsResponse>, ApiErrorResponse> {
-    let chats_list = store.list_chats().await?;
+) -> Result<EventStream![], ApiErrorResponse> {
+    let chat_store_stream = store.get_chat_store_event_stream().await.map_err(|err| {
+        ApiErrorResponse::NotFound(format!("Could not get chat store event stream: {}", err))
+    })?;
 
-    let mut response = GetChatsResponse { chats: Vec::new() };
-    for chat_metadata in chats_list.iter() {
-        response.chats.push(chat_metadata.clone());
-    }
+    Ok(EventStream! {
+        futures::pin_mut!(chat_store_stream);
 
-    Ok(Json(response))
+        while let Some(chat_store_event) = chat_store_stream.next().await {
+            yield Event::json(&chat_store_event);
+        }
+    })
 }
 
 /// Stream the current state of the chat and any future message deltas.

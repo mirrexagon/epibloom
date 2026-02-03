@@ -56,7 +56,7 @@ fn rocket() -> _ {
             (path = "/api/chat", api = api::chat::ChatApiDoc)
         ),
         tags(
-            (name = "chat", description = "Streaming internal chats used to drive the game.")
+            (name = "chat", description = "Streaming base debug chats, created and manipulated by scripts.")
         )
     )]
     struct ApiDoc;
@@ -90,7 +90,10 @@ fn rocket() -> _ {
         )
         .mount(
             "/api/chat",
-            routes![api::chat::get_chats, api::chat::stream_chat_by_id,],
+            routes![
+                api::chat::stream_chat_store_events,
+                api::chat::stream_chat_by_id,
+            ],
         )
         .mount("/api/script", routes![api::script::run_script,])
 }

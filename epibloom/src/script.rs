@@ -260,7 +260,8 @@ struct LuaChatStore {
 // local chat = chats.new(name)
 // local chat = chats.get(chat_id)
 //
-// chat.messages = { { role = "user", text = "blah" }. ... }
+// chat.messages[1].text = "I'm editing this message and the last modified time should update"
+// chat.messages = { { role = "user", text = "blah" }, ... } -- Replace all the messages
 // -- can't get while generating
 // -- get an error when trying to set messages or something in it
 //

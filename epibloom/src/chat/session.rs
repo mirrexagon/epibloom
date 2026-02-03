@@ -15,6 +15,12 @@ use super::{Chat, ChatMetadata, Error, Message, Role};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
+pub enum ChatStoreEvent {
+    Added { chat: ChatMetadata },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChatEvent {
     UserMessageStart { position: usize },
     UserMessageDelta { delta: String },
@@ -29,13 +35,17 @@ pub enum ChatEvent {
 pub struct ChatStore {
     sessions: RwLock<HashMap<Uuid, Arc<RwLock<Session>>>>,
     backends: Mutex<Backends>,
+    event_broadcast: broadcast::Sender<ChatStoreEvent>,
 }
 
 impl ChatStore {
     pub fn new() -> Self {
+        let (event_broadcast, _) = broadcast::channel(32);
+
         Self {
             sessions: RwLock::new(HashMap::new()),
             backends: Mutex::new(Backends::new()),
+            event_broadcast,
         }
     }
 
@@ -95,7 +105,8 @@ impl ChatStore {
 
     async fn add_chat(&self, chat: Chat) -> Result<(), Error> {
         let (broadcast, _) = broadcast::channel(1024);
-        let new_chat_id = chat.metadata.id;
+        let new_chat_metadata = chat.metadata.clone();
+        let new_chat_id = new_chat_metadata.id;
         let new_session = Session {
             chat,
             current_assistant_message: String::new(),
@@ -104,9 +115,15 @@ impl ChatStore {
             state: State::Idle,
         };
 
-        let mut sessions = self.sessions.write().await;
+        {
+            let mut sessions = self.sessions.write().await;
+            sessions.insert(new_chat_id, Arc::new(RwLock::new(new_session)));
 
-        sessions.insert(new_chat_id, Arc::new(RwLock::new(new_session)));
+            // We don't care if there are no receivers.
+            let _ = self.event_broadcast.send(ChatStoreEvent::Added {
+                chat: new_chat_metadata,
+            });
+        }
 
         Ok(())
     }
@@ -192,6 +209,55 @@ impl ChatStore {
         });
 
         Ok(new_message_position)
+    }
+
+    pub async fn get_chat_store_event_stream(
+        &self,
+    ) -> Result<impl Stream<Item = ChatStoreEvent>, Error> {
+        // Get the current existing sessions. We also want to lock sessions so
+        // that no one can modify it while we subscribe to adds/removes and get
+        // the current chat list.
+        let sessions = self.sessions.read().await;
+
+        let mut initial_chat_store_events = Vec::new();
+        for (_chat_id, session_arc) in sessions.iter() {
+            let session = session_arc.read().await;
+            initial_chat_store_events.push(ChatStoreEvent::Added {
+                chat: session.chat.metadata.clone(),
+            });
+        }
+
+        let mut rx = self.event_broadcast.subscribe();
+
+        // TODO: This is inefficient since it has to lock every chat. Is there a
+        // better way to store chats so the metadata is more easily accessible?
+
+        Ok(stream! {
+            // Send current chat list.
+            for event in initial_chat_store_events {
+                yield event;
+            }
+
+
+            // Send any changes to the chat list.
+            use tokio::sync::broadcast::error::RecvError;
+
+            loop {
+                match rx.recv().await {
+                    Ok(event) => {
+                        yield event;
+                    }
+                    Err(RecvError::Lagged(num_skipped_messages)) => {
+                        log::error!(
+                            "Lagged behind {} messages from chat stream",
+                            num_skipped_messages
+                        );
+                    }
+                    Err(RecvError::Closed) => break,
+                }
+            }
+
+        })
     }
 
     /// Get a stream that yields events corresponding to existing messages, then any future message chunks.
