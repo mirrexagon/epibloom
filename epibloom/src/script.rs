@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use mlua::{Lua, LuaSerdeExt, ObjectLike, Table, UserData, Value};
+use mlua::{FromLua, Lua, LuaSerdeExt, ObjectLike, Table, UserData, Value};
 use tokio::fs;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -126,7 +126,7 @@ impl Context {
                         "debug" => log::Level::Debug,
                         "trace" => log::Level::Trace,
                         _ => {
-                            return Err(mlua::Error::RuntimeError(format!(
+                            return Err(mlua::Error::runtime(format!(
                                 "provided log level {level} is not valid"
                             )))
                         }
@@ -282,7 +282,7 @@ impl UserData for LuaChatStore {
                 .chat_store
                 .new_chat(name.as_deref())
                 .await
-                .map_err(|err| mlua::Error::RuntimeError(err.to_string()))?;
+                .map_err(|err| mlua::Error::runtime(err.to_string()))?;
 
             Ok(LuaChat {
                 id: new_chat_id,
@@ -310,7 +310,7 @@ impl UserData for LuaChat {
                 "system" => Role::System,
                 "assistant" => Role::Assistant,
                 "user" => Role::User,
-                _ => return Err(mlua::Error::RuntimeError(format!(r#"bad argument #1: one of "system", "user", "assistant" expected, got '{role}'"#))),
+                _ => return Err(mlua::Error::runtime(format!(r#"bad argument #1: one of "system", "user", "assistant" expected, got '{role}'"#))),
             };
 
             chat.chat_store.push_message(chat.id, role, &text, thinking.as_deref()).await?;
@@ -320,38 +320,19 @@ impl UserData for LuaChat {
 
         methods.add_async_method(
             "generate",
-            async |_lua, chat, (backend, config): (String, Option<Table>)| {
+            async |lua, chat, (backend, config): (String, Option<Table>)| {
                 match backend.as_ref() {
                     "anthropic" => {
-                        let mut final_config = backend::anthropic::Config::default();
-
-                        if let Some(config_table) = config {
-                            match config_table.get("max_tokens")? {
-                                Value::Nil => {}
-                                Value::Integer(max_tokens) => match u32::try_from(max_tokens) {
-                                    Ok(max_tokens) => {
-                                        final_config.max_tokens = max_tokens;
-                                    }
-                                    Err(err) => {
-                                        return Err(mlua::Error::RuntimeError(format!(
-                                            "max_tokens was out of range for a u32: {err}"
-                                        )))
-                                    }
-                                },
-                                value => {
-                                    return Err(mlua::Error::RuntimeError(format!(
-                                        "max_tokens: expected integer, got {:#?}",
-                                        value
-                                    )))
-                                }
-                            }
-                        }
+                        let config = match config {
+                            Some(config_table) => backend::anthropic::Config::from_lua(
+                                Value::Table(config_table),
+                                &lua,
+                            )?,
+                            None => backend::anthropic::Config::default(),
+                        };
 
                         chat.chat_store
-                            .start_generating::<backend::anthropic::AnthropicApi>(
-                                chat.id,
-                                final_config,
-                            )
+                            .start_generating::<backend::anthropic::AnthropicApi>(chat.id, config)
                             .await?;
                     }
 
@@ -365,7 +346,7 @@ impl UserData for LuaChat {
                     }
 
                     _ => {
-                        return Err(mlua::Error::RuntimeError(format!(
+                        return Err(mlua::Error::runtime(format!(
                             r#"bad argument #1: unknown backend '{backend}'"#
                         )))
                     }
@@ -377,9 +358,50 @@ impl UserData for LuaChat {
     }
 }
 
+impl FromLua for backend::anthropic::Config {
+    fn from_lua(value: Value, lua: &Lua) -> mlua::Result<Self> {
+        match value {
+            Value::Table(config_table) => {
+                let mut config = Self::default();
+
+                // TODO: Try to use FromLua implementations for each field.
+
+                let max_tokens: Option<u32> =
+                    FromLua::from_lua(config_table.get::<Value>("max_tokens")?, lua)?;
+                if let Some(max_tokens) = max_tokens {
+                    config.max_tokens = max_tokens;
+                }
+
+                let model: Option<String> =
+                    FromLua::from_lua(config_table.get::<Value>("model")?, lua)?;
+                if let Some(model) = model {
+                    config.model = model;
+                }
+
+                let stop_sequences: Option<Vec<String>> =
+                    FromLua::from_lua(config_table.get::<Value>("stop_sequences")?, lua)?;
+                if let Some(stop_sequences) = stop_sequences {
+                    config.stop_sequences = stop_sequences;
+                }
+
+                let thinking_budget: Option<u32> =
+                    FromLua::from_lua(config_table.get::<Value>("thinking_budget")?, lua)?;
+                config.thinking_budget = thinking_budget;
+
+                Ok(config)
+            }
+
+            value => Err(mlua::Error::runtime(format!(
+                "Anthropic config should be a table, got {:#?}",
+                value
+            ))),
+        }
+    }
+}
+
 impl From<chat::Error> for mlua::Error {
     fn from(value: chat::Error) -> Self {
-        mlua::Error::RuntimeError(value.to_string())
+        mlua::Error::runtime(value.to_string())
     }
 }
 
