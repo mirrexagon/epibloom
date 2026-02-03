@@ -21,12 +21,15 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use mlua::{Lua, LuaSerdeExt, ObjectLike, Table, UserData};
+use mlua::{Lua, LuaSerdeExt, ObjectLike, Table, UserData, Value};
 use tokio::fs;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::chat::{self, Chat, ChatStore, Role};
+use crate::{
+    backend,
+    chat::{self, Chat, ChatStore, Role},
+};
 
 pub struct ContextStore {
     contexts: Mutex<HashMap<String, Arc<Context>>>,
@@ -296,12 +299,12 @@ struct LuaChat {
 
 impl UserData for LuaChat {
     fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
+        fields.add_field_method_get("id", |_lua, chat| Ok(format!("{}", chat.id.hyphenated())));
+
         // TODO: messages
     }
 
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
-        // TODO: push_message and generate
-
         methods.add_async_method("push_message", async |_lua, chat, (role, text, thinking): (String, String, Option<String>)| {
             let role = match role.as_str() {
                 "system" => Role::System,
@@ -315,11 +318,62 @@ impl UserData for LuaChat {
             Ok(())
         });
 
-        methods.add_async_method("generate", async |_lua, chat, _: ()| {
-            todo!();
+        methods.add_async_method(
+            "generate",
+            async |_lua, chat, (backend, config): (String, Option<Table>)| {
+                match backend.as_ref() {
+                    "anthropic" => {
+                        let mut final_config = backend::anthropic::Config::default();
 
-            Ok(())
-        });
+                        if let Some(config_table) = config {
+                            match config_table.get("max_tokens")? {
+                                Value::Nil => {}
+                                Value::Integer(max_tokens) => match u32::try_from(max_tokens) {
+                                    Ok(max_tokens) => {
+                                        final_config.max_tokens = max_tokens;
+                                    }
+                                    Err(err) => {
+                                        return Err(mlua::Error::RuntimeError(format!(
+                                            "max_tokens was out of range for a u32: {err}"
+                                        )))
+                                    }
+                                },
+                                value => {
+                                    return Err(mlua::Error::RuntimeError(format!(
+                                        "max_tokens: expected integer, got {:#?}",
+                                        value
+                                    )))
+                                }
+                            }
+                        }
+
+                        chat.chat_store
+                            .start_generating::<backend::anthropic::AnthropicApi>(
+                                chat.id,
+                                final_config,
+                            )
+                            .await?;
+                    }
+
+                    "featherless" => {
+                        let config = { todo!() };
+                        chat.chat_store
+                            .start_generating::<backend::featherless::FeatherlessApi>(
+                                chat.id, config,
+                            )
+                            .await?;
+                    }
+
+                    _ => {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            r#"bad argument #1: unknown backend '{backend}'"#
+                        )))
+                    }
+                }
+
+                Ok(())
+            },
+        );
     }
 }
 

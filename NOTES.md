@@ -69,8 +69,8 @@
 - Branching chats natively supported
 
 ## Other notes
-- Use Aider/Claude Code to help make this
 - If some features need support from the backend (eg. token probabilities, how sampler chose tokens), make a new backend based on llama.cpp called Epicalyx (see Epibloom README for why)
+- How to support swipes and general transforms before sending the chat? Do the transforms in scripts, replace the entire content of a chat with the result, and send that? Or have a chat be assignable a transform script that makes any changes before it gets sent to the backend?
 
 # RPG Ideas
 Based on AI RPG.

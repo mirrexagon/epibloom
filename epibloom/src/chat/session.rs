@@ -85,6 +85,9 @@ impl ChatStore {
     pub async fn new_chat(&self, name: Option<&str>) -> Result<Uuid, Error> {
         let chat = Chat::new(name);
         let new_chat_id = chat.metadata.id;
+
+        log::info!("Creating chat: {new_chat_id}: '{}'", chat.metadata.name);
+
         chat.save_to_chats_directory().await?;
         self.add_chat(chat).await?;
         Ok(new_chat_id)
