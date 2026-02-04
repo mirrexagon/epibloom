@@ -8,43 +8,43 @@ interface MessageProps {
 export function Message({ message }: MessageProps) {
     const [showThinking, setShowThinking] = useState(false);
 
-    const roleColors = {
-        user: "bg-blue-900 border-blue-700",
-        assistant: "bg-green-900 border-green-700",
-        system: "bg-gray-700 border-gray-600",
+    const roleStyles = {
+        user: { text: "text-blue-400", border: "border-blue-900" },
+        assistant: { text: "text-green-400", border: "border-green-900" },
+        system: { text: "text-gray-400", border: "border-gray-600" },
     };
 
     const roleLabels = {
-        user: "User",
-        assistant: "Assistant",
-        system: "System",
+        user: "user",
+        assistant: "assistant",
+        system: "system",
     };
 
     return (
-        <div className={`border rounded-lg p-4 ${roleColors[message.role]}`}>
-            <div className="flex items-center justify-between mb-2">
-                <span className="font-semibold text-sm text-gray-100">
-                    {roleLabels[message.role]}
-                </span>
+        <div
+            className={`border rounded p-2 ${roleStyles[message.role].border}`}
+        >
+            <div className={`font-bold mb-1 ${roleStyles[message.role].text}`}>
+                {roleLabels[message.role]}
             </div>
 
             {message.thinking && (
                 <div className="mb-2">
                     <button
                         onClick={() => setShowThinking(!showThinking)}
-                        className="text-sm text-gray-300 hover:text-gray-100 underline"
+                        className="text-xs text-gray-400 hover:text-gray-200 underline"
                     >
-                        {showThinking ? "▼" : "►"} Thinking
+                        {showThinking ? "▼" : "►"} thinking
                     </button>
                     {showThinking && (
-                        <pre className="mt-2 p-2 bg-gray-800 rounded text-xs whitespace-pre-wrap font-mono text-gray-200">
+                        <pre className="mt-1 p-2 bg-gray-800 rounded text-xs whitespace-pre-wrap text-gray-300">
                             {message.thinking}
                         </pre>
                     )}
                 </div>
             )}
 
-            <div className="whitespace-pre-wrap text-gray-100">
+            <div className="text-gray-200 whitespace-pre-wrap break-words">
                 {message.text}
             </div>
         </div>

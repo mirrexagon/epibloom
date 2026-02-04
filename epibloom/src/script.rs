@@ -285,6 +285,8 @@ impl UserData for LuaTraceStore {
                 trace_store: Arc::clone(&cs.trace_store),
             })
         });
+
+        // TODO: Get existing chat
     }
 }
 

@@ -43,13 +43,15 @@ export function TraceView({ traceId, traceName }: TraceViewProps) {
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto p-4">
         {messages.length === 0 ? (
           <div className="text-gray-400 text-center">No messages yet</div>
         ) : (
-          messages.map((message, idx) => (
-            <Message key={`${message.position}-${idx}`} message={message} />
-          ))
+          <div className="font-mono text-xs text-gray-300 space-y-3">
+            {messages.map((message, idx) => (
+              <Message key={`${message.position}-${idx}`} message={message} />
+            ))}
+          </div>
         )}
       </div>
     </div>
