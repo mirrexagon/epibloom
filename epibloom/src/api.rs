@@ -1,4 +1,4 @@
-pub mod chat;
+pub mod trace;
 pub mod script;
 
 /// Responder that sets the status code and just responds with a string, which

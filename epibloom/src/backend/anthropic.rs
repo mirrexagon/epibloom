@@ -104,12 +104,12 @@ impl super::Backend for AnthropicApi {
     fn generate(
         &self,
         config: &Self::Config,
-        chat: &backend::Chat,
+        trace: &backend::Trace,
     ) -> Pin<Box<dyn Stream<Item = Result<backend::GenerateChunk, Self::Error>> + Send>> {
         Box::pin(messages::generate(
             self.clone().client,
             config.clone(),
-            chat.clone(),
+            trace.clone(),
         ))
     }
 }

@@ -10,7 +10,7 @@ use tokio::fs;
 use utoipa::ToSchema;
 use uuid::{NoContext, Timestamp, Uuid};
 
-pub use session::{ChatEvent, ChatStore, ChatStoreEvent};
+pub use session::{TraceEvent, TraceStore, TraceStoreEvent};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, ToSchema)]
 pub enum Role {
@@ -46,7 +46,7 @@ pub struct Message {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct ChatMetadata {
+pub struct TraceMetadata {
     pub id: Uuid,
     pub name: String,
     #[serde(with = "time::serde::rfc3339")]
@@ -55,7 +55,7 @@ pub struct ChatMetadata {
     pub modified: OffsetDateTime,
 }
 
-impl ChatMetadata {
+impl TraceMetadata {
     pub fn new(name: Option<&str>) -> Self {
         let current_datetime = OffsetDateTime::now_local().unwrap();
         let current_unix_timestamp = current_datetime.unix_timestamp();
@@ -80,40 +80,40 @@ impl ChatMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct Chat {
+pub struct Trace {
     #[serde(flatten)]
-    pub metadata: ChatMetadata,
+    pub metadata: TraceMetadata,
     pub messages: Vec<Message>,
 }
 
-impl Chat {
+impl Trace {
     pub fn new(name: Option<&str>) -> Self {
         Self {
-            metadata: ChatMetadata::new(name),
+            metadata: TraceMetadata::new(name),
             messages: Vec::new(),
         }
     }
 
-    pub async fn load_all_from_chats_directory() -> Result<Vec<Self>, Error> {
-        let mut chats = Vec::new();
+    pub async fn load_all_from_traces_directory() -> Result<Vec<Self>, Error> {
+        let mut traces = Vec::new();
 
-        let mut dir = fs::read_dir(crate::DEBUG_CHATS_DIR.get().unwrap()).await?;
+        let mut dir = fs::read_dir(crate::TRACES_DIR.get().unwrap()).await?;
         while let Some(entry) = dir.next_entry().await? {
-            chats.push(Self::load_from_file(entry.path()).await?);
+            traces.push(Self::load_from_file(entry.path()).await?);
         }
 
-        Ok(chats)
+        Ok(traces)
     }
 
-    pub async fn load_from_chats_directory(chat_id: Uuid) -> Result<Self, Error> {
-        let mut file_path = crate::DEBUG_CHATS_DIR.get().unwrap().clone();
-        file_path.push(format!("{}.json", chat_id.hyphenated()));
+    pub async fn load_from_traces_directory(trace_id: Uuid) -> Result<Self, Error> {
+        let mut file_path = crate::TRACES_DIR.get().unwrap().clone();
+        file_path.push(format!("{}.json", trace_id.hyphenated()));
 
         Self::load_from_file(&file_path).await
     }
 
-    pub async fn save_to_chats_directory(&self) -> Result<(), Error> {
-        let mut file_path = crate::DEBUG_CHATS_DIR.get().unwrap().clone();
+    pub async fn save_to_traces_directory(&self) -> Result<(), Error> {
+        let mut file_path = crate::TRACES_DIR.get().unwrap().clone();
         file_path.push(format!("{}.json", self.metadata.id.hyphenated()));
         self.save_to_file(&file_path).await?;
         Ok(())
@@ -121,8 +121,8 @@ impl Chat {
 
     pub async fn load_from_file<P: AsRef<Path>>(file_path: P) -> Result<Self, Error> {
         let text = fs::read(file_path).await?;
-        let chat = serde_json::from_slice(&text)?;
-        Ok(chat)
+        let trace = serde_json::from_slice(&text)?;
+        Ok(trace)
     }
 
     pub async fn save_to_file<P: AsRef<Path>>(&self, file_path: P) -> Result<(), Error> {
@@ -134,19 +134,19 @@ impl Chat {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     // TODO: Remove context information from errors, always log that at the
-    // caller receiving the error. Getting chats failing in the API already
+    // caller receiving the error. Getting traces failing in the API already
     // does.
-    #[error("chat not found: {0}")]
-    ChatNotFound(Uuid),
+    #[error("trace not found: {0}")]
+    TraceNotFound(Uuid),
 
-    #[error("chat {0} has no messages")]
-    ChatHasNoMessages(Uuid),
+    #[error("trace {0} has no messages")]
+    TraceHasNoMessages(Uuid),
 
-    #[error("message not found: chat {chat_id}, message position {position}")]
-    MessageNotFound { chat_id: Uuid, position: usize },
+    #[error("message not found: trace {trace_id}, message position {position}")]
+    MessageNotFound { trace_id: Uuid, position: usize },
 
-    #[error("chat is already generating")]
-    ChatAlreadyGenerating,
+    #[error("trace is already generating")]
+    TraceAlreadyGenerating,
 
     #[error("thinking was supplied for a non-assistant message")]
     ThinkingSuppliedForNonAssistantMessage,

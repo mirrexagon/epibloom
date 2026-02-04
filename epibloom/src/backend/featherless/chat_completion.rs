@@ -1,4 +1,4 @@
-//! Types and functions for the OpenAI-compatible chat completions endpoint.
+//! Types and functions for the OpenAI-compatible trace completions endpoint.
 
 use async_stream::try_stream;
 use futures::stream::StreamExt;
@@ -10,7 +10,7 @@ use sse_stream::SseStream;
 use super::FEATHERLESS_API_URL_BASE;
 
 use crate::backend;
-use crate::chat;
+use crate::trace;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -20,12 +20,12 @@ enum Role {
     User,
 }
 
-impl From<chat::Role> for Role {
-    fn from(value: chat::Role) -> Self {
+impl From<trace::Role> for Role {
+    fn from(value: trace::Role) -> Self {
         match value {
-            chat::Role::System => Role::System,
-            chat::Role::Assistant => Role::Assistant,
-            chat::Role::User => Role::User,
+            trace::Role::System => Role::System,
+            trace::Role::Assistant => Role::Assistant,
+            trace::Role::User => Role::User,
         }
     }
 }
@@ -33,7 +33,7 @@ impl From<chat::Role> for Role {
 mod request {
     use serde::Serialize;
 
-    use crate::chat;
+    use crate::trace;
 
     #[derive(Debug, Clone, Serialize)]
     pub struct Request {
@@ -59,14 +59,14 @@ mod request {
     }
 
     impl Request {
-        pub fn new(config: &super::super::Config, chat: &chat::Chat) -> Self {
+        pub fn new(config: &super::super::Config, trace: &trace::Trace) -> Self {
             let stream_options = StreamOptions {
                 include_usage: true,
             };
 
             Self {
                 model: config.model.clone(),
-                messages: chat.messages.iter().map(From::from).collect(),
+                messages: trace.messages.iter().map(From::from).collect(),
                 max_tokens: config.max_tokens,
                 stream: true,
                 stream_options: Some(stream_options),
@@ -84,8 +84,8 @@ mod request {
         pub content: String,
     }
 
-    impl From<&chat::Message> for Message {
-        fn from(message: &chat::Message) -> Self {
+    impl From<&trace::Message> for Message {
+        fn from(message: &trace::Message) -> Self {
             Message {
                 role: From::from(message.role),
                 content: message.text.clone(),
@@ -169,14 +169,14 @@ const THINKING_END_DELIMITER: &str = "</think>";
 pub fn generate(
     client: reqwest::Client,
     config: super::Config,
-    chat: chat::Chat,
+    trace: trace::Trace,
 ) -> impl Stream<Item = Result<backend::GenerateChunk, super::Error>> {
     try_stream! {
-        let url = format!("{FEATHERLESS_API_URL_BASE}/chat/completions");
+        let url = format!("{FEATHERLESS_API_URL_BASE}/trace/completions");
 
-        let body = request::Request::new(&config, &chat);
+        let body = request::Request::new(&config, &trace);
         let request_json = serde_json::to_string_pretty(&body)?;
-        debug!("Featherless chat completions request: {}", request_json);
+        debug!("Featherless trace completions request: {}", request_json);
 
         let response = client.post(url).json(&body).send().await?;
 

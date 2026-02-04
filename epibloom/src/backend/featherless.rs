@@ -107,7 +107,7 @@ impl super::Backend for FeatherlessApi {
     fn generate(
         &self,
         config: &Self::Config,
-        chat: &backend::Chat,
+        trace: &backend::Trace,
     ) -> Pin<Box<dyn Stream<Item = std::result::Result<backend::GenerateChunk, Self::Error>> + Send>>
     {
         // TODO: See if we can get away with not cloning here, since technically
@@ -118,7 +118,7 @@ impl super::Backend for FeatherlessApi {
         Box::pin(chat_completion::generate(
             self.clone().client,
             config.clone(),
-            chat.clone(),
+            trace.clone(),
         ))
     }
 }

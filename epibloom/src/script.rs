@@ -28,21 +28,21 @@ use uuid::Uuid;
 
 use crate::{
     backend,
-    chat::{self, Chat, ChatStore, Role},
+    trace::{self, Trace, TraceStore, Role},
 };
 
 pub struct ContextStore {
     contexts: Mutex<HashMap<String, Arc<Context>>>,
 
-    /// For scripts to interact with chats.
-    chat_store: Arc<ChatStore>,
+    /// For scripts to interact with traces.
+    trace_store: Arc<TraceStore>,
 }
 
 impl ContextStore {
-    pub fn new(chat_store: Arc<ChatStore>) -> Self {
+    pub fn new(trace_store: Arc<TraceStore>) -> Self {
         Self {
             contexts: Mutex::new(HashMap::new()),
-            chat_store,
+            trace_store,
         }
     }
 
@@ -54,7 +54,7 @@ impl ContextStore {
         match contexts.get(name) {
             Some(context) => Ok(Arc::clone(context)),
             None => {
-                let new_context = Arc::new(Context::new(name, Arc::clone(&self.chat_store))?);
+                let new_context = Arc::new(Context::new(name, Arc::clone(&self.trace_store))?);
                 contexts.insert(key, Arc::clone(&new_context));
                 Ok(new_context)
             }
@@ -73,7 +73,7 @@ pub struct Context {
 }
 
 impl Context {
-    pub fn new(name: &str, chat_store: Arc<ChatStore>) -> Result<Self, Error> {
+    pub fn new(name: &str, trace_store: Arc<TraceStore>) -> Result<Self, Error> {
         let lua = Lua::new();
         lua.set_named_registry_value("epibloom.context.name", name)?;
 
@@ -180,14 +180,14 @@ impl Context {
             package_loaded.set("epibloom.uuid", uuid_module)?;
         }
 
-        // Chat module.
+        // Trace module.
         {
-            let chats = lua.create_userdata(LuaChatStore {
-                chat_store: Arc::clone(&chat_store),
+            let traces = lua.create_userdata(LuaTraceStore {
+                trace_store: Arc::clone(&trace_store),
             })?;
 
             let package_loaded: Table = globals.get_path("package.loaded")?;
-            package_loaded.set("epibloom.chat", chats)?;
+            package_loaded.set("epibloom.trace", traces)?;
         }
 
         // Filesystem module.
@@ -250,8 +250,8 @@ impl Context {
     }
 }
 
-struct LuaChatStore {
-    chat_store: Arc<ChatStore>,
+struct LuaTraceStore {
+    trace_store: Arc<TraceStore>,
 }
 
 // local all_chats = chats.get_all()
@@ -270,39 +270,39 @@ struct LuaChatStore {
 // chat.generate(backend, backend_config)
 // chat.wait_for_generation()
 
-impl UserData for LuaChatStore {
+impl UserData for LuaTraceStore {
     fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {}
 
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_method("new", async |_lua, cs, name: Option<String>| {
-            let new_chat_id = cs
-                .chat_store
-                .new_chat(name.as_deref())
+            let new_trace_id = cs
+                .trace_store
+                .new_trace(name.as_deref())
                 .await
                 .map_err(|err| mlua::Error::runtime(err.to_string()))?;
 
-            Ok(LuaChat {
-                id: new_chat_id,
-                chat_store: Arc::clone(&cs.chat_store),
+            Ok(LuaTrace {
+                id: new_trace_id,
+                trace_store: Arc::clone(&cs.trace_store),
             })
         });
     }
 }
 
-struct LuaChat {
+struct LuaTrace {
     id: Uuid,
-    chat_store: Arc<ChatStore>,
+    trace_store: Arc<TraceStore>,
 }
 
-impl UserData for LuaChat {
+impl UserData for LuaTrace {
     fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
-        fields.add_field_method_get("id", |_lua, chat| Ok(format!("{}", chat.id.hyphenated())));
+        fields.add_field_method_get("id", |_lua, trace| Ok(format!("{}", trace.id.hyphenated())));
 
         // TODO: messages
     }
 
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_async_method("push_message", async |_lua, chat, (role, text, thinking): (String, String, Option<String>)| {
+        methods.add_async_method("push_message", async |_lua, trace, (role, text, thinking): (String, String, Option<String>)| {
             let role = match role.as_str() {
                 "system" => Role::System,
                 "assistant" => Role::Assistant,
@@ -310,14 +310,14 @@ impl UserData for LuaChat {
                 _ => return Err(mlua::Error::runtime(format!(r#"bad argument #1: one of "system", "user", "assistant" expected, got '{role}'"#))),
             };
 
-            chat.chat_store.push_message(chat.id, role, &text, thinking.as_deref()).await?;
+            trace.trace_store.push_message(trace.id, role, &text, thinking.as_deref()).await?;
 
             Ok(())
         });
 
         methods.add_async_method(
             "generate",
-            async |lua, chat, (backend, config): (String, Option<Table>)| {
+            async |lua, trace, (backend, config): (String, Option<Table>)| {
                 match backend.as_ref() {
                     // TODO: Reduce this duplication.
                     "anthropic" => {
@@ -329,8 +329,8 @@ impl UserData for LuaChat {
                             None => backend::anthropic::Config::default(),
                         };
 
-                        chat.chat_store
-                            .start_generating::<backend::anthropic::AnthropicApi>(chat.id, config)
+                        trace.trace_store
+                            .start_generating::<backend::anthropic::AnthropicApi>(trace.id, config)
                             .await?;
                     }
 
@@ -343,9 +343,9 @@ impl UserData for LuaChat {
                             None => backend::featherless::Config::default(),
                         };
 
-                        chat.chat_store
+                        trace.trace_store
                             .start_generating::<backend::featherless::FeatherlessApi>(
-                                chat.id, config,
+                                trace.id, config,
                             )
                             .await?;
                     }
@@ -456,8 +456,8 @@ impl FromLua for backend::featherless::Config {
     }
 }
 
-impl From<chat::Error> for mlua::Error {
-    fn from(value: chat::Error) -> Self {
+impl From<trace::Error> for mlua::Error {
+    fn from(value: trace::Error) -> Self {
         mlua::Error::runtime(value.to_string())
     }
 }

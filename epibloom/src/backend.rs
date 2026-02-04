@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use typemap_rev::{TypeMap, TypeMapKey};
 use utoipa::ToSchema;
 
-use crate::chat::Chat;
+use crate::trace::Trace;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub enum GenerateChunk {
@@ -46,7 +46,7 @@ pub trait Backend: TypeMapKey + Send + Sync {
     fn generate(
         &self,
         config: &Self::Config,
-        chat: &Chat,
+        trace: &Trace,
     ) -> Pin<Box<dyn Stream<Item = Result<GenerateChunk, Self::Error>> + Send>>;
 }
 

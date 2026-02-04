@@ -9,7 +9,7 @@ use sse_stream::SseStream;
 
 use super::ANTHROPIC_API_URL_BASE;
 use crate::backend;
-use crate::chat;
+use crate::trace;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 enum Role {
@@ -19,13 +19,13 @@ enum Role {
     User,
 }
 
-impl From<chat::Role> for Role {
-    fn from(value: chat::Role) -> Self {
+impl From<trace::Role> for Role {
+    fn from(value: trace::Role) -> Self {
         match value {
-            chat::Role::Assistant => Role::Assistant,
-            chat::Role::User => Role::User,
+            trace::Role::Assistant => Role::Assistant,
+            trace::Role::User => Role::User,
 
-            chat::Role::System => panic!("chat converted to Claude format had system messages - this should be prevented by a pre-processing step"),
+            trace::Role::System => panic!("trace converted to Claude format had system messages - this should be prevented by a pre-processing step"),
         }
     }
 }
@@ -171,7 +171,7 @@ struct DocumentCitations {
 mod request {
     use serde::Serialize;
 
-    use crate::chat;
+    use crate::trace;
 
     #[derive(Debug, Clone, Serialize)]
     pub struct Request {
@@ -201,10 +201,10 @@ mod request {
     }
 
     impl Request {
-        pub fn new(config: &super::super::Config, chat: &chat::Chat) -> Self {
+        pub fn new(config: &super::super::Config, trace: &trace::Trace) -> Self {
             Self {
                 max_tokens: config.max_tokens,
-                messages: chat.messages.iter().map(From::from).collect(),
+                messages: trace.messages.iter().map(From::from).collect(),
                 model: config.model.to_owned(),
 
                 metadata: None,
@@ -233,8 +233,8 @@ mod request {
         pub content: Vec<super::ContentBlock>,
     }
 
-    impl From<&chat::Message> for Message {
-        fn from(message: &chat::Message) -> Self {
+    impl From<&trace::Message> for Message {
+        fn from(message: &trace::Message) -> Self {
             Message {
                 role: From::from(message.role),
                 content: vec![super::ContentBlock::Text {
@@ -370,10 +370,10 @@ mod response {
     }
 }
 
-fn extract_system_prompt_from_chat(chat: &mut chat::Chat) -> Option<String> {
-    let system_messages: Vec<_> = chat
+fn extract_system_prompt_from_trace(trace: &mut trace::Trace) -> Option<String> {
+    let system_messages: Vec<_> = trace
         .messages
-        .extract_if(.., |m| m.role == chat::Role::System)
+        .extract_if(.., |m| m.role == trace::Role::System)
         .map(|m| m.text)
         .collect();
 
@@ -389,13 +389,13 @@ fn extract_system_prompt_from_chat(chat: &mut chat::Chat) -> Option<String> {
 pub fn generate(
     client: reqwest::Client,
     config: super::Config,
-    mut chat: chat::Chat,
+    mut trace: trace::Trace,
 ) -> impl Stream<Item = Result<backend::GenerateChunk, super::Error>> {
     try_stream! {
         let url = format!("{ANTHROPIC_API_URL_BASE}/messages");
 
-        let system_prompt = extract_system_prompt_from_chat(&mut chat);
-        let mut body = request::Request::new(&config, &chat);
+        let system_prompt = extract_system_prompt_from_trace(&mut trace);
+        let mut body = request::Request::new(&config, &trace);
         body.system = system_prompt;
         let request_json = serde_json::to_string_pretty(&body)?;
         debug!("Anthropic messages request: {}", request_json);
