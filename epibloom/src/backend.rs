@@ -24,7 +24,7 @@ pub enum GenerateChunk {
     MessageDelta(String),
 }
 
-pub trait Backend {
+pub trait Backend: TypeMapKey + Send + Sync {
     type Config: JsonSchema + Clone;
     type Error: std::error::Error + Send + Sync;
 
@@ -50,11 +50,11 @@ pub trait Backend {
     ) -> Pin<Box<dyn Stream<Item = Result<GenerateChunk, Self::Error>> + Send>>;
 }
 
-impl typemap_rev::TypeMapKey for anthropic::AnthropicApi {
+impl TypeMapKey for anthropic::AnthropicApi {
     type Value = Arc<anthropic::AnthropicApi>;
 }
 
-impl typemap_rev::TypeMapKey for featherless::FeatherlessApi {
+impl TypeMapKey for featherless::FeatherlessApi {
     type Value = Arc<featherless::FeatherlessApi>;
 }
 
@@ -70,7 +70,7 @@ impl Backends {
     }
 
     /// Get a backend, or construct it if it hasn't been instantiated yet.
-    pub fn get<B: Backend + TypeMapKey<Value = Arc<B>> + Send + Sync>(
+    pub fn get<B: Backend + TypeMapKey<Value = Arc<B>>>(
         &mut self,
     ) -> Result<Arc<B>, Box<dyn std::error::Error + Send + Sync>> {
         match self.backends.get::<B>() {

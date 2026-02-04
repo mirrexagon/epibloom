@@ -143,6 +143,16 @@ impl ChatStore {
         Ok(session.chat.clone())
     }
 
+    // TODO: Maybe just set the entire chat instead of having functions to push messages and stuff.
+    // The Lua API can update last modified times etc.
+    // The Lua LuaChat object can have messages indexed by integers directly in
+    // the chat object. Only problem is doing things
+    // like `chat[1].text = "text"` directly.
+    // Also should probably be more like parent object is a chat store chat
+    // reference and the individual chat object is just a chat, since it has
+    // metadata like ID and times. Or you get and set these chat copy objects on the
+    // chat store directly.
+
     pub async fn push_message(
         &self,
         chat_id: Uuid,
