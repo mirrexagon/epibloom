@@ -360,6 +360,8 @@ impl UserData for LuaTrace {
                     }
                 }
 
+                // TODO: Return something that can be waited on for the generation to complete.
+
                 Ok(())
             },
         );

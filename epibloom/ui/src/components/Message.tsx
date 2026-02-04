@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Message as MessageType } from "../types/api";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 interface MessageProps {
     message: MessageType;
@@ -37,15 +39,53 @@ export function Message({ message }: MessageProps) {
                         {showThinking ? "▼" : "►"} thinking
                     </button>
                     {showThinking && (
-                        <pre className="mt-1 p-2 bg-gray-800 rounded text-xs whitespace-pre-wrap text-gray-300">
-                            {message.thinking}
-                        </pre>
+                        <div className="mt-1 bg-gray-800 rounded text-xs">
+                            <SyntaxHighlighter
+                                language="markdown"
+                                style={oneDark}
+                                customStyle={{
+                                    margin: 0,
+                                    padding: "0.5rem",
+                                    background: "rgb(31, 41, 55)",
+                                    fontSize: "0.75rem",
+                                    whiteSpace: "pre-wrap",
+                                    wordBreak: "break-word",
+                                    overflowWrap: "break-word",
+                                }}
+                                codeTagProps={{
+                                    style: {
+                                        fontFamily: "ui-monospace, monospace",
+                                    },
+                                }}
+                            >
+                                {message.thinking}
+                            </SyntaxHighlighter>
+                        </div>
                     )}
                 </div>
             )}
 
-            <div className="text-gray-200 whitespace-pre-wrap break-words">
-                {message.text}
+            <div className="text-gray-200">
+                <SyntaxHighlighter
+                    language="markdown"
+                    style={oneDark}
+                    customStyle={{
+                        margin: 0,
+                        padding: "0.5rem",
+                        background: "transparent",
+                        fontSize: "0.875rem",
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-word",
+                        overflowWrap: "break-word",
+                    }}
+                    codeTagProps={{
+                        style: {
+                            fontFamily: "ui-monospace, monospace",
+                        },
+                    }}
+                >
+                    {message.text}
+                </SyntaxHighlighter>
             </div>
         </div>
     );
