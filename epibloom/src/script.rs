@@ -28,7 +28,7 @@ use uuid::Uuid;
 
 use crate::{
     backend,
-    trace::{self, Trace, TraceStore, Role},
+    trace::{self, Role, Trace, TraceStore},
 };
 
 pub struct ContextStore {
@@ -260,10 +260,9 @@ struct LuaTraceStore {
 // local chat = chats.new(name)
 // local chat = chats.get(chat_id)
 //
-// chat.messages[1].text = "I'm editing this message and the last modified time should update"
-// chat.messages = { { role = "user", text = "blah" }, ... } -- Replace all the messages
-// -- can't get while generating
-// -- get an error when trying to set messages or something in it
+// chat[1].text = "I'm editing this message and the last modified time should update" -- Probably needs to return a table with a newindex that sets the message properties in the actual chat
+// -- can't get while generating?
+// -- get an error when trying to set messages or something in it while generating
 //
 // chat.push_message(role, text)
 //
@@ -298,7 +297,7 @@ impl UserData for LuaTrace {
     fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
         fields.add_field_method_get("id", |_lua, trace| Ok(format!("{}", trace.id.hyphenated())));
 
-        // TODO: messages
+        // TODO: messages, indexed by integer?
     }
 
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
@@ -329,7 +328,8 @@ impl UserData for LuaTrace {
                             None => backend::anthropic::Config::default(),
                         };
 
-                        trace.trace_store
+                        trace
+                            .trace_store
                             .start_generating::<backend::anthropic::AnthropicApi>(trace.id, config)
                             .await?;
                     }
@@ -343,7 +343,8 @@ impl UserData for LuaTrace {
                             None => backend::featherless::Config::default(),
                         };
 
-                        trace.trace_store
+                        trace
+                            .trace_store
                             .start_generating::<backend::featherless::FeatherlessApi>(
                                 trace.id, config,
                             )

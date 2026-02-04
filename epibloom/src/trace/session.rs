@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::backend::{Backend, Backends, GenerateChunk};
 
-use super::{Trace, TraceMetadata, Error, Message, Role};
+use super::{Error, Message, Role, Trace, TraceMetadata};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -61,7 +61,9 @@ impl TraceStore {
 
     pub async fn save_trace(&self, trace_id: Uuid) -> Result<(), Error> {
         let sessions = self.sessions.read().await;
-        let session_arc = sessions.get(&trace_id).ok_or(Error::TraceNotFound(trace_id))?;
+        let session_arc = sessions
+            .get(&trace_id)
+            .ok_or(Error::TraceNotFound(trace_id))?;
         let session = session_arc.read().await;
         session.trace.save_to_traces_directory().await?;
         Ok(())
@@ -143,7 +145,7 @@ impl TraceStore {
         Ok(session.trace.clone())
     }
 
-    // TODO: Maybe just set the entire trace instead of having functions to push messages and stuff.
+    // TODO: Maybe just set the entire trace or a single message instead of having functions to push messages and stuff.
     // The Lua API can update last modified times etc.
     // The Lua LuaTrace object can have messages indexed by integers directly in
     // the trace object. Only problem is doing things

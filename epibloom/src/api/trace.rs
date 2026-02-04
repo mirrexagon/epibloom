@@ -69,6 +69,7 @@ pub async fn stream_trace_store_events(
 #[utoipa::path(
     responses(
         (status = 200, description = "An SSE stream of message events.", body = TraceEvent),
+        (status = 404, description = "The specified trace does not exist.", body = String),
         (status = 500, description = "An error occurred starting the stream.", body = String)
     )
 )]
