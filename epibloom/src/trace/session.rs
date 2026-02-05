@@ -475,6 +475,10 @@ impl Session {
                 session.state = State::Idle;
 
                 if let Err(err) = session.trace.save_to_traces_directory().await {
+                    log::error!(
+                        "Failed to save trace {} to file",
+                        session.trace.metadata.id.hyphenated()
+                    );
                     let _ = session.broadcast.send(TraceEvent::Error {
                         message: err.to_string(),
                     });
@@ -526,6 +530,7 @@ where
                 }
             },
             Err(err) => {
+                log::error!("Error in generation stream: {err}");
                 let _ = session.broadcast.send(TraceEvent::Error {
                     message: err.to_string(),
                 });

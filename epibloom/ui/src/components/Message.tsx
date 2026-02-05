@@ -39,7 +39,7 @@ export function Message({ message }: MessageProps) {
                         {showThinking ? "▼" : "►"} thinking
                     </button>
                     {showThinking && (
-                        <div className="mt-1 bg-gray-800 rounded text-xs">
+                        <div className="mt-1 bg-gray-800 rounded text-xs overflow-hidden">
                             <SyntaxHighlighter
                                 language="markdown"
                                 style={oneDark}
@@ -51,10 +51,14 @@ export function Message({ message }: MessageProps) {
                                     whiteSpace: "pre-wrap",
                                     wordBreak: "break-word",
                                     overflowWrap: "break-word",
+                                    maxWidth: "100%",
+                                    overflow: "auto",
                                 }}
                                 codeTagProps={{
                                     style: {
                                         fontFamily: "ui-monospace, monospace",
+                                        whiteSpace: "pre-wrap",
+                                        wordBreak: "break-word",
                                     },
                                 }}
                             >
@@ -65,7 +69,7 @@ export function Message({ message }: MessageProps) {
                 </div>
             )}
 
-            <div className="text-gray-200">
+            <div className="text-gray-200 overflow-hidden">
                 <SyntaxHighlighter
                     language="markdown"
                     style={oneDark}
@@ -77,10 +81,14 @@ export function Message({ message }: MessageProps) {
                         whiteSpace: "pre-wrap",
                         wordBreak: "break-word",
                         overflowWrap: "break-word",
+                        maxWidth: "100%",
+                        overflow: "auto",
                     }}
                     codeTagProps={{
                         style: {
                             fontFamily: "ui-monospace, monospace",
+                            whiteSpace: "pre-wrap",
+                            wordBreak: "break-word",
                         },
                     }}
                 >
