@@ -154,6 +154,9 @@ impl TraceStore {
     // reference and the individual trace object is just a trace, since it has
     // metadata like ID and times. Or you get and set these trace copy objects on the
     // trace store directly.
+    //
+    // Or have a chat modify method that takes a callback that modifies a chat,
+    // then resolve what changed to update times?
 
     pub async fn push_message(
         &self,

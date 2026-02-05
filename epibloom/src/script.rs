@@ -28,7 +28,7 @@ use uuid::Uuid;
 
 use crate::{
     backend,
-    trace::{self, Role, Trace, TraceStore},
+    trace::{self, Message, Role, Trace, TraceStore},
 };
 
 pub struct ContextStore {
@@ -365,6 +365,75 @@ impl UserData for LuaTrace {
                 Ok(())
             },
         );
+    }
+}
+
+struct LuaMessage {
+    chat_id: Uuid,
+    message_position: usize,
+    trace_store: Arc<TraceStore>,
+    cached_message: Message,
+}
+
+impl UserData for LuaMessage {
+    fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
+        // TODO: set/get role and text and thinking
+
+        fields.add_field_method_get("role", |_lua, message| {
+            Ok(message.cached_message.role.to_string())
+        });
+
+        fields.add_field_method_get("text", |_lua, message| {
+            Ok(message.cached_message.text.clone())
+        });
+
+        fields.add_field_method_get("thinking", |_lua, message| {
+            Ok(message.cached_message.thinking.clone())
+        });
+
+        fields.add_field_method_set("role", |_lua, message, role: Role| {
+            // TODO: Set message in actual chat
+            message.cached_message.role = role;
+            Ok(())
+        });
+
+        fields.add_field_method_set("text", |_lua, message, text: String| {
+            // TODO: Set message in actual chat
+            message.cached_message.text = text;
+            Ok(())
+        });
+
+        fields.add_field_method_set("thinking", |_lua, message, thinking: Option<String>| {
+            if message.cached_message.role != Role::Assistant {
+                return Err(mlua::Error::runtime(
+                    "tried to set thinking on non-assistant message",
+                ));
+            }
+
+            // TODO: Set message in actual chat
+            message.cached_message.thinking = thinking;
+            Ok(())
+        });
+    }
+}
+
+impl FromLua for Role {
+    fn from_lua(value: Value, _lua: &Lua) -> mlua::Result<Self> {
+        let role = match value.as_string() {
+            Some(role) => match role.to_string_lossy().as_str() {
+                "system" => Role::System,
+                "user" => Role::User,
+                "assistant" => Role::Assistant,
+                value => return Err(mlua::Error::runtime(format!("unknown role: {value}"))),
+            },
+            None => {
+                return Err(mlua::Error::runtime(
+                    r#"role must be one of "system", "user", "assistant""#,
+                ))
+            }
+        };
+
+        Ok(role)
     }
 }
 
