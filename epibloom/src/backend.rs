@@ -25,7 +25,7 @@ pub enum GenerateChunk {
 }
 
 pub trait Backend: TypeMapKey + Send + Sync {
-    type Config: JsonSchema + Clone;
+    type Config: JsonSchema + Clone + Send + Sync;
     type Error: std::error::Error + Send + Sync;
 
     // TODO: On config structs, use
