@@ -1,4 +1,4 @@
-//! Types and functions for the OpenAI-compatible trace completions endpoint.
+//! Types and functions for the OpenAI-compatible chat completions endpoint.
 
 use async_stream::try_stream;
 use futures::stream::StreamExt;
@@ -172,11 +172,11 @@ pub fn generate(
     trace: trace::Trace,
 ) -> impl Stream<Item = Result<backend::GenerateChunk, super::Error>> {
     try_stream! {
-        let url = format!("{FEATHERLESS_API_URL_BASE}/trace/completions");
+        let url = format!("{FEATHERLESS_API_URL_BASE}/chat/completions");
 
         let body = request::Request::new(&config, &trace);
         let request_json = serde_json::to_string_pretty(&body)?;
-        debug!("Featherless trace completions request: {}", request_json);
+        debug!("Featherless chat completions request: {}", request_json);
 
         let response = client.post(url).json(&body).send().await?;
 
@@ -254,5 +254,7 @@ pub fn generate(
                 }
             }
         }
+
+        log::info!("Featherless chat completion request finished");
     }
 }
