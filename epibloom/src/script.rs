@@ -13,9 +13,9 @@
 // Be able to send responses to the client in the middle of a script, via SSE.
 // eg. for letting the UI know to change button states, etc.?
 
-use std::collections::HashMap;
-use std::path::Path;
+use std::path::{self, Path};
 use std::sync::Arc;
+use std::{collections::HashMap, path::PathBuf};
 
 use mlua::{FromLua, IntoLua, Lua, LuaSerdeExt, ObjectLike, Table, UserData, Value};
 use tokio::fs;
@@ -218,8 +218,52 @@ impl Context {
         {
             let filesystem_module = lua.create_table()?;
 
-            // local f = assert(io.open(filesystem.data_file("game1/save1.json"), "w"))
-            // -- Opens "~/.local/share/epibloom/data/game1/save1.json"
+            filesystem_module.set(
+                "save_json",
+                lua.create_async_function(async |_lua, (file_path, content): (PathBuf, Value)| {
+                    let mut path = crate::SCRIPT_DATA_DIR.get().unwrap().clone();
+                    path.push(file_path);
+                    path = path::absolute(path)?;
+
+                    if !path.starts_with(crate::SCRIPT_DATA_DIR.get().unwrap()) {
+                        return Err(mlua::Error::runtime(
+                            "path {file_path} escapes the script data directory",
+                        ));
+                    }
+
+                    // TODO: Use mlua::Error::external in most places instead of mapping runtime over errors
+                    let json_str =
+                        serde_json::to_string(&content).map_err(mlua::Error::external)?;
+
+                    fs::write(&path, json_str).await?;
+
+                    // TODO: Return nil, err on failure
+                    Ok(())
+                })?,
+            )?;
+
+            filesystem_module.set(
+                "load_json",
+                lua.create_async_function(async |lua, file_path: PathBuf| {
+                    let mut path = crate::SCRIPT_DATA_DIR.get().unwrap().clone();
+                    path.push(file_path);
+                    path = path::absolute(path)?;
+
+                    if !path.starts_with(crate::SCRIPT_DATA_DIR.get().unwrap()) {
+                        return Err(mlua::Error::runtime(
+                            "path {file_path} escapes the script data directory",
+                        ));
+                    }
+
+                    let json_str =
+                        String::from_utf8(fs::read(path).await?).map_err(mlua::Error::external)?;
+                    let json_value: serde_json::Value =
+                        serde_json::from_str(&json_str).map_err(mlua::Error::external)?;
+
+                    // TODO: Return nil, err on failure
+                    lua.to_value(&json_value)
+                })?,
+            )?;
 
             let package_loaded: Table = globals.get_path("package.loaded")?;
             package_loaded.set("epibloom.filesystem", filesystem_module)?;
@@ -253,7 +297,7 @@ impl Context {
         let mut filesystem_script_path = crate::SCRIPTS_DIR.get().unwrap().clone();
         filesystem_script_path.push(script_path);
         filesystem_script_path.set_extension("lua");
-        filesystem_script_path.canonicalize()?;
+        filesystem_script_path = path::absolute(filesystem_script_path)?;
 
         if !filesystem_script_path.starts_with(crate::SCRIPTS_DIR.get().unwrap()) {
             return Err(Error::ScriptPathEscapesScriptDirectory);
@@ -419,6 +463,8 @@ impl UserData for LuaTrace {
         );
     }
 }
+
+// TODO: use lua.from_value(): https://github.com/mlua-rs/mlua/blob/main/examples/serde.rs#L31
 
 impl IntoLua for Message {
     fn into_lua(self, lua: &Lua) -> mlua::Result<Value> {
