@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use mlua::{FromLua, Lua, LuaSerdeExt, ObjectLike, Table, UserData, Value};
+use mlua::{FromLua, IntoLua, Lua, LuaSerdeExt, ObjectLike, Table, UserData, Value};
 use tokio::fs;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -298,24 +298,9 @@ struct LuaTrace {
 impl UserData for LuaTrace {
     fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
         fields.add_field_method_get("id", |_lua, trace| Ok(format!("{}", trace.id.hyphenated())));
-
-        // TODO: messages, indexed by integer?
     }
 
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_async_method("push_message", async |_lua, trace, (role, text, thinking): (String, String, Option<String>)| {
-            let role = match role.as_str() {
-                "system" => Role::System,
-                "assistant" => Role::Assistant,
-                "user" => Role::User,
-                _ => return Err(mlua::Error::runtime(format!(r#"bad argument #1: one of "system", "user", "assistant" expected, got '{role}'"#))),
-            };
-
-            trace.trace_store.push_message(trace.id, role, &text, thinking.as_deref()).await?;
-
-            Ok(())
-        });
-
         methods.add_async_method(
             "generate",
             async |lua, trace, (backend, config): (String, Option<Table>)| {
@@ -365,55 +350,82 @@ impl UserData for LuaTrace {
                 Ok(())
             },
         );
+
+        methods.add_async_meta_method("__index", async |_lua, trace, message_position: usize| {
+            let session = trace
+                .trace_store
+                .get_session(trace.id)
+                .await
+                .map_err(mlua::Error::runtime)?;
+
+            let session = session.read().await;
+
+            if message_position == 0 {
+                return Err(mlua::Error::runtime("message position cannot be 0"));
+            }
+
+            Ok(session.get_message(message_position - 1))
+        });
+
+        methods.add_async_meta_method(
+            "__newindex",
+            async |_lua, trace, (message_position, message): (usize, Message)| {
+                let session = trace
+                    .trace_store
+                    .get_session(trace.id)
+                    .await
+                    .map_err(mlua::Error::runtime)?;
+
+                let mut session = session.write().await;
+
+                if message_position == 0 {
+                    return Err(mlua::Error::runtime("message position cannot be 0"));
+                }
+
+                session
+                    .set_message(Some(message_position - 1), message)
+                    .await
+                    .map_err(mlua::Error::runtime)?;
+
+                Ok(())
+            },
+        );
     }
 }
 
-struct LuaMessage {
-    chat_id: Uuid,
-    message_position: usize,
-    trace_store: Arc<TraceStore>,
-    cached_message: Message,
+impl IntoLua for Message {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<Value> {
+        let message_table = lua.create_table()?;
+
+        message_table.set("role", self.role.into_lua(lua)?)?;
+        message_table.set("text", self.text.into_lua(lua)?)?;
+        message_table.set("thinking", self.thinking.into_lua(lua)?)?;
+
+        Ok(Value::Table(message_table))
+    }
 }
 
-impl UserData for LuaMessage {
-    fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
-        // TODO: set/get role and text and thinking
+impl IntoLua for Role {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<Value> {
+        match self {
+            Self::System => "system",
+            Self::User => "user",
+            Self::Assistant => "assistant",
+        }
+        .into_lua(lua)
+    }
+}
 
-        fields.add_field_method_get("role", |_lua, message| {
-            Ok(message.cached_message.role.to_string())
-        });
-
-        fields.add_field_method_get("text", |_lua, message| {
-            Ok(message.cached_message.text.clone())
-        });
-
-        fields.add_field_method_get("thinking", |_lua, message| {
-            Ok(message.cached_message.thinking.clone())
-        });
-
-        fields.add_field_method_set("role", |_lua, message, role: Role| {
-            // TODO: Set message in actual chat
-            message.cached_message.role = role;
-            Ok(())
-        });
-
-        fields.add_field_method_set("text", |_lua, message, text: String| {
-            // TODO: Set message in actual chat
-            message.cached_message.text = text;
-            Ok(())
-        });
-
-        fields.add_field_method_set("thinking", |_lua, message, thinking: Option<String>| {
-            if message.cached_message.role != Role::Assistant {
-                return Err(mlua::Error::runtime(
-                    "tried to set thinking on non-assistant message",
-                ));
-            }
-
-            // TODO: Set message in actual chat
-            message.cached_message.thinking = thinking;
-            Ok(())
-        });
+impl FromLua for Message {
+    fn from_lua(value: Value, lua: &Lua) -> mlua::Result<Self> {
+        match value {
+            Value::Table(table) => Ok(Message {
+                role: FromLua::from_lua(table.get("role")?, lua)?,
+                text: FromLua::from_lua(table.get("text")?, lua)?,
+                thinking: FromLua::from_lua(table.get("thinking")?, lua)?,
+            }),
+            _ => Err(mlua::Error::runtime("message must be a table")),
+        }
     }
 }
 
@@ -428,7 +440,7 @@ impl FromLua for Role {
             },
             None => {
                 return Err(mlua::Error::runtime(
-                    r#"role must be one of "system", "user", "assistant""#,
+                    r#"role must be one of "system", "user", "assistant", got {value:?}"#,
                 ))
             }
         };

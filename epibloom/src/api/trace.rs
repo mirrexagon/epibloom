@@ -78,12 +78,19 @@ pub async fn stream_trace_by_id(
     trace_id: Uuid,
     store: &State<Arc<TraceStore>>,
 ) -> Result<EventStream![], ApiErrorResponse> {
-    let trace_stream = store.get_trace_stream(trace_id).await.map_err(|err| {
-        ApiErrorResponse::NotFound(format!(
-            "Could not get stream for trace {}: {}",
-            trace_id, err
-        ))
-    })?;
+    let trace_stream = {
+        let session = store
+            .get_session(trace_id)
+            .await
+            .map_err(|err| ApiErrorResponse::NotFound(err.to_string()))?;
+
+        let session = session.read().await;
+
+        session
+            .get_trace_stream()
+            .await
+            .map_err(|err| ApiErrorResponse::InternalServerError(err.to_string()))?
+    };
 
     Ok(EventStream! {
         futures::pin_mut!(trace_stream);

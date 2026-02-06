@@ -22,6 +22,9 @@ pub enum TraceStoreEvent {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TraceEvent {
+    SystemMessageStart { position: usize },
+    SystemMessageDelta { delta: String },
+    SystemMessageEnd { position: usize },
     UserMessageStart { position: usize },
     UserMessageDelta { delta: String },
     UserMessageEnd { position: usize },
@@ -94,43 +97,7 @@ impl TraceStore {
         Ok(traces)
     }
 
-    pub async fn new_trace(&self, name: Option<&str>) -> Result<Uuid, Error> {
-        let trace = Trace::new(name);
-        let new_trace_id = trace.metadata.id;
-
-        log::info!("Creating trace: {new_trace_id}: '{}'", trace.metadata.name);
-
-        trace.save_to_traces_directory().await?;
-        self.add_trace(trace).await?;
-        Ok(new_trace_id)
-    }
-
-    async fn add_trace(&self, trace: Trace) -> Result<(), Error> {
-        let (broadcast, _) = broadcast::channel(1024);
-        let new_trace_metadata = trace.metadata.clone();
-        let new_trace_id = new_trace_metadata.id;
-        let new_session = Session {
-            trace,
-            current_assistant_message: String::new(),
-            current_assistant_thinking: String::new(),
-            broadcast,
-            state: State::Idle,
-        };
-
-        {
-            let mut sessions = self.sessions.write().await;
-            sessions.insert(new_trace_id, Arc::new(RwLock::new(new_session)));
-
-            // We don't care if there are no receivers.
-            let _ = self.event_broadcast.send(TraceStoreEvent::Added {
-                trace: new_trace_metadata,
-            });
-        }
-
-        Ok(())
-    }
-
-    async fn get_session_arc(&self, trace_id: Uuid) -> Result<Arc<RwLock<Session>>, Error> {
+    pub async fn get_session(&self, trace_id: Uuid) -> Result<Arc<RwLock<Session>>, Error> {
         let sessions = self.sessions.read().await;
 
         match sessions.get(&trace_id) {
@@ -139,91 +106,43 @@ impl TraceStore {
         }
     }
 
-    pub async fn get_trace_copy(&self, trace_id: Uuid) -> Result<Trace, Error> {
-        let session_arc = self.get_session_arc(trace_id).await?;
-        let session = session_arc.read().await;
-        Ok(session.trace.clone())
+    /// Create a new blank trace and add it as a session.
+    pub async fn new_trace(&self, name: Option<&str>) -> Result<Uuid, Error> {
+        let trace = Trace::new(name);
+        let trace_metadata = trace.metadata.clone();
+
+        log::info!(
+            "Creating new trace: {}: {}",
+            trace_metadata.id,
+            trace_metadata.name
+        );
+
+        trace.save_to_traces_directory().await?;
+        self.add_trace(trace).await?;
+
+        Ok(trace_metadata.id)
     }
 
-    // TODO: Maybe just set the entire trace or a single message instead of having functions to push messages and stuff.
-    // The Lua API can update last modified times etc.
-    // The Lua LuaTrace object can have messages indexed by integers directly in
-    // the trace object. Only problem is doing things
-    // like `trace[1].text = "text"` directly.
-    // Also should probably be more like parent object is a trace store trace
-    // reference and the individual trace object is just a trace, since it has
-    // metadata like ID and times. Or you get and set these trace copy objects on the
-    // trace store directly.
-    //
-    // Or have a chat modify method that takes a callback that modifies a chat,
-    // then resolve what changed to update times?
+    /// Add a trace as a session.
+    async fn add_trace(&self, trace: Trace) -> Result<(), Error> {
+        let trace_metadata = trace.metadata.clone();
 
-    pub async fn push_message(
-        &self,
-        trace_id: Uuid,
-        role: Role,
-        text: &str,
-        thinking: Option<&str>,
-    ) -> Result<usize, Error> {
-        if thinking.is_some() && role != Role::Assistant {
-            return Err(Error::ThinkingSuppliedForNonAssistantMessage);
-        }
+        let new_session = Session::new(trace);
+        log::info!(
+            "Adding trace to store: {}: {}",
+            trace_metadata.id,
+            trace_metadata.name
+        );
 
-        let session_arc = self.get_session_arc(trace_id).await?;
-        let mut session = session_arc.write().await;
+        let mut sessions = self.sessions.write().await;
+        sessions.insert(trace_metadata.id, Arc::new(RwLock::new(new_session)));
 
-        if session.get_state() == State::Generating {
-            return Err(Error::TraceAlreadyGenerating);
-        }
-
-        let now = time::OffsetDateTime::now_local().unwrap();
-
-        session.trace.messages.push(Message {
-            role,
-            thinking: thinking.map(|s| s.to_owned()),
-            text: text.to_owned(),
-            created: now,
-            modified: now,
-        });
-        session.trace.metadata.modified = now;
-        session.trace.save_to_traces_directory().await?;
-
-        let new_message_position = session.trace.messages.len() - 1;
-
-        let _ = session.broadcast.send(match role {
-            Role::System | Role::User => TraceEvent::UserMessageStart {
-                position: new_message_position,
-            },
-            Role::Assistant => TraceEvent::AssistantMessageStart {
-                position: new_message_position,
-            },
+        // We don't care if there are no receivers.
+        let _ = self.event_broadcast.send(TraceStoreEvent::Added {
+            trace: trace_metadata,
         });
 
-        if let Some(thinking) = thinking {
-            let _ = session.broadcast.send(TraceEvent::AssistantThinkingDelta {
-                delta: thinking.to_owned(),
-            });
-        }
-
-        let _ = session.broadcast.send(match role {
-            Role::System | Role::User => TraceEvent::UserMessageDelta {
-                delta: text.to_owned(),
-            },
-            Role::Assistant => TraceEvent::AssistantMessageDelta {
-                delta: text.to_owned(),
-            },
-        });
-
-        let _ = session.broadcast.send(match role {
-            Role::System | Role::User => TraceEvent::UserMessageStart {
-                position: new_message_position,
-            },
-            Role::Assistant => TraceEvent::AssistantMessageStart {
-                position: new_message_position,
-            },
-        });
-
-        Ok(new_message_position)
+        Ok(())
     }
 
     pub async fn get_trace_store_event_stream(
@@ -236,6 +155,10 @@ impl TraceStore {
 
         let mut initial_trace_store_events = Vec::new();
         for (_trace_id, session_arc) in sessions.iter() {
+            // TODO: This is inefficient since it has to lock every trace. Is there a
+            // better way to store traces so the metadata is more easily
+            // accessible but still kept in sync with messages?
+
             let session = session_arc.read().await;
             initial_trace_store_events.push(TraceStoreEvent::Added {
                 trace: session.trace.metadata.clone(),
@@ -243,9 +166,6 @@ impl TraceStore {
         }
 
         let mut rx = self.event_broadcast.subscribe();
-
-        // TODO: This is inefficient since it has to lock every trace. Is there a
-        // better way to store traces so the metadata is more easily accessible?
 
         Ok(stream! {
             // Send current trace list.
@@ -275,30 +195,162 @@ impl TraceStore {
         })
     }
 
-    /// Get a stream that yields events corresponding to existing messages, then any future message chunks.
-    pub async fn get_trace_stream(
+    pub async fn start_generating<B: Backend + TypeMapKey<Value = Arc<B>> + Send + Sync>(
         &self,
         trace_id: Uuid,
-    ) -> Result<impl Stream<Item = TraceEvent>, Error> {
-        let session_arc = self.get_session_arc(trace_id).await?;
+        backend_config: B::Config,
+    ) -> Result<(), Error>
+    where
+        <B as Backend>::Config: Send + Sync + 'static,
+        <B as Backend>::Error: Send + Sync + 'static,
+    {
+        let session_arc = self.get_session(trace_id).await?;
+        let backend = self
+            .backends
+            .lock()
+            .await
+            .get::<B>()
+            .map_err(|err| Error::Backend(err.to_string()))?;
+        Session::start_generating::<B>(session_arc, backend, backend_config).await?;
+        Ok(())
+    }
+
+    // TODO: Cancel a trace that is generating
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum State {
+    Idle,
+    Generating,
+}
+
+pub struct Session {
+    trace: Trace,
+    state: State,
+
+    /// Current incomplete assistant thinking. Will be added to the trace once it is complete.
+    current_assistant_thinking: String,
+    /// Current incomplete assistant message. Will be added to the trace once it is complete.
+    current_assistant_message: String,
+
+    broadcast: broadcast::Sender<TraceEvent>,
+}
+
+impl Session {
+    pub fn new(trace: Trace) -> Self {
+        let (broadcast, _) = broadcast::channel(1024);
+
+        Session {
+            trace,
+            current_assistant_message: String::new(),
+            current_assistant_thinking: String::new(),
+            broadcast,
+            state: State::Idle,
+        }
+    }
+
+    pub fn get_message(&self, message_position: usize) -> Option<Message> {
+        self.trace.messages.get(message_position).cloned()
+    }
+
+    /// Provide no message position to append a message.
+    pub async fn set_message(
+        &mut self,
+        message_position: Option<usize>,
+        message: Message,
+    ) -> Result<(), Error> {
+        // Set message in trace.
+        if message.thinking.is_some() && message.role != Role::Assistant {
+            return Err(Error::ThinkingSuppliedForNonAssistantMessage);
+        }
+
+        if self.state == State::Generating {
+            return Err(Error::TraceAlreadyGenerating);
+        }
+
+        let now = time::OffsetDateTime::now_local().unwrap();
+        let message_position = message_position.unwrap_or(self.trace.messages.len());
+
+        match self.trace.messages.len() {
+            len if message_position == len => {
+                // Push new message on the end.
+                self.trace.messages.push(message);
+            }
+
+            len if message_position < len => {
+                self.trace.messages[message_position] = message;
+            }
+
+            _ => {
+                return Err(Error::MessageNotFound {
+                    trace_id: self.trace.metadata.id,
+                    position: message_position,
+                })
+            }
+        }
+
+        // Broadcast that the message was added or changed.
+        let message = &self.trace.messages[message_position];
+
+        self.trace.metadata.modified = now;
+        self.trace.save_to_traces_directory().await?;
+
+        let _ = self.broadcast.send(match message.role {
+            Role::System | Role::User => TraceEvent::UserMessageStart {
+                position: message_position,
+            },
+            Role::Assistant => TraceEvent::AssistantMessageStart {
+                position: message_position,
+            },
+        });
+
+        if let Some(ref thinking) = message.thinking {
+            let _ = self.broadcast.send(TraceEvent::AssistantThinkingDelta {
+                delta: thinking.to_owned(),
+            });
+        }
+
+        let _ = self.broadcast.send(match message.role {
+            Role::System | Role::User => TraceEvent::UserMessageDelta {
+                delta: message.text.to_owned(),
+            },
+            Role::Assistant => TraceEvent::AssistantMessageDelta {
+                delta: message.text.to_owned(),
+            },
+        });
+
+        let _ = self.broadcast.send(match message.role {
+            Role::System | Role::User => TraceEvent::UserMessageStart {
+                position: message_position,
+            },
+            Role::Assistant => TraceEvent::AssistantMessageStart {
+                position: message_position,
+            },
+        });
+
+        Ok(())
+    }
+
+    /// Get a stream that yields events corresponding to existing messages, then any future message chunks.
+    pub async fn get_trace_stream(&self) -> Result<impl Stream<Item = TraceEvent>, Error> {
+        let mut rx = self.broadcast.subscribe();
+        let past_messages = self.trace.messages.clone();
+        let current_assistant_message = self.current_assistant_message.clone();
+        let current_assistant_thinking = self.current_assistant_thinking.clone();
+        let current_state = self.state;
 
         Ok(stream! {
-            let (mut rx, past_messages, current_assistant_thinking, current_assistant_message, state) = {
-                let session = session_arc.read().await;
-                let (current_assistant_thinking, current_assistant_message) =
-                    session.get_in_progress_message();
-                (
-                    session.get_new_receiver(),
-                    session.get_complete_messages(),
-                    current_assistant_thinking,
-                    current_assistant_message,
-                    session.get_state(),
-                )
-            };
-
             // Send past messages.
             for (position, message) in past_messages.iter().enumerate() {
                 match message.role {
+                    Role::System => {
+                        yield TraceEvent::SystemMessageStart { position };
+                        yield TraceEvent::SystemMessageDelta {
+                            delta: message.text.clone(),
+                        };
+                        yield TraceEvent::SystemMessageEnd { position };
+                    }
+
                     Role::User => {
                         yield TraceEvent::UserMessageStart { position };
                         yield TraceEvent::UserMessageDelta {
@@ -319,13 +371,11 @@ impl TraceStore {
                         };
                         yield TraceEvent::AssistantMessageEnd { position };
                     }
-
-                    Role::System => {}
                 }
             }
 
             // Send current message so far.
-            if let State::Generating = state {
+            if let State::Generating = current_state {
                 yield TraceEvent::AssistantMessageStart {
                     position: past_messages.len(),
                 };
@@ -361,66 +411,6 @@ impl TraceStore {
                 }
             }
         })
-    }
-
-    pub async fn start_generating<B: Backend + TypeMapKey<Value = Arc<B>> + Send + Sync>(
-        &self,
-        trace_id: Uuid,
-        backend_config: B::Config,
-    ) -> Result<(), Error>
-    where
-        <B as Backend>::Config: Send + Sync + 'static,
-        <B as Backend>::Error: Send + Sync + 'static,
-    {
-        let session_arc = self.get_session_arc(trace_id).await?;
-        let backend = self
-            .backends
-            .lock()
-            .await
-            .get::<B>()
-            .map_err(|err| Error::Backend(err.to_string()))?;
-        Session::start_generating::<B>(session_arc, backend, backend_config).await?;
-        Ok(())
-    }
-
-    // TODO: Cancel a trace that is generating
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum State {
-    Idle,
-    Generating,
-}
-
-struct Session {
-    trace: Trace,
-
-    current_assistant_thinking: String,
-    /// Current incomplete assistant message. Will be added to the trace once it is complete.
-    current_assistant_message: String,
-
-    broadcast: broadcast::Sender<TraceEvent>,
-    state: State,
-}
-
-impl Session {
-    fn get_new_receiver(&self) -> broadcast::Receiver<TraceEvent> {
-        self.broadcast.subscribe()
-    }
-
-    fn get_complete_messages(&self) -> Vec<Message> {
-        self.trace.messages.clone()
-    }
-
-    fn get_in_progress_message(&self) -> (String, String) {
-        (
-            self.current_assistant_thinking.clone(),
-            self.current_assistant_message.clone(),
-        )
-    }
-
-    fn get_state(&self) -> State {
-        self.state
     }
 
     async fn start_generating<B: Backend>(
@@ -467,8 +457,6 @@ impl Session {
                         None
                     },
                     text: new_message,
-                    created: now,
-                    modified: now,
                 });
 
                 session.current_assistant_message.truncate(0);

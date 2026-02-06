@@ -16,18 +16,18 @@ pub use session::{TraceEvent, TraceStore, TraceStoreEvent};
 pub enum Role {
     #[serde(rename = "system")]
     System,
-    #[serde(rename = "assistant")]
-    Assistant,
     #[serde(rename = "user")]
     User,
+    #[serde(rename = "assistant")]
+    Assistant,
 }
 
 impl fmt::Display for Role {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let s = match *self {
             Role::System => "system",
-            Role::Assistant => "assistant",
             Role::User => "user",
+            Role::Assistant => "assistant",
         };
 
         write!(f, "{s}")
@@ -39,10 +39,6 @@ pub struct Message {
     pub role: Role,
     pub text: String,
     pub thinking: Option<String>,
-    #[serde(with = "time::serde::rfc3339")]
-    pub created: OffsetDateTime,
-    #[serde(with = "time::serde::rfc3339")]
-    pub modified: OffsetDateTime,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
