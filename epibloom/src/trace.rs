@@ -141,8 +141,8 @@ pub enum Error {
     #[error("message not found: trace {trace_id}, message position {position}")]
     MessageNotFound { trace_id: Uuid, position: usize },
 
-    #[error("trace is already generating")]
-    TraceAlreadyGenerating,
+    #[error("can't modify trace while generating")]
+    CantModifyTraceWhileGenerating,
 
     #[error("thinking was supplied for a non-assistant message")]
     ThinkingSuppliedForNonAssistantMessage,

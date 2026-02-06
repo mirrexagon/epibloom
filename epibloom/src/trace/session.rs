@@ -265,7 +265,7 @@ impl Session {
         }
 
         if self.state == State::Generating {
-            return Err(Error::TraceAlreadyGenerating);
+            return Err(Error::CantModifyTraceWhileGenerating);
         }
 
         let now = time::OffsetDateTime::now_local().unwrap();
@@ -425,7 +425,7 @@ impl Session {
         let trace = {
             let mut session = session_arc.write().await;
             if let State::Generating = session.state {
-                return Err(Error::TraceAlreadyGenerating);
+                return Err(Error::CantModifyTraceWhileGenerating);
             }
 
             session.state = State::Generating;

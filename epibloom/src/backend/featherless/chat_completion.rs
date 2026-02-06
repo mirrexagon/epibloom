@@ -181,6 +181,8 @@ pub fn generate(
         let response = client.post(url).json(&body).send().await?;
 
         if response.status() != StatusCode::OK {
+            log::error!("Featherless chat completion response {}", response.status());
+
             let error_response: response::ErrorResponse = response.json().await?;
             return Err(super::Error::Api {
                 message: error_response.error.message,

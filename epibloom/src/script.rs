@@ -6,16 +6,12 @@
 //
 // Scripts can go in global and local config locations, eg. /etc/epibloom/scripts and ~/.config/epibloom/scripts, and the user one is higher in package.path
 //
-// There is a POST API endpoint /api/script/<script name> which looks up scripts, passes the body JSON as Lua values to the script, runs it.
-// - How do results come back? Via a global event endpoint that streams events? (should this endpoint also just send the current state of the application as the first thing, like chat streams do?) Response has the return values of the script?
-// - Each script in its own Lua state or all use the same one? If same one, then can't run scripts in background waiting for things unless using some coroutine async thing - I want to try coroutine and async (mlua has support) where possible.
+// Tool calls: Lua should be able to attach tool call possibilities with Lua
+// functions that call back into the state. But I also want to be able to run
+// multiple generations at once.
 //
-// Where to store game/global state? If same Lua state for all scripts, can be in Lua state and get loaded and saved to/from JSON when needed.
-//
-// Being able to run multiple scripts in parallel allows for doing multiple unrelated things at once, but eg. game scripts probably should be executed one after the other. Note that some game actions may want to run multiple chats at once, but one script can start multiple chat generations and wait on them all to do what it needs to.
-// Perhaps the API should be `/api/script/<script context name>/<script name>` to execute a script in a named Lua state context. The game can default to using either just "game" or an ID for the game session (as in a instantiation of the game, an overall persistent session, including all save files made for that session).
-//
-// Chat objects in Lua wrap a Uuid and internally the methods call back to the chat store, yielding back where the Rust implementation awaits for the thing to happen.
+// Be able to send responses to the client in the middle of a script, via SSE.
+// eg. for letting the UI know to change button states, etc.?
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -188,6 +184,34 @@ impl Context {
 
             let package_loaded: Table = globals.get_path("package.loaded")?;
             package_loaded.set("epibloom.trace", traces)?;
+
+            {
+                let message_metatable = lua.create_table()?;
+
+                message_metatable.set(
+                    "__tostring",
+                    lua.create_function(|_lua, message: Message| {
+                        if message.thinking.is_some() {
+                            Ok(format!(
+                                "Message {{ role = \"{}\", text = \"{}\", thinking = \"{}\" }}",
+                                message.role,
+                                message.text,
+                                message.thinking.unwrap()
+                            ))
+                        } else {
+                            Ok(format!(
+                                "Message {{ role = \"{}\", text = \"{}\" }}",
+                                message.role, message.text
+                            ))
+                        }
+                    })?,
+                )?;
+
+                lua.set_named_registry_value(
+                    "epibloom.trace.message.metatable",
+                    message_metatable,
+                )?;
+            }
         }
 
         // Filesystem module.
@@ -253,21 +277,6 @@ impl Context {
 struct LuaTraceStore {
     trace_store: Arc<TraceStore>,
 }
-
-// local all_chats = chats.get_all()
-// -- all_chats = { chat_id = chat_object }
-//
-// local chat = chats.new(name)
-// local chat = chats.get(chat_id)
-//
-// chat[1].text = "I'm editing this message and the last modified time should update" -- Probably needs to return a table with a newindex that sets the message properties in the actual chat
-// -- can't get while generating?
-// -- get an error when trying to set messages or something in it while generating
-//
-// chat.push_message(role, text)
-//
-// chat.generate(backend, backend_config)
-// chat.wait_for_generation()
 
 impl UserData for LuaTraceStore {
     fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {}
@@ -400,6 +409,9 @@ impl IntoLua for Message {
         message_table.set("role", self.role.into_lua(lua)?)?;
         message_table.set("text", self.text.into_lua(lua)?)?;
         message_table.set("thinking", self.thinking.into_lua(lua)?)?;
+
+        let metatable = lua.named_registry_value("epibloom.trace.message.metatable")?;
+        message_table.set_metatable(Some(metatable))?;
 
         Ok(Value::Table(message_table))
     }

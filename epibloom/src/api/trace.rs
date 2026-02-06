@@ -19,7 +19,7 @@ impl From<trace::Error> for ApiErrorResponse {
             trace::Error::TraceNotFound(_)
             | trace::Error::TraceHasNoMessages(_)
             | trace::Error::MessageNotFound { .. } => ApiErrorResponse::NotFound(value.to_string()),
-            trace::Error::TraceAlreadyGenerating => ApiErrorResponse::Conflict(value.to_string()),
+            trace::Error::CantModifyTraceWhileGenerating => ApiErrorResponse::Conflict(value.to_string()),
             trace::Error::ThinkingSuppliedForNonAssistantMessage => {
                 ApiErrorResponse::BadRequest(value.to_string())
             }
