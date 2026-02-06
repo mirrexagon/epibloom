@@ -47,3 +47,5 @@ In `epibloom/ui/`, React + TypeScript + Vite + Tailwind CSS.
 2. Start the UI dev server (`npm run dev` in `epibloom/ui/`)
 3. Open http://localhost:5173
 4. Vite proxies API requests to the backend automatically
+
+The OpenAPI spec should be available at http://127.0.0.1:8000/api-docs/openapi.json - refer to this when needed.
