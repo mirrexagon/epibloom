@@ -4,7 +4,7 @@ use std::sync::Arc;
 use async_stream::stream;
 use futures::Stream;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, Mutex, RwLock};
+use tokio::sync::{broadcast, Mutex, Notify, RwLock};
 use typemap_rev::TypeMapKey;
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -81,6 +81,11 @@ impl TraceStore {
         }
 
         Ok(())
+    }
+
+    pub async fn has_trace(&self, trace_id: Uuid) -> bool {
+        let sessions = self.sessions.read().await;
+        sessions.contains_key(&trace_id)
     }
 
     pub async fn list_traces(&self) -> Result<Vec<TraceMetadata>, super::Error> {
@@ -215,6 +220,24 @@ impl TraceStore {
         Ok(())
     }
 
+    pub async fn wait_for_generate_complete(&self, trace_id: Uuid) -> Result<(), Error> {
+        let session = self.get_session(trace_id).await?;
+
+        let notify = {
+            let session = session.read().await;
+
+            if session.state == State::Idle {
+                return Ok(());
+            }
+
+            Arc::clone(&session.generate_complete_notify)
+        };
+
+        notify.notified().await;
+
+        Ok(())
+    }
+
     // TODO: Cancel a trace that is generating
 }
 
@@ -233,7 +256,8 @@ pub struct Session {
     /// Current incomplete assistant message. Will be added to the trace once it is complete.
     current_assistant_message: String,
 
-    broadcast: broadcast::Sender<TraceEvent>,
+    event_broadcast: broadcast::Sender<TraceEvent>,
+    generate_complete_notify: Arc<Notify>,
 }
 
 impl Session {
@@ -242,10 +266,11 @@ impl Session {
 
         Session {
             trace,
+            state: State::Idle,
             current_assistant_message: String::new(),
             current_assistant_thinking: String::new(),
-            broadcast,
-            state: State::Idle,
+            event_broadcast: broadcast,
+            generate_complete_notify: Arc::new(Notify::new()),
         }
     }
 
@@ -295,7 +320,7 @@ impl Session {
         self.trace.metadata.modified = now;
         self.trace.save_to_traces_directory().await?;
 
-        let _ = self.broadcast.send(match message.role {
+        let _ = self.event_broadcast.send(match message.role {
             Role::System | Role::User => TraceEvent::UserMessageStart {
                 position: message_position,
             },
@@ -305,12 +330,14 @@ impl Session {
         });
 
         if let Some(ref thinking) = message.thinking {
-            let _ = self.broadcast.send(TraceEvent::AssistantThinkingDelta {
-                delta: thinking.to_owned(),
-            });
+            let _ = self
+                .event_broadcast
+                .send(TraceEvent::AssistantThinkingDelta {
+                    delta: thinking.to_owned(),
+                });
         }
 
-        let _ = self.broadcast.send(match message.role {
+        let _ = self.event_broadcast.send(match message.role {
             Role::System | Role::User => TraceEvent::UserMessageDelta {
                 delta: message.text.to_owned(),
             },
@@ -319,7 +346,7 @@ impl Session {
             },
         });
 
-        let _ = self.broadcast.send(match message.role {
+        let _ = self.event_broadcast.send(match message.role {
             Role::System | Role::User => TraceEvent::UserMessageStart {
                 position: message_position,
             },
@@ -333,7 +360,7 @@ impl Session {
 
     /// Get a stream that yields events corresponding to existing messages, then any future message chunks.
     pub async fn get_trace_stream(&self) -> Result<impl Stream<Item = TraceEvent>, Error> {
-        let mut rx = self.broadcast.subscribe();
+        let mut rx = self.event_broadcast.subscribe();
         let past_messages = self.trace.messages.clone();
         let current_assistant_message = self.current_assistant_message.clone();
         let current_assistant_thinking = self.current_assistant_thinking.clone();
@@ -470,10 +497,12 @@ impl Session {
                         "Failed to save trace {} to file",
                         session.trace.metadata.id.hyphenated()
                     );
-                    let _ = session.broadcast.send(TraceEvent::Error {
+                    let _ = session.event_broadcast.send(TraceEvent::Error {
                         message: err.to_string(),
                     });
                 }
+
+                session.generate_complete_notify.notify_waiters();
             }
         });
 
@@ -496,9 +525,11 @@ where
 
     {
         let session = session_arc.write().await;
-        let _ = session.broadcast.send(TraceEvent::AssistantMessageStart {
-            position: message_position,
-        });
+        let _ = session
+            .event_broadcast
+            .send(TraceEvent::AssistantMessageStart {
+                position: message_position,
+            });
     }
 
     while let Some(result) = stream.next().await {
@@ -509,20 +540,24 @@ where
                     session.current_assistant_thinking.push_str(delta);
 
                     // Ignore failure to send as there may be no receivers.
-                    let _ = session.broadcast.send(TraceEvent::AssistantThinkingDelta {
-                        delta: delta.clone(),
-                    });
+                    let _ = session
+                        .event_broadcast
+                        .send(TraceEvent::AssistantThinkingDelta {
+                            delta: delta.clone(),
+                        });
                 }
                 GenerateChunk::MessageDelta(ref delta) => {
                     session.current_assistant_message.push_str(delta);
-                    let _ = session.broadcast.send(TraceEvent::AssistantMessageDelta {
-                        delta: delta.clone(),
-                    });
+                    let _ = session
+                        .event_broadcast
+                        .send(TraceEvent::AssistantMessageDelta {
+                            delta: delta.clone(),
+                        });
                 }
             },
             Err(err) => {
                 log::error!("Error in generation stream: {err}");
-                let _ = session.broadcast.send(TraceEvent::Error {
+                let _ = session.event_broadcast.send(TraceEvent::Error {
                     message: err.to_string(),
                 });
                 return Err(Box::new(err));
@@ -532,9 +567,11 @@ where
 
     {
         let session = session_arc.write().await;
-        let _ = session.broadcast.send(TraceEvent::AssistantMessageEnd {
-            position: message_position,
-        });
+        let _ = session
+            .event_broadcast
+            .send(TraceEvent::AssistantMessageEnd {
+                position: message_position,
+            });
     }
 
     Ok(())

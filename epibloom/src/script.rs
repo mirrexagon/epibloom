@@ -295,7 +295,18 @@ impl UserData for LuaTraceStore {
             })
         });
 
-        // TODO: Get existing chat
+        methods.add_async_method("get", async |_lua, cs, trace_id: String| {
+            let trace_id = Uuid::try_parse(&trace_id).map_err(mlua::Error::runtime)?;
+
+            if cs.trace_store.has_trace(trace_id).await {
+                Ok(Some(LuaTrace {
+                    id: trace_id,
+                    trace_store: Arc::clone(&cs.trace_store),
+                }))
+            } else {
+                Ok(None)
+            }
+        });
     }
 }
 
@@ -354,11 +365,18 @@ impl UserData for LuaTrace {
                     }
                 }
 
-                // TODO: Return something that can be waited on for the generation to complete.
-
                 Ok(())
             },
         );
+
+        methods.add_async_method("wait_for_generate", async |_lua, trace, (): ()| {
+            trace
+                .trace_store
+                .wait_for_generate_complete(trace.id)
+                .await?;
+
+            Ok(())
+        });
 
         methods.add_async_meta_method("__index", async |_lua, trace, message_position: usize| {
             let session = trace
