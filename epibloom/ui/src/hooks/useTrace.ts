@@ -35,6 +35,32 @@ export function useTrace(traceId: string | null): UseTraceResult {
                     const newMessages = [...prev];
 
                     switch (traceEvent.type) {
+                        case "system_message_start":
+                            // Start a new system message
+                            newMessages[traceEvent.position] = {
+                                role: "system",
+                                text: "",
+                                position: traceEvent.position,
+                            };
+                            break;
+
+                        case "system_message_delta":
+                            // Append to the current system message (should be the last one)
+                            if (newMessages.length > 0) {
+                                const lastIdx = newMessages.length - 1;
+                                newMessages[lastIdx] = {
+                                    ...newMessages[lastIdx],
+                                    text:
+                                        newMessages[lastIdx].text +
+                                        traceEvent.delta,
+                                };
+                            }
+                            break;
+
+                        case "system_message_end":
+                            // Message is complete, nothing special to do
+                            break;
+
                         case "user_message_start":
                             // Start a new user message
                             newMessages[traceEvent.position] = {
