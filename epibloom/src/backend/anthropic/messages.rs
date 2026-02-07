@@ -266,6 +266,7 @@ mod request {
     pub enum Thinking {
         Disabled,
         Enabled { budget_tokens: u32 },
+        // TODO: Support adaptive and https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking#adaptive-thinking-with-the-effort-parameter
     }
 
     #[derive(Debug, Clone, Serialize)]

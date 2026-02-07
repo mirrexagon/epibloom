@@ -231,7 +231,6 @@ impl Context {
                         ));
                     }
 
-                    // TODO: Use mlua::Error::external in most places instead of mapping runtime over errors
                     let json_str =
                         serde_json::to_string(&content).map_err(mlua::Error::external)?;
 
@@ -329,7 +328,7 @@ impl UserData for LuaTraceStore {
                 .trace_store
                 .new_trace(name.as_deref())
                 .await
-                .map_err(|err| mlua::Error::runtime(err.to_string()))?;
+                .map_err(mlua::Error::external)?;
 
             Ok(LuaTrace {
                 id: new_trace_id,
@@ -338,7 +337,7 @@ impl UserData for LuaTraceStore {
         });
 
         methods.add_async_method("get", async |_lua, cs, trace_id: String| {
-            let trace_id = Uuid::try_parse(&trace_id).map_err(mlua::Error::runtime)?;
+            let trace_id = Uuid::try_parse(&trace_id).map_err(mlua::Error::external)?;
 
             if cs.trace_store.has_trace(trace_id).await {
                 Ok(Some(LuaTrace {
@@ -425,7 +424,7 @@ impl UserData for LuaTrace {
                 .trace_store
                 .get_session(trace.id)
                 .await
-                .map_err(mlua::Error::runtime)?;
+                .map_err(mlua::Error::external)?;
 
             let session = session.read().await;
 
@@ -443,7 +442,7 @@ impl UserData for LuaTrace {
                     .trace_store
                     .get_session(trace.id)
                     .await
-                    .map_err(mlua::Error::runtime)?;
+                    .map_err(mlua::Error::external)?;
 
                 let mut session = session.write().await;
 
@@ -454,7 +453,7 @@ impl UserData for LuaTrace {
                 session
                     .set_message(Some(message_position - 1), message)
                     .await
-                    .map_err(mlua::Error::runtime)?;
+                    .map_err(mlua::Error::external)?;
 
                 Ok(())
             },
@@ -618,7 +617,7 @@ impl FromLua for backend::featherless::Config {
 
 impl From<trace::Error> for mlua::Error {
     fn from(value: trace::Error) -> Self {
-        mlua::Error::runtime(value.to_string())
+        mlua::Error::external(value)
     }
 }
 
