@@ -24,7 +24,7 @@ use uuid::Uuid;
 
 use crate::{
     backend,
-    trace::{self, Message, Role, Trace, TraceStore},
+    trace::{self, Message, Role, TraceStore},
 };
 
 pub struct ContextStore {
@@ -323,8 +323,6 @@ struct LuaTraceStore {
 }
 
 impl UserData for LuaTraceStore {
-    fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {}
-
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_method("new", async |_lua, cs, name: Option<String>| {
             let new_trace_id = cs

@@ -1,7 +1,7 @@
 mod session;
 
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use time::macros::format_description;

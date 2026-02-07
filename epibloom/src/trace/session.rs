@@ -106,7 +106,7 @@ impl TraceStore {
         let sessions = self.sessions.read().await;
 
         match sessions.get(&trace_id) {
-            Some(session_arc) => Ok(session_arc.clone()),
+            Some(session_arc) => Ok(Arc::clone(session_arc)),
             None => Err(Error::TraceNotFound(trace_id)),
         }
     }
@@ -464,7 +464,9 @@ impl Session {
 
         tokio::spawn(async move {
             let _ =
-                process_generation_stream(session_arc.clone(), stream, trace.messages.len()).await;
+                process_generation_stream(Arc::clone(&session_arc), stream, trace.messages.len())
+                    .await;
+
             // If an error occurs in process_generation_stream(), a
             // TraceEvent::Error will be sent on the session's broadcast channel.
 
