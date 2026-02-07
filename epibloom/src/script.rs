@@ -103,8 +103,6 @@ impl Context {
             package.set("path", package_path)?;
         }
 
-        // TODO: Add chat, uuid, logging, etc. libraries
-
         // Logging module.
         {
             let log_module = lua.create_table()?;
@@ -229,6 +227,10 @@ impl Context {
                         return Err(mlua::Error::runtime(
                             "path {file_path} escapes the script data directory",
                         ));
+                    }
+
+                    if let Some(parent) = path.parent() {
+                        fs::create_dir_all(parent).await?;
                     }
 
                     let json_str =
