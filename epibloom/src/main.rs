@@ -1,10 +1,12 @@
+#![warn(clippy::clone_on_ref_ptr)]
+
 #[macro_use]
 extern crate rocket;
 
 mod api;
 mod backend;
-mod trace;
 mod script;
+mod trace;
 
 use std::fs;
 use std::path::PathBuf;

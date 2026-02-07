@@ -223,17 +223,18 @@ impl TraceStore {
     pub async fn wait_for_generate_complete(&self, trace_id: Uuid) -> Result<(), Error> {
         let session = self.get_session(trace_id).await?;
 
-        let notify = {
+        let notified = {
             let session = session.read().await;
 
             if session.state == State::Idle {
                 return Ok(());
             }
 
-            Arc::clone(&session.generate_complete_notify)
+            let notify = Arc::clone(&session.generate_complete_notify);
+            notify.notified_owned()
         };
 
-        notify.notified().await;
+        notified.await;
 
         Ok(())
     }
