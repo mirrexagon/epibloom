@@ -309,11 +309,18 @@ impl Context {
             self.name
         );
 
-        let result = lua.load(script_content).call_async(input).await?;
+        let result = lua
+            .load(script_content)
+            .call_async(input)
+            .await
+            .inspect_err(|err| {
+                log::error!(
+                    "Error executing script {script_path:?} on context {}: {err}",
+                    self.name,
+                )
+            })?;
 
         Ok(lua.from_value(result)?)
-
-        // TODO: Log any errors that happen here, currently they only come back in the HTTP request.
     }
 }
 
