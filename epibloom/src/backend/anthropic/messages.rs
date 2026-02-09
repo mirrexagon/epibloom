@@ -198,6 +198,8 @@ mod request {
         pub top_k: Option<u32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub top_p: Option<f32>,
+        // TODO: https://platform.claude.com/docs/en/build-with-claude/structured-outputs
+        // Abstract the ability to put in structured outputs? XML vs. JSON, etc. How to bind this to Lua nicely?
     }
 
     impl Request {
