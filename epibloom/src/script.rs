@@ -225,8 +225,12 @@ impl Context {
 
                     if !path.starts_with(crate::SCRIPT_DATA_DIR.get().unwrap()) {
                         return Err(mlua::Error::runtime(
-                            "path {file_path} escapes the script data directory",
+                            "path escapes the script data directory",
                         ));
+                    }
+
+                    if !path.set_extension("json") {
+                        return Err(mlua::Error::runtime("path has no filename part"));
                     }
 
                     if let Some(parent) = path.parent() {
@@ -471,6 +475,7 @@ impl UserData for LuaTrace {
 }
 
 // TODO: use lua.from_value(): https://github.com/mlua-rs/mlua/blob/main/examples/serde.rs#L31
+// Or else look into https://github.com/mlua-rs/mlua/issues/225
 
 impl IntoLua for Message {
     fn into_lua(self, lua: &Lua) -> mlua::Result<Value> {
