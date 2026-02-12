@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { TraceList } from "./components/TraceList";
 import { TraceView } from "./components/TraceView";
 import { TraceMetadata } from "./types/api";
@@ -7,6 +7,11 @@ function App() {
     const [selectedTrace, setSelectedTrace] = useState<TraceMetadata | null>(
         null,
     );
+
+    const handleSelectTrace = useCallback((trace: TraceMetadata) => {
+        console.log(`Selected ${trace.id}`);
+        setSelectedTrace(trace);
+    }, []);
 
     return (
         <div className="h-screen flex flex-col bg-gray-900">
@@ -21,10 +26,7 @@ function App() {
                 <div className="w-80 flex-shrink-0">
                     <TraceList
                         selectedTraceId={selectedTrace?.id || null}
-                        onSelectTrace={(trace) => {
-                            console.log(`Selected ${trace.id}`);
-                            setSelectedTrace(trace);
-                        }}
+                        onSelectTrace={handleSelectTrace}
                     />
                 </div>
 

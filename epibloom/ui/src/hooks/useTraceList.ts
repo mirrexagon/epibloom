@@ -5,12 +5,14 @@ interface UseTraceListResult {
   traces: TraceMetadata[];
   error: string | null;
   connected: boolean;
+  latestTrace: TraceMetadata | null;
 }
 
 export function useTraceList(): UseTraceListResult {
   const [traces, setTraces] = useState<TraceMetadata[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
+  const [latestTrace, setLatestTrace] = useState<TraceMetadata | null>(null);
 
   useEffect(() => {
     const eventSource = new EventSource('/api/trace/');
@@ -31,6 +33,8 @@ export function useTraceList(): UseTraceListResult {
             if (exists) {
               return prev;
             }
+            // Set this as the latest trace for auto-selection
+            setLatestTrace(storeEvent.trace);
             // Add new trace, sorted by created date (newest first)
             return [storeEvent.trace, ...prev].sort(
               (a, b) => new Date(b.created).getTime() - new Date(a.created).getTime()
@@ -53,5 +57,5 @@ export function useTraceList(): UseTraceListResult {
     };
   }, []);
 
-  return { traces, error, connected };
+  return { traces, error, connected, latestTrace };
 }

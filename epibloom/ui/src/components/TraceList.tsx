@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useTraceList } from "../hooks/useTraceList";
 import { TraceMetadata } from "../types/api";
 
@@ -7,7 +8,14 @@ interface TraceListProps {
 }
 
 export function TraceList({ selectedTraceId, onSelectTrace }: TraceListProps) {
-    const { traces, error, connected } = useTraceList();
+    const { traces, error, connected, latestTrace } = useTraceList();
+
+    // Auto-select newly added traces
+    useEffect(() => {
+        if (latestTrace) {
+            onSelectTrace(latestTrace);
+        }
+    }, [latestTrace, onSelectTrace]);
 
     const formatDate = (dateString: string) => {
         const date = new Date(dateString);
