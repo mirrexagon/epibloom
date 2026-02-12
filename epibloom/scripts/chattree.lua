@@ -33,6 +33,9 @@ function chattree:generate(...)
     for i, message in ipairs(self.chat.messages) do
         trace[i] = message
     end
+
+    trace:generate(...)
+    trace:wait_for_generate()
 end
 
 function chattree:save()

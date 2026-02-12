@@ -260,6 +260,10 @@ impl Context {
                         ));
                     }
 
+                    if !path.set_extension("json") {
+                        return Err(mlua::Error::runtime("path has no filename part"));
+                    }
+
                     let json_str =
                         String::from_utf8(fs::read(path).await?).map_err(mlua::Error::external)?;
                     let json_value: serde_json::Value =
