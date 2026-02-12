@@ -340,10 +340,10 @@ impl Session {
 
         let _ = self.event_broadcast.send(match message.role {
             Role::System | Role::User => TraceEvent::UserMessageDelta {
-                delta: message.text.to_owned(),
+                delta: message.content.to_owned(),
             },
             Role::Assistant => TraceEvent::AssistantMessageDelta {
-                delta: message.text.to_owned(),
+                delta: message.content.to_owned(),
             },
         });
 
@@ -374,7 +374,7 @@ impl Session {
                     Role::System => {
                         yield TraceEvent::SystemMessageStart { position };
                         yield TraceEvent::SystemMessageDelta {
-                            delta: message.text.clone(),
+                            delta: message.content.clone(),
                         };
                         yield TraceEvent::SystemMessageEnd { position };
                     }
@@ -382,7 +382,7 @@ impl Session {
                     Role::User => {
                         yield TraceEvent::UserMessageStart { position };
                         yield TraceEvent::UserMessageDelta {
-                            delta: message.text.clone(),
+                            delta: message.content.clone(),
                         };
                         yield TraceEvent::UserMessageEnd { position };
                     }
@@ -395,7 +395,7 @@ impl Session {
                             };
                         }
                         yield TraceEvent::AssistantMessageDelta {
-                            delta: message.text.clone(),
+                            delta: message.content.clone(),
                         };
                         yield TraceEvent::AssistantMessageEnd { position };
                     }
@@ -486,7 +486,7 @@ impl Session {
                     } else {
                         None
                     },
-                    text: new_message,
+                    content: new_message,
                 });
 
                 session.current_assistant_message.truncate(0);

@@ -39,7 +39,7 @@ export function useTrace(traceId: string | null): UseTraceResult {
                             // Start a new system message
                             newMessages[traceEvent.position] = {
                                 role: "system",
-                                text: "",
+                                content: "",
                                 position: traceEvent.position,
                             };
                             break;
@@ -50,8 +50,8 @@ export function useTrace(traceId: string | null): UseTraceResult {
                                 const lastIdx = newMessages.length - 1;
                                 newMessages[lastIdx] = {
                                     ...newMessages[lastIdx],
-                                    text:
-                                        newMessages[lastIdx].text +
+                                    content:
+                                        newMessages[lastIdx].content +
                                         traceEvent.delta,
                                 };
                             }
@@ -65,7 +65,7 @@ export function useTrace(traceId: string | null): UseTraceResult {
                             // Start a new user message
                             newMessages[traceEvent.position] = {
                                 role: "user",
-                                text: "",
+                                content: "",
                                 position: traceEvent.position,
                             };
                             break;
@@ -76,8 +76,8 @@ export function useTrace(traceId: string | null): UseTraceResult {
                                 const lastIdx = newMessages.length - 1;
                                 newMessages[lastIdx] = {
                                     ...newMessages[lastIdx],
-                                    text:
-                                        newMessages[lastIdx].text +
+                                    content:
+                                        newMessages[lastIdx].content +
                                         traceEvent.delta,
                                 };
                             }
@@ -91,7 +91,7 @@ export function useTrace(traceId: string | null): UseTraceResult {
                             // Start a new assistant message
                             newMessages[traceEvent.position] = {
                                 role: "assistant",
-                                text: "",
+                                content: "",
                                 thinking: "",
                                 position: traceEvent.position,
                             };
@@ -116,8 +116,8 @@ export function useTrace(traceId: string | null): UseTraceResult {
                                 const lastIdx = newMessages.length - 1;
                                 newMessages[lastIdx] = {
                                     ...newMessages[lastIdx],
-                                    text:
-                                        newMessages[lastIdx].text +
+                                    content:
+                                        newMessages[lastIdx].content +
                                         traceEvent.delta,
                                 };
                             }

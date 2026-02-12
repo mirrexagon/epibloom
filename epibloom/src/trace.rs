@@ -37,7 +37,7 @@ impl fmt::Display for Role {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Message {
     pub role: Role,
-    pub text: String,
+    pub content: String,
     pub thinking: Option<String>,
 }
 

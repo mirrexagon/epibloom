@@ -88,7 +88,7 @@ mod request {
         fn from(message: &trace::Message) -> Self {
             Message {
                 role: From::from(message.role),
-                content: message.text.clone(),
+                content: message.content.clone(),
             }
         }
     }

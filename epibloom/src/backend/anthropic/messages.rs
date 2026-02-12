@@ -240,7 +240,7 @@ mod request {
             Message {
                 role: From::from(message.role),
                 content: vec![super::ContentBlock::Text {
-                    text: message.text.clone(),
+                    text: message.content.clone(),
                     citations: None,
                     cache_control: None,
                 }],
@@ -377,7 +377,7 @@ fn extract_system_prompt_from_trace(trace: &mut trace::Trace) -> Option<String> 
     let system_messages: Vec<_> = trace
         .messages
         .extract_if(.., |m| m.role == trace::Role::System)
-        .map(|m| m.text)
+        .map(|m| m.content)
         .collect();
 
     let system_prompt = system_messages.join("\n\n");

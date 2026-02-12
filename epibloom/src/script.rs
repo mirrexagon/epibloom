@@ -191,15 +191,15 @@ impl Context {
                     lua.create_function(|_lua, message: Message| {
                         if message.thinking.is_some() {
                             Ok(format!(
-                                "Message {{ role = \"{}\", text = \"{}\", thinking = \"{}\" }}",
+                                "Message {{ role = \"{}\", content = \"{}\", thinking = \"{}\" }}",
                                 message.role,
-                                message.text,
+                                message.content,
                                 message.thinking.unwrap()
                             ))
                         } else {
                             Ok(format!(
-                                "Message {{ role = \"{}\", text = \"{}\" }}",
-                                message.role, message.text
+                                "Message {{ role = \"{}\", content = \"{}\" }}",
+                                message.role, message.content
                             ))
                         }
                     })?,
@@ -486,7 +486,7 @@ impl IntoLua for Message {
         let message_table = lua.create_table()?;
 
         message_table.set("role", self.role.into_lua(lua)?)?;
-        message_table.set("text", self.text.into_lua(lua)?)?;
+        message_table.set("content", self.content.into_lua(lua)?)?;
         message_table.set("thinking", self.thinking.into_lua(lua)?)?;
 
         let metatable = lua.named_registry_value("epibloom.trace.message.metatable")?;
@@ -512,7 +512,7 @@ impl FromLua for Message {
         match value {
             Value::Table(table) => Ok(Message {
                 role: FromLua::from_lua(table.get("role")?, lua)?,
-                text: FromLua::from_lua(table.get("text")?, lua)?,
+                content: FromLua::from_lua(table.get("content")?, lua)?,
                 thinking: FromLua::from_lua(table.get("thinking")?, lua)?,
             }),
             _ => Err(mlua::Error::runtime("message must be a table")),

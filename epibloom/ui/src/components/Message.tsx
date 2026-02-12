@@ -92,7 +92,7 @@ export function Message({ message }: MessageProps) {
                         },
                     }}
                 >
-                    {message.text}
+                    {message.content}
                 </SyntaxHighlighter>
             </div>
         </div>
