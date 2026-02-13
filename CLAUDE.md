@@ -1,5 +1,9 @@
 # Epibloom Development Guide
 
+## Project Vision
+
+Epibloom is being developed as a text adventure game engine built on LLM conversations. The current architecture (traces, scripts, state objects) is designed to support both chat-style interactions and more complex game mechanics like branching narratives, character stats, inventory systems, and structured game events.
+
 ## Development Environment
 
 The user should launch you in a Nix shell which should have packages like `cargo/rustc` and `npm`.
