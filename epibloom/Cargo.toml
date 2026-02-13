@@ -14,6 +14,7 @@ sse-stream = "0.2.1"
 futures = "0.3.31"
 async-stream = "0.3.6"
 typemap_rev = "0.4.0"
+lazy_static = "1.5.0"
 
 [dependencies.tokio]
 version = "1.48.0"

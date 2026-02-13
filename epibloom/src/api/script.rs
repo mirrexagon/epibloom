@@ -19,7 +19,7 @@ impl From<script::Error> for ApiErrorResponse {
     }
 }
 
-#[post("/<context_name>/<script_path>", data = "<script_input>")]
+#[post("/<context_name>/<script_path..>", data = "<script_input>")]
 pub async fn run_script(
     context_name: &str,
     script_path: PathBuf,

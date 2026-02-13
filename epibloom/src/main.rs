@@ -6,6 +6,7 @@ extern crate rocket;
 mod api;
 mod backend;
 mod script;
+mod state;
 mod trace;
 
 use std::fs;
@@ -50,21 +51,26 @@ fn rocket() -> _ {
     fs::create_dir_all(SCRIPT_DATA_DIR.get().unwrap()).unwrap();
 
     let trace_store = Arc::new(trace::TraceStore::new());
-    let script_context_store = script::ContextStore::new(Arc::clone(&trace_store));
+    let state_store = Arc::new(state::StateStore::new());
+    let script_context_store =
+        script::ContextStore::new(Arc::clone(&trace_store), Arc::clone(&state_store));
 
     #[derive(OpenApi)]
     #[openapi(
         nest(
-            (path = "/api/trace", api = api::trace::TraceApiDoc)
+            (path = "/api/trace", api = api::trace::TraceApiDoc),
+            (path = "/api/state", api = api::state::StateApiDoc)
         ),
         tags(
-            (name = "trace", description = "Streaming base debug traces, created and manipulated by scripts.")
+            (name = "trace", description = "Streaming base debug traces, created and manipulated by scripts."),
+            (name = "state", description = "Streaming state objects, created and manipulated by scripts.")
         )
     )]
     struct ApiDoc;
 
     rocket::build()
         .manage(trace_store)
+        .manage(state_store)
         .manage(script_context_store)
         .attach(AdHoc::try_on_ignite("Load traces from files", |rocket| {
             Box::pin(async move {
@@ -109,4 +115,5 @@ fn rocket() -> _ {
             ],
         )
         .mount("/api/script", routes![api::script::run_script,])
+        .mount("/api/state", routes![api::state::stream_state_objects,])
 }

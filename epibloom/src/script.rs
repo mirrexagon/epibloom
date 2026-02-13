@@ -17,28 +17,41 @@ use std::path::{self, Path};
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
 
+use lazy_static::lazy_static;
 use mlua::{FromLua, IntoLua, Lua, LuaSerdeExt, ObjectLike, Table, UserData, Value};
 use tokio::fs;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+use crate::state::StateObject;
 use crate::{
     backend,
+    state::StateStore,
     trace::{self, Message, Role, TraceStore},
 };
+
+lazy_static! {
+    static ref SERIALIZE_OPTIONS: mlua::SerializeOptions = mlua::SerializeOptions::new()
+        .serialize_none_to_null(false)
+        .serialize_unit_to_null(false);
+}
 
 pub struct ContextStore {
     contexts: Mutex<HashMap<String, Arc<Context>>>,
 
     /// For scripts to interact with traces.
     trace_store: Arc<TraceStore>,
+
+    /// For scripts to interact with state objects.
+    state_store: Arc<StateStore>,
 }
 
 impl ContextStore {
-    pub fn new(trace_store: Arc<TraceStore>) -> Self {
+    pub fn new(trace_store: Arc<TraceStore>, state_store: Arc<StateStore>) -> Self {
         Self {
             contexts: Mutex::new(HashMap::new()),
             trace_store,
+            state_store,
         }
     }
 
@@ -50,7 +63,11 @@ impl ContextStore {
         match contexts.get(name) {
             Some(context) => Ok(Arc::clone(context)),
             None => {
-                let new_context = Arc::new(Context::new(name, Arc::clone(&self.trace_store))?);
+                let new_context = Arc::new(Context::new(
+                    name,
+                    Arc::clone(&self.trace_store),
+                    Arc::clone(&self.state_store),
+                )?);
                 contexts.insert(key, Arc::clone(&new_context));
                 Ok(new_context)
             }
@@ -69,7 +86,11 @@ pub struct Context {
 }
 
 impl Context {
-    pub fn new(name: &str, trace_store: Arc<TraceStore>) -> Result<Self, Error> {
+    pub fn new(
+        name: &str,
+        trace_store: Arc<TraceStore>,
+        state_store: Arc<StateStore>,
+    ) -> Result<Self, Error> {
         let lua = Lua::new();
         lua.set_named_registry_value("epibloom.context.name", name)?;
 
@@ -270,12 +291,22 @@ impl Context {
                         serde_json::from_str(&json_str).map_err(mlua::Error::external)?;
 
                     // TODO: Return nil, err on failure
-                    lua.to_value(&json_value)
+                    lua.to_value_with(&json_value, *SERIALIZE_OPTIONS)
                 })?,
             )?;
 
             let package_loaded: Table = globals.get_path("package.loaded")?;
             package_loaded.set("epibloom.filesystem", filesystem_module)?;
+        }
+
+        // State module.
+        {
+            let state_module = lua.create_userdata(LuaStateStore {
+                state_store: Arc::clone(&state_store),
+            })?;
+
+            let package_loaded: Table = globals.get_path("package.loaded")?;
+            package_loaded.set("epibloom.state", state_module)?;
         }
 
         Ok(Self {
@@ -301,7 +332,7 @@ impl Context {
 
         let lua = self.lua.lock().await;
 
-        let input = lua.to_value(&input);
+        let input = lua.to_value_with(&input, *SERIALIZE_OPTIONS)?;
 
         let mut filesystem_script_path = crate::SCRIPTS_DIR.get().unwrap().clone();
         filesystem_script_path.push(script_path);
@@ -321,6 +352,7 @@ impl Context {
 
         let result = lua
             .load(script_content)
+            .set_name(script_path.to_string_lossy())
             .call_async(input)
             .await
             .inspect_err(|err| {
@@ -636,6 +668,54 @@ impl FromLua for backend::featherless::Config {
 impl From<trace::Error> for mlua::Error {
     fn from(value: trace::Error) -> Self {
         mlua::Error::external(value)
+    }
+}
+
+struct LuaStateStore {
+    state_store: Arc<StateStore>,
+}
+
+impl UserData for LuaStateStore {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_async_method("get", |_lua, cs, name: String| async move {
+            let state_obj = cs.state_store.get_or_create(&name).await;
+
+            Ok(LuaStateObject {
+                name: name.clone(),
+                state_object: state_obj,
+            })
+        });
+    }
+}
+
+struct LuaStateObject {
+    name: String,
+    state_object: Arc<StateObject>,
+}
+
+impl UserData for LuaStateObject {
+    fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
+        fields.add_field_method_get("name", |_lua, state| Ok(state.name.clone()));
+    }
+
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        // Read current value
+        methods.add_async_method("read", |lua, obj, ()| async move {
+            let value = obj.state_object.read().await;
+            let lua_value = lua.to_value_with(&value, *SERIALIZE_OPTIONS)?;
+            Ok(lua_value)
+        });
+
+        // Atomic read-modify-write helper
+        methods.add_async_method("update", |lua, obj, func: mlua::Function| async move {
+            obj.state_object
+                .update(async |old_value| {
+                    let lua_old_value = lua.to_value_with(&old_value, *SERIALIZE_OPTIONS)?;
+                    let lua_new_value: Value = func.call_async(lua_old_value).await?;
+                    lua.from_value(lua_new_value)
+                })
+                .await
+        });
     }
 }
 
