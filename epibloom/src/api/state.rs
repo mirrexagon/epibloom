@@ -35,7 +35,7 @@ pub async fn stream_state_objects(
 ) -> Result<EventStream![], ApiErrorResponse> {
     let object_names: Vec<&str> = objects.split(',').collect();
 
-    // Get or create all requested state objects and subscribe
+    // Get or create all requested state objects and subscribe.
     let mut streams = Vec::new();
     for name in &object_names {
         let obj = store.get_or_create(name).await;
@@ -44,7 +44,7 @@ pub async fn stream_state_objects(
     }
 
     Ok(EventStream! {
-        // Merge all streams and forward updates
+        // Merge all streams and forward updates.
         let mut merged = futures::stream::select_all(streams);
 
         while let Some(event) = merged.next().await {

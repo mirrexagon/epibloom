@@ -9,9 +9,6 @@
 // Tool calls: Lua should be able to attach tool call possibilities with Lua
 // functions that call back into the state. But I also want to be able to run
 // multiple generations at once.
-//
-// Be able to send responses to the client in the middle of a script, via SSE.
-// eg. for letting the UI know to change button states, etc.?
 
 use std::path::{self, Path};
 use std::sync::Arc;
@@ -263,7 +260,6 @@ impl Context {
 
                     fs::write(&path, json_str).await?;
 
-                    // TODO: Return nil, err on failure
                     Ok(())
                 })?,
             )?;
@@ -290,7 +286,6 @@ impl Context {
                     let json_value: serde_json::Value =
                         serde_json::from_str(&json_str).map_err(mlua::Error::external)?;
 
-                    // TODO: Return nil, err on failure
                     lua.to_value_with(&json_value, *SERIALIZE_OPTIONS)
                 })?,
             )?;
