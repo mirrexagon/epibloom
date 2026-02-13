@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use json_patch::Patch;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, RwLock};
 use utoipa::ToSchema;
@@ -35,7 +36,7 @@ impl StateStore {
 pub struct StateObject {
     name: String,
 
-    /// The current JSON value.
+    /// The JSON value.
     value: RwLock<serde_json::Value>,
 
     /// Broadcast channel for state changes.
@@ -66,16 +67,21 @@ impl StateObject {
     {
         let mut value_guard = self.value.write().await;
 
-        let old_value = value_guard.take();
-        let new_value = update(old_value).await?;
+        let old_value = value_guard.clone();
+        let new_value = update(old_value.clone()).await?;
 
         *value_guard = new_value.clone();
 
-        // Broadcast the new value
-        let _ = self.event_broadcast.send(StateEvent::Update {
+        // Compute JSON Patch diff.
+        let patch = json_patch::diff(&old_value, &new_value);
+
+        let event = StateEvent::Patch {
             object: self.name.clone(),
-            value: new_value,
-        });
+            patch,
+        };
+
+        // Broadcast the event.
+        let _ = self.event_broadcast.send(event);
 
         Ok(())
     }
@@ -91,13 +97,13 @@ impl StateObject {
         stream! {
             use tokio::sync::broadcast::error::RecvError;
 
-            // Yield snapshot first
-            yield StateEvent::Snapshot {
+            // Yield current state first.
+            yield StateEvent::Value {
                 object: name.clone(),
                 value: current_value,
             };
 
-            // Then stream future updates
+            // Then stream future updates.
             loop {
                 match rx.recv().await {
                     Ok(event) => yield event,
@@ -115,15 +121,15 @@ impl StateObject {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum StateEvent {
-    /// Initial snapshot of current state.
-    Snapshot {
+    Value {
         object: String,
         value: serde_json::Value,
     },
 
-    /// State was updated.
-    Update {
+    /// State was updated (JSON Patch diff sent for efficiency).
+    Patch {
         object: String,
-        value: serde_json::Value,
+        #[schema(value_type = Vec<Object>)]
+        patch: Patch,
     },
 }
