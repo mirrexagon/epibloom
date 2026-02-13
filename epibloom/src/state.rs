@@ -1,5 +1,5 @@
 //! State objects that are named JSON values that broadcast changes to
-//subscribed clients, in the form of JSON Patch blobs.
+//! subscribed clients, in the form of JSON Patch blobs.
 
 use std::collections::HashMap;
 use std::sync::Arc;
