@@ -1,4 +1,4 @@
-use std::sync::Arc;
+se std::sync::Arc;
 
 use futures::StreamExt;
 use rocket::{
@@ -23,7 +23,6 @@ pub struct StateApiDoc;
 #[utoipa::path(
     responses(
         (status = 200, description = "SSE stream of state snapshots and updates", body = StateEvent),
-        (status = 500, description = "Error starting stream", body = String)
     ),
     params(
         ("objects" = String, Query, description = "Comma-separated list of state object names")

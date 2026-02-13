@@ -1,12 +1,5 @@
-//! State objects for application state management.
-//!
-//! State objects are named JSON values that broadcast changes to subscribed clients.
-//! They provide a generic primitive for building stateful applications (chat, games, etc.)
-//! while maintaining client reentrancy and supporting concurrent operations. Each state object
-//! has a unique name (e.g., `"chat:123:messages"`), contains a single JSON value, and can be
-//! updated atomically. When updated, the object broadcasts JSON Patch diffs to all subscribers
-//! via Server-Sent Events, enabling real-time updates across all connected clients. Scripts
-//! orchestrate all domain logic while state objects provide storage and notification.
+//! State objects that are named JSON values that broadcast changes to
+//subscribed clients, in the form of JSON Patch blobs.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -136,9 +129,11 @@ pub enum StateEvent {
         value: serde_json::Value,
     },
 
-    /// State was updated (JSON Patch diff sent for efficiency).
+    /// State was updated (JSON Patch diff sent to allow for large objects
+    /// changing only a little).
     Patch {
         object: String,
+
         #[schema(value_type = Vec<Object>)]
         patch: Patch,
     },

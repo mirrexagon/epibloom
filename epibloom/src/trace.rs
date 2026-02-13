@@ -1,9 +1,5 @@
-//! LLM conversation traces.
-//!
-//! This module provides the fundamental data structures for managing LLM conversations
-//! (called "traces") in Epibloom. Traces are the primary way to interact with language models:
-//! you create a trace, populate it with system and user messages, generate an assistant
-//! response, and then examine the result.
+//! An LLM conversation, with message updates and generation chunks streamed to
+//clients.
 
 mod session;
 
