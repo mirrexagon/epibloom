@@ -13,6 +13,7 @@ In `epibloom/`, Rust + Rocket.
 ### Commands
 
 - `cargo clippy` - Ensure the project builds, including extra lints.
+- `cargo run` - Run the server. Run this in tmux so you can have it running while also testing API endopints (see below).
 
 ### API Testing
 
@@ -23,6 +24,10 @@ To check backend API endpoints during development, use `http` (HTTPie), eg.
 - `http POST :8000/api/script/<script context>/<script path> value=1` - Run a script on a specified context, providing a JSON body and getting back the result of the run as JSON.
 
 See files in `epibloom/src/api` for the API server code.
+
+### Scripts
+
+As of writing, scripts are kept in `epibloom/scripts` but there currently is no mechanism to copy them to the place they are looked up and executed from `~/.config/epibloom/scripts`. You will have to copy them manually after you change them in the repo for now.
 
 ## Frontend UI
 
