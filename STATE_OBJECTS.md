@@ -82,11 +82,11 @@ impl StateStore {
             objects: RwLock::new(HashMap::new()),
         }
     }
-    
+
     /// Get or create a state object by name.
     pub async fn get_or_create(&self, name: &str) -> Arc<StateObject> {
         let mut objects = self.objects.write().await;
-        
+
         if let Some(obj) = objects.get(name) {
             Arc::clone(obj)
         } else {
@@ -95,7 +95,7 @@ impl StateStore {
             new_obj
         }
     }
-    
+
     /// Check if a state object exists.
     pub async fn has(&self, name: &str) -> bool {
         let objects = self.objects.read().await;
@@ -106,13 +106,10 @@ impl StateStore {
 /// A single state object with a JSON value.
 pub struct StateObject {
     name: String,
-    
+
     /// The current JSON value.
     value: RwLock<serde_json::Value>,
-    
-    /// Lock information (None = unlocked).
-    lock: RwLock<Option<LockInfo>>,
-    
+
     /// Broadcast channel for state changes.
     event_broadcast: broadcast::Sender<StateEvent>,
 }
@@ -120,92 +117,45 @@ pub struct StateObject {
 impl StateObject {
     fn new(name: &str) -> Self {
         let (broadcast, _) = broadcast::channel(128);
-        
+
         Self {
             name: name.to_string(),
             value: RwLock::new(serde_json::Value::Null),
-            lock: RwLock::new(None),
             event_broadcast: broadcast,
         }
     }
-    
-    /// Read the current value (does not require lock).
+
+    /// Read the current value.
     pub async fn read(&self) -> serde_json::Value {
         self.value.read().await.clone()
     }
-    
-    /// Try to acquire the lock. Returns true if successful.
-    pub async fn try_lock(&self, holder: &str) -> bool {
-        let mut lock = self.lock.write().await;
-        
-        if lock.is_some() {
-            false
-        } else {
-            *lock = Some(LockInfo {
-                holder: holder.to_string(),
-                acquired: OffsetDateTime::now_utc(),
-            });
-            true
-        }
-    }
-    
-    /// Write a new value. Must hold the lock.
+
+    /// Write a new value and broadcast it to subscribers.
     pub async fn write(&self, holder: &str, new_value: serde_json::Value) -> Result<(), Error> {
-        {
-            let lock = self.lock.read().await;
-            match lock.as_ref() {
-                Some(info) if info.holder == holder => {},
-                Some(_) => return Err(Error::NotLockHolder),
-                None => return Err(Error::NotLocked),
-            }
-        }
-        
         let mut value = self.value.write().await;
         *value = new_value;
-        
-        Ok(())
-    }
-    
-    /// Release the lock and broadcast the current value to all subscribers.
-    pub async fn unlock(&self, holder: &str) -> Result<(), Error> {
-        let current_value = {
-            let mut lock = self.lock.write().await;
-            
-            match lock.as_ref() {
-                Some(info) if info.holder == holder => {},
-                Some(_) => return Err(Error::NotLockHolder),
-                None => return Err(Error::NotLocked),
-            }
-            
-            *lock = None;
-            
-            self.value.read().await.clone()
-        };
-        
+
         // Broadcast the new value
         let _ = self.event_broadcast.send(StateEvent::Update {
             object: self.name.clone(),
-            value: current_value,
+            value: new_value.clone(),
         });
-        
+
         Ok(())
     }
-    
-    /// Check if currently locked.
-    pub async fn is_locked(&self) -> bool {
-        self.lock.read().await.is_some()
-    }
-    
-    /// Subscribe to state changes. Returns current value + stream of future updates.
-    pub async fn subscribe(&self) -> (serde_json::Value, impl futures::Stream<Item = StateEvent>) {
+
+    /// Subscribe to state changes. Returns stream of current value + future updates.
+    pub async fn subscribe(&self) -> impl futures::Stream<Item = StateEvent> {
         use async_stream::stream;
-        
+
         let current_value = self.read().await;
         let mut rx = self.event_broadcast.subscribe();
-        
-        let event_stream = stream! {
+
+        stream! {
             use tokio::sync::broadcast::error::RecvError;
-            
+
+            yield StateEvent::Snapshot { object: self.name, value: current_value.clone() };
+
             loop {
                 match rx.recv().await {
                     Ok(event) => yield event,
@@ -215,15 +165,8 @@ impl StateObject {
                     Err(RecvError::Closed) => break,
                 }
             }
-        };
-        
-        (current_value, event_stream)
+        }
     }
-}
-
-struct LockInfo {
-    holder: String,
-    acquired: OffsetDateTime,
 }
 
 /// Event sent to subscribers when state changes.
@@ -235,21 +178,12 @@ pub enum StateEvent {
         object: String,
         value: serde_json::Value,
     },
-    
+
     /// State was updated (sent when lock is released).
     Update {
         object: String,
         value: serde_json::Value,
     },
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("State object is not locked")]
-    NotLocked,
-    
-    #[error("Caller does not hold the lock")]
-    NotLockHolder,
 }
 ```
 
@@ -263,20 +197,20 @@ Add a new module to the Lua environment for state objects.
 // State module
 {
     let state_module = lua.create_table()?;
-    
+
     state_module.set(
         "get",
         lua.create_async_function(|lua, name: String| async move {
             let state_store: Arc<StateStore> = lua.named_registry_value("epibloom.state_store")?;
             let state_obj = state_store.get_or_create(&name).await;
-            
+
             Ok(LuaStateObject {
                 name: name.clone(),
                 state_object: state_obj,
             })
         })?,
     )?;
-    
+
     let package_loaded: Table = globals.get_path("package.loaded")?;
     package_loaded.set("epibloom.state", state_module)?;
 }
@@ -295,75 +229,38 @@ struct LuaStateObject {
 
 impl UserData for LuaStateObject {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
-        // Read current value (no lock required)
+        // Read current value.
         methods.add_async_method("read", |lua, obj, ()| async move {
             let value = obj.state_object.read().await;
             lua.to_value(&value)
         });
-        
-        // Try to acquire lock
-        methods.add_async_method("lock", |lua, obj, ()| async move {
-            let context_name: String = lua.named_registry_value("epibloom.context.name")?;
-            let holder = format!("context:{}", context_name);
-            
-            let success = obj.state_object.try_lock(&holder).await;
-            Ok(success)
-        });
-        
-        // Write new value (must hold lock)
-        methods.add_async_method("write", |lua, obj, value: Value| async move {
-            let context_name: String = lua.named_registry_value("epibloom.context.name")?;
-            let holder = format!("context:{}", context_name);
-            
-            let json_value: serde_json::Value = lua.from_value(value)?;
-            obj.state_object.write(&holder, json_value).await
-                .map_err(mlua::Error::external)?;
-            
-            Ok(())
-        });
-        
-        // Release lock and broadcast
-        methods.add_async_method("unlock", |lua, obj, ()| async move {
-            let context_name: String = lua.named_registry_value("epibloom.context.name")?;
-            let holder = format!("context:{}", context_name);
-            
-            obj.state_object.unlock(&holder).await
-                .map_err(mlua::Error::external)?;
-            
-            Ok(())
-        });
-        
-        // Check if locked
-        methods.add_async_method("is_locked", |_lua, obj, ()| async move {
-            Ok(obj.state_object.is_locked().await)
-        });
-        
+
         // Atomic read-modify-write helper
         methods.add_async_method("update", |lua, obj, func: mlua::Function| async move {
             let context_name: String = lua.named_registry_value("epibloom.context.name")?;
             let holder = format!("context:{}", context_name);
-            
+
             // Acquire lock
             if !obj.state_object.try_lock(&holder).await {
                 return Err(mlua::Error::runtime("Failed to acquire lock"));
             }
-            
+
             // Read current value
             let current_value = obj.state_object.read().await;
             let lua_value = lua.to_value(&current_value)?;
-            
+
             // Call function to modify value
             let new_value: Value = func.call_async(lua_value).await?;
             let json_value: serde_json::Value = lua.from_value(new_value)?;
-            
+
             // Write new value
             obj.state_object.write(&holder, json_value).await
                 .map_err(mlua::Error::external)?;
-            
+
             // Release lock (broadcasts automatically)
             obj.state_object.unlock(&holder).await
                 .map_err(mlua::Error::external)?;
-            
+
             Ok(())
         });
     }
@@ -378,25 +275,10 @@ local state = require("epibloom.state")
 -- Get or create state object
 local obj = state.get("chat:123:messages")
 
--- Read current value (no lock needed)
+-- Read current value
 local value = obj:read()
 
--- Manual lock/write/unlock
-if obj:lock() then
-    local value = obj:read()
-    -- ... modify value ...
-    obj:write(new_value)
-    obj:unlock()  -- Broadcasts to all subscribers
-else
-    -- Object is locked by another script
-end
-
--- Check if locked
-if obj:is_locked() then
-    -- ...
-end
-
--- Atomic update helper
+-- Atomic update
 obj:update(function(current_value)
     -- Modify and return new value
     table.insert(current_value, "new item")
@@ -444,36 +326,27 @@ pub async fn stream_state_objects(
     store: &State<Arc<StateStore>>,
 ) -> Result<EventStream![], ApiErrorResponse> {
     let object_names: Vec<&str> = objects.split(',').collect();
-    
+
     // Get or create all requested state objects and subscribe
     let mut subscriptions = Vec::new();
     for name in &object_names {
         let obj = store.get_or_create(name).await;
-        let (current_value, stream) = obj.subscribe().await;
-        
+        let stream = obj.subscribe().await;
+
         subscriptions.push((
             name.to_string(),
-            current_value,
             stream,
         ));
     }
-    
+
     Ok(EventStream! {
-        // Send snapshots first
-        for (name, value, _) in &subscriptions {
-            yield Event::json(&StateEvent::Snapshot {
-                object: name.clone(),
-                value: value.clone(),
-            });
-        }
-        
         // Merge all streams and forward updates
         let streams: Vec<_> = subscriptions.into_iter()
             .map(|(_, _, stream)| stream)
             .collect();
-        
+
         let mut merged = futures::stream::select_all(streams);
-        
+
         while let Some(event) = merged.next().await {
             yield Event::json(&event);
         }
@@ -494,12 +367,12 @@ use state::StateStore;
 #[rocket::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ... existing setup ...
-    
+
     // Create state store
     let state_store = Arc::new(StateStore::new());
-    
+
     // ... existing rocket setup ...
-    
+
     rocket::build()
         // ... existing config ...
         .manage(state_store)
@@ -602,7 +475,7 @@ const eventSource = new EventSource('/api/state?objects=chat:123:messages');
 
 eventSource.addEventListener('message', (e) => {
     const event = JSON.parse(e.data);
-    
+
     if (event.type === 'snapshot') {
         // Initial state
         displayMessages(event.value);
@@ -631,7 +504,7 @@ fetch('/api/script/alice/chat/send-message', {
 -- Branch 4 messages
 local branch4 = state.get("chat:123:branch:4:messages")
 
--- Branch 6 messages  
+-- Branch 6 messages
 local branch6 = state.get("chat:123:branch:6:messages")
 
 -- Can be modified concurrently by different script contexts
@@ -686,19 +559,17 @@ GET /api/state?objects=player:456:stats,player:456:inventory,player:456:quests
 
 ## Testing Plan
 
-1. **Unit tests** for StateObject locking logic
-2. **Integration tests** for Lua API (lock/write/unlock)
-3. **Manual testing** with HTTPie:
+For now, **manual testing** with HTTPie:
    ```bash
    # Subscribe to state
    http --stream :8000/api/state objects==chat:123:messages
-   
+
    # In another terminal, run script to modify state
    http POST :8000/api/script/main/chat/send-message chat_id=123 message="Hello"
-   
+
    # First terminal should show update event
    ```
-4. **Frontend test** with simple chat UI
+Then, **frontend test** with simple chat UI
 
 ## Future Enhancements
 
@@ -727,56 +598,7 @@ When state objects grow large, sending full values on every change wastes bandwi
 - Heuristic: if `patch_size < 0.5 * full_value_size`, send patch; else send full value
 - Or: always send patch, clients can handle it
 
-This is a nice-to-have optimization, not needed for initial implementation.
-
-### State Persistence
-
-State objects currently exist only in memory. For production:
-
-1. Auto-persist to disk (like traces do)
-2. Store as `<STATE_DATA_DIR>/<object-name>.json`
-3. Load all state objects on startup
-4. Debounce writes (e.g., persist 1 second after unlock)
-
-### Lock Timeouts
-
-Add automatic lock release after timeout to prevent deadlocks:
-
-```rust
-pub struct LockInfo {
-    holder: String,
-    acquired: OffsetDateTime,
-    timeout: Duration,  // New
-}
-
-// Background task that checks for expired locks
-async fn release_expired_locks(state_store: Arc<StateStore>) {
-    loop {
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        // Check all locks, release expired ones
-    }
-}
-```
-
-### Conditional Updates
-
-Allow optimistic locking with version checks:
-
-```lua
-local version = obj:version()
--- ... compute new value ...
-obj:update_if_version(new_value, version)  -- Fails if version changed
-```
-
-This enables more concurrent scripts without explicit locking.
-
-## Questions / Design Decisions
-
-- **Lock timeout duration?** Default to 30 seconds? Configurable per object?
-- **Persistence strategy?** Auto-persist like traces, or explicit save/load?
-- **Object naming conventions?** Enforce patterns like `<type>:<id>:<field>`?
-- **Initial value for new objects?** Default to `null`, `{}`, or `[]`?
-  - Recommendation: `null`, scripts decide structure
+This is a future optimization, not needed for initial implementation.
 
 ## Summary
 
