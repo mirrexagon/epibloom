@@ -485,6 +485,7 @@ dependencies = [
  "env_logger",
  "etcetera",
  "futures",
+ "glob",
  "json-patch",
  "lazy_static",
  "log",

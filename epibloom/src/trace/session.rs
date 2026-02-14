@@ -282,6 +282,10 @@ impl Session {
         self.trace.messages.get(message_position).cloned()
     }
 
+    pub fn get_message_count(&self) -> usize {
+        self.trace.messages.len()
+    }
+
     /// Provide no message position to append a message.
     pub async fn set_message(
         &mut self,

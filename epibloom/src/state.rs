@@ -76,6 +76,7 @@ impl StateObject {
         *value_guard = new_value.clone();
 
         // Compute JSON Patch diff.
+        // TODO: If the values are the same, don't do any of the rest of this.
         let patch = json_patch::diff(&old_value, &new_value);
 
         let event = StateEvent::Patch {

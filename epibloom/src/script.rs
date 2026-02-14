@@ -283,6 +283,53 @@ impl Context {
             let filesystem_module = lua.create_table()?;
 
             filesystem_module.set(
+                "files",
+                lua.create_async_function(async |_lua, mut pattern: String| {
+                    debug!("epibloom.filesystem.files called with pattern '{pattern}'");
+
+                    let script_data_dir = crate::SCRIPT_DATA_DIR.get().unwrap();
+
+                    if !pattern.starts_with('/') {
+                        pattern.insert(0, '/');
+                    }
+
+                    // Prepend the script data directory.
+                    pattern.insert_str(
+                        0,
+                        script_data_dir.to_str().ok_or(mlua::Error::runtime(
+                            "script data directory {script_data_dir:?} is not valid UTF-8",
+                        ))?,
+                    );
+
+                    debug!("Full pattern is '{pattern}'");
+
+                    // Collect all items in the directory into a vector.
+                    let paths = glob::glob(&pattern)
+                        .map_err(mlua::Error::external)?
+                        .collect::<Result<Vec<_>, glob::GlobError>>()
+                        .map_err(mlua::Error::external)?;
+
+                    debug!("Files found: {paths:#?}");
+
+                    // Only keep JSON files, and use the relative path.
+                    let paths = paths
+                        .iter()
+                        .filter_map(|path| {
+                            if path.is_file() {
+                                Some(path.strip_prefix(script_data_dir).unwrap().to_owned())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>();
+
+                    debug!("Final paths: {paths:#?}");
+
+                    Ok(paths)
+                })?,
+            )?;
+
+            filesystem_module.set(
                 "save_json",
                 lua.create_async_function(async |_lua, (file_path, content): (PathBuf, Value)| {
                     let mut path = crate::SCRIPT_DATA_DIR.get().unwrap().clone();
@@ -408,9 +455,11 @@ impl Context {
             return Err(Error::ScriptPathEscapesScriptDirectory);
         }
 
+        // TODO: Switch to using anyhow or eyre to add context to errors and
+        // make error handling easier in general?
         let script_content = fs::read_to_string(&filesystem_script_path).await?;
 
-        info!(
+        debug!(
             "Running script {filesystem_script_path:?} on context {}",
             self.name
         );
@@ -512,7 +561,7 @@ impl UserData for LuaTrace {
             },
         );
 
-        methods.add_async_method("wait_for_generate", async |_lua, trace, (): ()| {
+        methods.add_async_method("wait_for_generate", async |_lua, trace, ()| {
             trace
                 .trace_store
                 .wait_for_generate_complete(trace.id)
@@ -560,6 +609,18 @@ impl UserData for LuaTrace {
                 Ok(())
             },
         );
+
+        methods.add_async_meta_method("__len", async |_lua, trace, ()| {
+            let session = trace
+                .trace_store
+                .get_session(trace.id)
+                .await
+                .map_err(mlua::Error::external)?;
+
+            let session = session.read().await;
+
+            Ok(session.get_message_count())
+        });
     }
 }
 
@@ -615,9 +676,9 @@ impl FromLua for Role {
                 value => return Err(mlua::Error::runtime(format!("unknown role: {value}"))),
             },
             None => {
-                return Err(mlua::Error::runtime(
-                    r#"role must be one of "system", "user", "assistant", got {value:?}"#,
-                ))
+                return Err(mlua::Error::runtime(format!(
+                    r#"role must be one of "system", "user", "assistant", got {value:?}"#
+                )))
             }
         };
 
