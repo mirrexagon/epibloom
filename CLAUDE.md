@@ -6,18 +6,20 @@ Epibloom is being developed as a text adventure game engine built on LLM convers
 
 ## Development Environment
 
-The user should launch you in a Nix shell which should have packages like `cargo/rustc` and `npm`.
+The user should launch you in a Nix shell which should have packages like `just`, `cargo`/`rustc`, and `npm`.
 
-If something you want to use is missing, let the user know (in case they forgot to launch you in the shell) and offer to add the packages to `flake.nix` under the dev shell.
+If something you want to use is missing, let the user know (in case they forgot to launch you in the shell) and offer to add the packages to `flake.nix` under the dev shell if it is missing from there.
+
+`just` is used as a command runner for the most frequently-used commands.
 
 ## Backend
 
-In `epibloom/`, Rust + Rocket.
+In `epibloom/`, Rust + Rocket + mlua.
 
 ### Commands
 
-- `cargo clippy` - Ensure the project builds, including extra lints.
-- `cargo run` - Run the server. Run this in tmux so you can have it running while also testing API endopints (see below).
+- `just check` - Ensure the project builds by running `cargo clippy`.
+- `just run` - Copy scripts from `epibloom/scripts/` to `~/.config/epibloom/scripts` and then run the server. Run this in tmux so you can have it running while also testing API endpoints (see below).
 
 ### API Testing
 
@@ -29,9 +31,7 @@ To check backend API endpoints during development, use `http` (HTTPie), eg.
 
 See files in `epibloom/src/api` for the API server code.
 
-### Scripts
-
-As of writing, scripts are kept in `epibloom/scripts` but there currently is no mechanism to copy them to the place they are looked up and executed from `~/.config/epibloom/scripts`. You will have to copy them manually after you change them in the repo for now.
+When the server is running, the OpenAPI spec should be available at http://127.0.0.1:8000/api-docs/openapi.json
 
 ## Frontend UI
 
@@ -39,22 +39,10 @@ In `epibloom/ui/`, React + TypeScript + Vite + Tailwind CSS.
 
 ### Key Characteristics
 
-- TypeScript types in `src/types/api.ts` should match the OpenAPI schema
-- Uses **Server-Sent Events (SSE)** to connect to backend streaming endpoints
-- Custom React hooks manage SSE connections and state
+- TypeScript types in `src/types/api.ts` should match the OpenAPI schema. Currently manually specified, in the future should be generated from the OpenAPI spec.
+- Custom React hooks manage SSE connections and state.
 
 ### Commands
 
-- `npm install` - Install dependencies (first time or after package.json changes)
-- `npm run dev` - Start development server (proxies `/api/*` to backend at `:8000`)
-- `npm run build` - Build for production (outputs to `dist/`)
-- `npm run lint` - Run ESLint
-
-### Development Workflow
-
-1. Start the backend (`cargo run` in `epibloom/`)
-2. Start the UI dev server (`npm run dev` in `epibloom/ui/`)
-3. Open http://localhost:5173
-4. Vite proxies API requests to the backend automatically
-
-The OpenAPI spec should be available at http://127.0.0.1:8000/api-docs/openapi.json - refer to this when needed.
+- `just check-ui` - Runs `npm run lint` to run ESLint.
+- `just serve` - Runs `npm run dev` to start development server (proxies `/api/*` to backend at `:8000`) - the user will already have this running in most cases.

@@ -41,8 +41,7 @@
 
           devShells.default = pkgs.mkShell {
             nativeBuildInputs = with pkgs; [
-              nodejs
-              rescript-language-server
+              just
 
               rustc
               cargo
@@ -52,8 +51,9 @@
               pkg-config
               openssl.dev
 
+              nodejs
+
               httpie
-              sqlitebrowser
             ];
 
             NODE_ENV = "development";
