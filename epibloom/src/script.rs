@@ -194,12 +194,60 @@ impl Context {
 
         // Trace module.
         {
-            let traces = lua.create_userdata(LuaTraceStore {
-                trace_store: Arc::clone(&trace_store),
-            })?;
+            lua.set_named_registry_value(
+                "epibloom.store.trace",
+                lua.create_userdata(LuaTraceStore {
+                    trace_store: Arc::clone(&trace_store),
+                })?,
+            )?;
 
-            let package_loaded: Table = globals.get_path("package.loaded")?;
-            package_loaded.set("epibloom.trace", traces)?;
+            {
+                let trace_store_proxy_module = lua.create_table()?;
+
+                trace_store_proxy_module.set(
+                    "new",
+                    lua.create_async_function(async |lua, name: Option<String>| {
+                        let trace_store: LuaTraceStore =
+                            lua.named_registry_value("epibloom.store.trace")?;
+
+                        let new_trace_id = trace_store
+                            .trace_store
+                            .new_trace(name.as_deref())
+                            .await
+                            .map_err(mlua::Error::external)?;
+
+                        Ok(LuaTrace {
+                            id: new_trace_id,
+                            trace_store: Arc::clone(&trace_store.trace_store),
+                        })
+                    })?,
+                )?;
+
+                trace_store_proxy_module.set(
+                    "get",
+                    lua.create_async_function(async |lua, trace_id: String| {
+                        let trace_store: LuaTraceStore =
+                            lua.named_registry_value("epibloom.store.trace")?;
+
+                        let trace_id = Uuid::try_parse(&trace_id).map_err(mlua::Error::external)?;
+
+                        if trace_store.trace_store.has_trace(trace_id).await {
+                            Ok(LuaTrace {
+                                id: trace_id,
+                                trace_store: Arc::clone(&trace_store.trace_store),
+                            })
+                        } else {
+                            Err(mlua::Error::runtime(format!(
+                                "trace {} not found",
+                                trace_id.hyphenated()
+                            )))
+                        }
+                    })?,
+                )?;
+
+                let package_loaded: Table = globals.get_path("package.loaded")?;
+                package_loaded.set("epibloom.trace", trace_store_proxy_module)?;
+            }
 
             {
                 let message_metatable = lua.create_table()?;
@@ -296,12 +344,34 @@ impl Context {
 
         // State module.
         {
-            let state_module = lua.create_userdata(LuaStateStore {
-                state_store: Arc::clone(&state_store),
-            })?;
+            lua.set_named_registry_value(
+                "epibloom.store.state",
+                lua.create_userdata(LuaStateStore {
+                    state_store: Arc::clone(&state_store),
+                })?,
+            )?;
 
-            let package_loaded: Table = globals.get_path("package.loaded")?;
-            package_loaded.set("epibloom.state", state_module)?;
+            {
+                let state_store_proxy_module = lua.create_table()?;
+
+                state_store_proxy_module.set(
+                    "get",
+                    lua.create_async_function(async |lua, name: String| {
+                        let state_store: LuaStateStore =
+                            lua.named_registry_value("epibloom.store.state")?;
+
+                        let state_obj = state_store.state_store.get_or_create(&name).await;
+
+                        Ok(LuaStateObject {
+                            name: name.clone(),
+                            state_object: state_obj,
+                        })
+                    })?,
+                )?;
+
+                let package_loaded: Table = globals.get_path("package.loaded")?;
+                package_loaded.set("epibloom.state", state_store_proxy_module)?;
+            }
         }
 
         Ok(Self {
@@ -365,33 +435,21 @@ struct LuaTraceStore {
     trace_store: Arc<TraceStore>,
 }
 
-impl UserData for LuaTraceStore {
-    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_async_method("new", async |_lua, cs, name: Option<String>| {
-            let new_trace_id = cs
-                .trace_store
-                .new_trace(name.as_deref())
-                .await
-                .map_err(mlua::Error::external)?;
+impl UserData for LuaTraceStore {}
 
-            Ok(LuaTrace {
-                id: new_trace_id,
-                trace_store: Arc::clone(&cs.trace_store),
-            })
-        });
-
-        methods.add_async_method("get", async |_lua, cs, trace_id: String| {
-            let trace_id = Uuid::try_parse(&trace_id).map_err(mlua::Error::external)?;
-
-            if cs.trace_store.has_trace(trace_id).await {
-                Ok(Some(LuaTrace {
-                    id: trace_id,
-                    trace_store: Arc::clone(&cs.trace_store),
-                }))
-            } else {
-                Ok(None)
-            }
-        });
+impl FromLua for LuaTraceStore {
+    fn from_lua(value: Value, _lua: &Lua) -> mlua::Result<Self> {
+        match value {
+            Value::UserData(ud) => match ud.borrow::<LuaTraceStore>() {
+                Ok(store) => Ok(LuaTraceStore {
+                    trace_store: Arc::clone(&store.trace_store),
+                }),
+                Err(err) => Err(err),
+            },
+            _ => Err(mlua::Error::runtime(format!(
+                "expected userdata, got {value:?}"
+            ))),
+        }
     }
 }
 
@@ -670,16 +728,21 @@ struct LuaStateStore {
     state_store: Arc<StateStore>,
 }
 
-impl UserData for LuaStateStore {
-    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_async_method("get", |_lua, cs, name: String| async move {
-            let state_obj = cs.state_store.get_or_create(&name).await;
+impl UserData for LuaStateStore {}
 
-            Ok(LuaStateObject {
-                name: name.clone(),
-                state_object: state_obj,
-            })
-        });
+impl FromLua for LuaStateStore {
+    fn from_lua(value: Value, _lua: &Lua) -> mlua::Result<Self> {
+        match value {
+            Value::UserData(ud) => match ud.borrow::<LuaStateStore>() {
+                Ok(store) => Ok(LuaStateStore {
+                    state_store: Arc::clone(&store.state_store),
+                }),
+                Err(err) => Err(err),
+            },
+            _ => Err(mlua::Error::runtime(format!(
+                "expected userdata, got {value:?}"
+            ))),
+        }
     }
 }
 

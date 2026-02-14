@@ -1,6 +1,6 @@
 local fs = require("epibloom.filesystem")
 local log = require("epibloom.log")
-local trace_store = require("epibloom.trace")
+local traces = require("epibloom.trace")
 local uuid = require("epibloom.uuid")
 
 local chattree = {}
@@ -28,7 +28,7 @@ function chattree:set_message(message_position, message)
 end
 
 function chattree:generate(...)
-    local trace = trace_store:new()
+    local trace = traces.new()
 
     for i, message in ipairs(self.chat.messages) do
         trace[i] = message
