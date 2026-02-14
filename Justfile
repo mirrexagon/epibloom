@@ -8,7 +8,7 @@ run: copy-scripts
     cd epibloom && cargo run
 
 copy-scripts:
-    rsync -rvP epibloom/scripts/ ~/.config/epibloom
+    rsync -rvP epibloom/scripts ~/.config/epibloom
 
 serve:
     cd epibloom/ui && npm run dev
