@@ -18,15 +18,23 @@ pub struct StateApiDoc;
 
 /// Subscribe to one or more state objects.
 /// Returns SSE stream with snapshots of current values, then updates as they change.
-///
-/// Example: GET /api/state?objects=chat:123:messages,player:456:stats
 #[utoipa::path(
     responses(
-        (status = 200, description = "SSE stream of state snapshots and updates", body = StateEvent),
+        (
+            status = 200,
+            description = "SSE stream of state initial values, then updates as JSON Patches.",
+            content_type = "text/event-stream",
+            body = StateEvent,
+        ),
     ),
     params(
-        ("objects" = String, Query, description = "Comma-separated list of state object names")
-    )
+        (
+            "objects" = String,
+            Query,
+            description = "Comma-separated list of state object names.",
+            example = "chat:123:messages,player:456:stats",
+        ),
+    ),
 )]
 #[get("/?<objects>")]
 pub async fn stream_state_objects(

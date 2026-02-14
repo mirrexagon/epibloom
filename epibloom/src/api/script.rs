@@ -2,9 +2,14 @@ use std::path::PathBuf;
 
 use rocket::serde::json::Json;
 use rocket::State;
+use utoipa::OpenApi;
 
 use super::ApiErrorResponse;
 use crate::script;
+
+#[derive(OpenApi)]
+#[openapi(paths(run_script))]
+pub struct ScriptApiDoc;
 
 impl From<script::Error> for ApiErrorResponse {
     fn from(value: script::Error) -> Self {
@@ -19,6 +24,27 @@ impl From<script::Error> for ApiErrorResponse {
     }
 }
 
+/// Run a script and get the result back.
+///
+/// Scripts are run on script contexts, which are independent Lua states. Only
+/// one script can run at a time on a single context, but multiple contexts can
+/// have scripts running simultaneously. Multiple concurrent requests to run
+/// scripts on a single context will run each one-by-one in the order of the
+/// requests.
+#[utoipa::path(
+    responses(
+        (status = 200, description = "The result of the script execution.", content_type = "text/json"),
+    ),
+    params(
+        ("context_name" = String, description = "Name of the script context to run the script on."),
+        ("script_path" = String, description = "Path to the script relative to the scripts directory, without a file extension."),
+        (
+            "script_input",
+            description = "A JSON object that will be passed to the script.",
+            example = json!({"hello": "world", "value": 6}),
+        ),
+    ),
+)]
 #[post("/<context_name>/<script_path..>", data = "<script_input>")]
 pub async fn run_script(
     context_name: &str,

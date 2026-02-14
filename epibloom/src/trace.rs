@@ -132,17 +132,14 @@ impl Trace {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    // TODO: Remove context information from errors, always log that at the
-    // caller receiving the error. Getting traces failing in the API already
-    // does.
-    #[error("trace not found: {0}")]
-    TraceNotFound(Uuid),
+    #[error("trace not found")]
+    TraceNotFound,
 
-    #[error("trace {0} has no messages")]
-    TraceHasNoMessages(Uuid),
+    #[error("trace has no messages")]
+    TraceHasNoMessages,
 
-    #[error("message not found: trace {trace_id}, message position {position}")]
-    MessageNotFound { trace_id: Uuid, position: usize },
+    #[error("message not found")]
+    MessageNotFound,
 
     #[error("can't modify trace while generating")]
     CantModifyTraceWhileGenerating,

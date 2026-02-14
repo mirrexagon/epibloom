@@ -71,9 +71,7 @@ impl TraceStore {
 
     pub async fn save_trace(&self, trace_id: Uuid) -> Result<(), Error> {
         let sessions = self.sessions.read().await;
-        let session_arc = sessions
-            .get(&trace_id)
-            .ok_or(Error::TraceNotFound(trace_id))?;
+        let session_arc = sessions.get(&trace_id).ok_or(Error::TraceNotFound)?;
         let session = session_arc.read().await;
         session.trace.save_to_traces_directory().await?;
         Ok(())
@@ -114,7 +112,7 @@ impl TraceStore {
 
         match sessions.get(&trace_id) {
             Some(session_arc) => Ok(Arc::clone(session_arc)),
-            None => Err(Error::TraceNotFound(trace_id)),
+            None => Err(Error::TraceNotFound),
         }
     }
 
@@ -157,9 +155,7 @@ impl TraceStore {
         Ok(())
     }
 
-    pub async fn get_trace_store_event_stream(
-        &self,
-    ) -> Result<impl Stream<Item = TraceStoreEvent>, Error> {
+    pub async fn get_trace_store_event_stream(&self) -> impl Stream<Item = TraceStoreEvent> {
         // Get the current existing sessions. We also want to lock sessions so
         // that no one can modify it while we subscribe to adds/removes and get
         // the current trace list.
@@ -179,7 +175,7 @@ impl TraceStore {
 
         let mut rx = self.event_broadcast.subscribe();
 
-        Ok(stream! {
+        stream! {
             // Send current trace list.
             for event in initial_trace_store_events {
                 yield event;
@@ -204,7 +200,7 @@ impl TraceStore {
                 }
             }
 
-        })
+        }
     }
 
     pub async fn start_generating<B: Backend + TypeMapKey<Value = Arc<B>> + Send + Sync>(
@@ -314,12 +310,7 @@ impl Session {
                 self.trace.messages[message_position] = message;
             }
 
-            _ => {
-                return Err(Error::MessageNotFound {
-                    trace_id: self.trace.metadata.id,
-                    position: message_position,
-                })
-            }
+            _ => return Err(Error::MessageNotFound),
         }
 
         // Broadcast that the message was added or changed.
@@ -367,14 +358,14 @@ impl Session {
     }
 
     /// Get a stream that yields events corresponding to existing messages, then any future message chunks.
-    pub async fn get_trace_stream(&self) -> Result<impl Stream<Item = TraceEvent>, Error> {
+    pub async fn get_trace_stream(&self) -> impl Stream<Item = TraceEvent> {
         let mut rx = self.event_broadcast.subscribe();
         let past_messages = self.trace.messages.clone();
         let current_assistant_message = self.current_assistant_message.clone();
         let current_assistant_thinking = self.current_assistant_thinking.clone();
         let current_state = self.state;
 
-        Ok(stream! {
+        stream! {
             // Send past messages.
             for (position, message) in past_messages.iter().enumerate() {
                 match message.role {
@@ -445,7 +436,7 @@ impl Session {
                     Err(RecvError::Closed) => break,
                 }
             }
-        })
+        }
     }
 
     async fn start_generating<B: Backend>(

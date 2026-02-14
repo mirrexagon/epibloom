@@ -59,11 +59,13 @@ fn rocket() -> _ {
     #[openapi(
         nest(
             (path = "/api/trace", api = api::trace::TraceApiDoc),
-            (path = "/api/state", api = api::state::StateApiDoc)
+            (path = "/api/state", api = api::state::StateApiDoc),
+            (path = "/api/script", api = api::script::ScriptApiDoc),
         ),
         tags(
-            (name = "trace", description = "Streaming base debug traces, created and manipulated by scripts."),
-            (name = "state", description = "Streaming state objects, created and manipulated by scripts.")
+            (name = "api::trace", description = "Streaming LLM traces, created and manipulated by scripts."),
+            (name = "api::state", description = "Streaming state objects, created and manipulated by scripts."),
+            (name = "api::script", description = "Running Lua scripts to perform actions and update state."),
         )
     )]
     struct ApiDoc;
@@ -114,6 +116,6 @@ fn rocket() -> _ {
                 api::trace::stream_trace_by_id,
             ],
         )
-        .mount("/api/script", routes![api::script::run_script,])
         .mount("/api/state", routes![api::state::stream_state_objects,])
+        .mount("/api/script", routes![api::script::run_script,])
 }

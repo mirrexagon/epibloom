@@ -16,9 +16,9 @@ use super::ApiErrorResponse;
 impl From<trace::Error> for ApiErrorResponse {
     fn from(value: trace::Error) -> Self {
         match value {
-            trace::Error::TraceNotFound(_)
-            | trace::Error::TraceHasNoMessages(_)
-            | trace::Error::MessageNotFound { .. } => ApiErrorResponse::NotFound(value.to_string()),
+            trace::Error::TraceNotFound
+            | trace::Error::TraceHasNoMessages
+            | trace::Error::MessageNotFound => ApiErrorResponse::NotFound(value.to_string()),
             trace::Error::CantModifyTraceWhileGenerating => {
                 ApiErrorResponse::Conflict(value.to_string())
             }
@@ -37,26 +37,25 @@ impl From<trace::Error> for ApiErrorResponse {
 #[openapi(paths(stream_trace_store_events, stream_trace_by_id))]
 pub struct TraceApiDoc;
 
-/// Stream all current debug traces as additions, then stream any subsequent
-/// traces being added or removed.
+/// Stream all current traces as additions, then stream any subsequent traces
+/// being added.
 ///
 /// Just includes metadata, no messages.
 #[utoipa::path(
     responses(
-        (status = 200, description = "An SSE stream of trace additions or removals.", body = TraceStoreEvent),
-        (status = 500, description = "An error occurred starting the stream.", body = String)
-    )
+        (
+            status = 200,
+            description = "An SSE stream of trace additions.",
+            content_type = "text/event-stream",
+            body = TraceStoreEvent,
+        ),
+    ),
 )]
 #[get("/")]
 pub async fn stream_trace_store_events(
     store: &State<Arc<TraceStore>>,
 ) -> Result<EventStream![], ApiErrorResponse> {
-    let trace_store_stream = store.get_trace_store_event_stream().await.map_err(|err| {
-        ApiErrorResponse::InternalServerError(format!(
-            "Could not get trace store event stream: {}",
-            err
-        ))
-    })?;
+    let trace_store_stream = store.get_trace_store_event_stream().await;
 
     Ok(EventStream! {
         futures::pin_mut!(trace_store_stream);
@@ -67,13 +66,21 @@ pub async fn stream_trace_store_events(
     })
 }
 
-/// Stream the current state of the trace and any future message deltas.
+/// Stream the current state of the trace and any future message deltas
+/// (including possible replacements of existing messages with new content).
 #[utoipa::path(
+    params(
+        ("trace_id", description = "UUID of the trace to stream.")
+    ),
     responses(
-        (status = 200, description = "An SSE stream of message events.", body = TraceEvent),
+        (
+            status = 200,
+            description = "An SSE stream of message events.",
+            content_type = "text/event-stream",
+            body = TraceEvent,
+        ),
         (status = 404, description = "The specified trace does not exist.", body = String),
-        (status = 500, description = "An error occurred starting the stream.", body = String)
-    )
+    ),
 )]
 #[get("/<trace_id>")]
 pub async fn stream_trace_by_id(
@@ -88,10 +95,7 @@ pub async fn stream_trace_by_id(
 
         let session = session.read().await;
 
-        session
-            .get_trace_stream()
-            .await
-            .map_err(|err| ApiErrorResponse::InternalServerError(err.to_string()))?
+        session.get_trace_stream().await
     };
 
     Ok(EventStream! {
