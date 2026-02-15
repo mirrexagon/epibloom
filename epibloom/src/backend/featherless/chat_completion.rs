@@ -49,6 +49,8 @@ mod request {
         pub top_p: Option<f32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub top_k: Option<i32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub min_p: Option<f32>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         pub stop_sequences: Vec<String>,
     }
@@ -73,6 +75,7 @@ mod request {
                 temperature: config.temperature,
                 top_p: config.top_p,
                 top_k: config.top_k,
+                min_p: config.min_p,
                 stop_sequences: config.stop_sequences.clone(),
             }
         }

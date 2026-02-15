@@ -625,7 +625,7 @@ impl UserData for LuaTrace {
 }
 
 // TODO: use lua.from_value(): https://github.com/mlua-rs/mlua/blob/main/examples/serde.rs#L31
-// Or else look into https://github.com/mlua-rs/mlua/issues/225
+// Fields can be made optional by setting #[serde(default)] on the target struct
 
 impl IntoLua for Message {
     fn into_lua(self, lua: &Lua) -> mlua::Result<Value> {
