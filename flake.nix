@@ -53,6 +53,8 @@
 
               nodejs
 
+              lua-language-server
+
               httpie
             ];
 

@@ -1,6 +1,7 @@
 local arg = ...
 
 package.loaded["chat"] = nil
+package.loaded["util"] = nil
 local chat = require("chat")
 
 local dispatch = {
@@ -9,9 +10,8 @@ local dispatch = {
     end,
 
     new = function()
-        local chat = chat.new()
-        chat:save()
-        return chat.id
+        local c = chat.new()
+        return c.id
     end,
 
     get = function(arg)

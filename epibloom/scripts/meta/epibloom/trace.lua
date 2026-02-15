@@ -27,10 +27,10 @@ local Trace = {}
 --- Start generating a message from an LLM.
 --- @param backend BackendChoice
 --- @param config AnthropicConfig | FeatherlessConfig
-function Trace.generate(backend, config) end
+function Trace:generate(backend, config) end
 
 --- Wait for any current message generation to finish.
-function Trace.wait_for_generate() end
+function Trace:wait_for_generate() end
 
 --- A message from or for an LLM trace.
 --- @class Message

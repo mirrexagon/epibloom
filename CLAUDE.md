@@ -16,9 +16,12 @@ If something you want to use is missing, let the user know (in case they forgot 
 
 In `epibloom/`, Rust + Rocket + mlua.
 
+Lua script source in `epibloom/scripts/`.
+
 ### Commands
 
-- `just check` - Ensure the project builds by running `cargo clippy`.
+- `just check-server` - Ensure the project builds by running `cargo clippy`.
+- `just check-scripts` - Check the Lua scripts using Lua Language Server.
 - `just run` - Copy scripts from `epibloom/scripts/` to `~/.config/epibloom/scripts` and then run the server. Run this in tmux so you can have it running while also testing API endpoints (see below).
 
 ### API Testing
