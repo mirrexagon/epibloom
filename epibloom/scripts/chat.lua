@@ -126,6 +126,7 @@ end
 
 --- @private
 function chat.save(chat_state_contents)
+    assert(chat_state_contents.id, "Tried to save chat content that has no id")
     fs.save_json(string.format("chats/%s.json", chat_state_contents.id), chat_state_contents)
 end
 

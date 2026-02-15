@@ -168,7 +168,7 @@ impl Context {
                             args[i] = tostring(args[i])
                         end
 
-                        log.info(table.concat(args, "\t"))
+                        log.log("info", table.concat(args, "\t"))
                     end
                 "#,
             )
