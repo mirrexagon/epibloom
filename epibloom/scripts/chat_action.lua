@@ -5,10 +5,14 @@ package.loaded["util"] = nil
 local chat = require("chat")
 
 local dispatch = {
+    -- Return:
+    -- List of chat IDs (UUIDs as hyphenated strings)
     list = function()
         return chat.list_chats()
     end,
 
+    -- Return:
+    -- Chat ID (UUID as hyphenated string)
     new = function()
         local c = chat.new()
         return c.id
@@ -16,6 +20,8 @@ local dispatch = {
 
     -- Parameters:
     -- - chat_id
+    -- Return:
+    -- Chat object (see chat.lua)
     get = function(arg)
         return chat.get(arg.chat_id)
     end,
