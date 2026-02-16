@@ -1,42 +1,34 @@
-import { useState, useCallback } from "react";
-import { TraceList } from "./components/TraceList";
-import { TraceView } from "./components/TraceView";
-import { TraceMetadata } from "./types/api";
+import { useState } from "react";
+import { DebugDrawer } from "./components/DebugDrawer";
 
 function App() {
-    const [selectedTrace, setSelectedTrace] = useState<TraceMetadata | null>(
-        null,
-    );
-
-    const handleSelectTrace = useCallback((trace: TraceMetadata) => {
-        console.log(`Selected ${trace.id}`);
-        setSelectedTrace(trace);
-    }, []);
+    const [debugDrawerOpen, setDebugDrawerOpen] = useState(true);
+    const [debugDrawerHeight, setDebugDrawerHeight] = useState(400);
 
     return (
         <div className="h-screen flex flex-col bg-gray-900">
             {/* App header */}
             <header className="bg-gray-800 text-white p-4 shadow-lg">
-                <h1 className="text-2xl font-bold">Epibloom</h1>
+                <h1 className="text-2xl font-bold">🌸 Epibloom</h1>
             </header>
 
-            {/* Main content */}
-            <div className="flex-1 flex overflow-hidden">
-                {/* Sidebar */}
-                <div className="w-80 flex-shrink-0">
-                    <TraceList
-                        selectedTraceId={selectedTrace?.id || null}
-                        onSelectTrace={handleSelectTrace}
-                    />
+            {/* Main content area */}
+            <div className="flex-1 flex flex-col overflow-hidden">
+                {/* Primary panel */}
+                <div className="flex-1 flex items-center justify-center text-gray-500">
+                    <div className="text-center">
+                        <div className="text-6xl mb-4">🌸</div>
+                        <div className="text-xl">Primary Panel</div>
+                    </div>
                 </div>
 
-                {/* Main view */}
-                <div className="flex-1">
-                    <TraceView
-                        traceId={selectedTrace?.id || null}
-                        traceName={selectedTrace?.name || null}
-                    />
-                </div>
+                {/* Debug drawer */}
+                <DebugDrawer
+                    isOpen={debugDrawerOpen}
+                    onToggle={() => setDebugDrawerOpen(!debugDrawerOpen)}
+                    height={debugDrawerHeight}
+                    onHeightChange={setDebugDrawerHeight}
+                />
             </div>
         </div>
     );

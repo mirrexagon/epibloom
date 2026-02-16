@@ -33,3 +33,25 @@ export interface Message {
     thinking?: string;
     position: number; // Track position for building from deltas
 }
+
+// State objects types
+export type StateEvent =
+    | {
+          type: "value";
+          object: string;
+          value: unknown;
+      }
+    | {
+          type: "patch";
+          object: string;
+          patch: Array<{
+              op: string;
+              path: string;
+              value?: unknown;
+          }>;
+      };
+
+export interface StateObjectData {
+    name: string;
+    value: unknown;
+}
