@@ -98,17 +98,6 @@ export function DebugDrawer({
         }
     }, [isDragging, handleMouseMove, handleMouseUp]);
 
-    // Effect for cursor style during dragging
-    useEffect(() => {
-        if (isDragging) {
-            document.body.style.cursor = "ns-resize";
-            document.body.style.userSelect = "none";
-        } else {
-            document.body.style.cursor = "";
-            document.body.style.userSelect = "";
-        }
-    }, [isDragging]);
-
     const selectedObject = objects.find(
         (obj) => obj.name === selectedStateName,
     );
