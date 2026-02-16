@@ -35,6 +35,10 @@ function chat.get(chat_id, create_if_not_found)
     return chat_state:read()
 end
 
+function chat.poke(chat_id)
+    chat.get_state(chat_id)
+end
+
 --- Get a list of all existing chats.
 --- @return Chat[]
 function chat.list_chats()
@@ -149,6 +153,7 @@ function chat.get_state(chat_id, create_if_not_found)
 
         return chat_state
     elseif create_if_not_found then
+        print("CREATING NEW CHAT OBJECT")
         local chat_state = state.get(state_name)
 
         chat_state:update(function(_)

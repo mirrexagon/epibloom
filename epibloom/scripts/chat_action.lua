@@ -20,6 +20,13 @@ local dispatch = {
         return c.id
     end,
 
+    -- Make sure a chat is loaded into the state object system.
+    -- Parameters:
+    -- - chat_id
+    poke = function(arg)
+        chat.poke(arg.chat_id)
+    end,
+
     -- Parameters:
     -- - chat_id
     -- Return:

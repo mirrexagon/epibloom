@@ -55,3 +55,15 @@ export interface StateObjectData {
     name: string;
     value: unknown;
 }
+
+// Chat types
+export interface ChatMessage {
+    role: Role;
+    content: string;
+    trace_id?: string;
+}
+
+export interface Chat {
+    id: string;
+    messages: ChatMessage[];
+}

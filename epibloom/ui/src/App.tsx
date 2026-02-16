@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { DebugDrawer } from "./components/DebugDrawer";
+import { ChatView } from "./components/ChatView";
 
 function App() {
     const [debugDrawerOpen, setDebugDrawerOpen] = useState(true);
@@ -14,13 +15,8 @@ function App() {
 
             {/* Main content area */}
             <div className="flex-1 flex flex-col overflow-hidden">
-                {/* Primary panel */}
-                <div className="flex-1 flex items-center justify-center text-gray-500">
-                    <div className="text-center">
-                        <div className="text-6xl mb-4">🌸</div>
-                        <div className="text-xl">Primary Panel</div>
-                    </div>
-                </div>
+                {/* Primary panel - Chat UI */}
+                <ChatView />
 
                 {/* Debug drawer */}
                 <DebugDrawer
