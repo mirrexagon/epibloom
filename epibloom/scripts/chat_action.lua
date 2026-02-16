@@ -14,18 +14,24 @@ local dispatch = {
         return c.id
     end,
 
+    -- Parameters:
+    -- - chat_id
     get = function(arg)
         return chat.get(arg.chat_id)
     end,
 
-    test = function(arg)
-        chat.set_message(
-            arg.chat_id,
-            1,
-            { role = "user", content = "What is your best guess at the energy content of a glass of orange juice?" }
-        )
+    -- Parameters:
+    -- - chat_id
+    -- - position: message index
+    -- - role (optional)
+    -- - content (optional)
+    set_message = function(arg)
+        chat.set_message(arg.chat_id, arg.position, arg.role, arg.content)
+    end,
 
-        print("generate time")
+    -- Parameters:
+    -- - chat_id
+    generate = function(arg)
         chat.generate(arg.chat_id, "anthropic")
     end,
 }

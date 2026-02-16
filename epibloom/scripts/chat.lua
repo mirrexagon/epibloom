@@ -47,7 +47,7 @@ function chat.list_chats()
     return list
 end
 
-function chat.set_message(chat_id, message_position, message)
+function chat.set_message(chat_id, message_position, role, content)
     local chat_state = chat.get_state(chat_id)
 
     chat_state:update(function(value)
@@ -59,7 +59,12 @@ function chat.set_message(chat_id, message_position, message)
 
         assert(message_position <= (#value.messages + 1), "tried to add message past the end of the message list")
 
-        value.messages[message_position] = message
+        local old_message = value.messages[message_position]
+
+        value.messages[message_position] = {
+            role = role or old_message.role,
+            content = content or old_message.content,
+        }
 
         chat.save(value)
         return value
