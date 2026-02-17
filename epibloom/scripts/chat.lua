@@ -153,7 +153,6 @@ function chat.get_state(chat_id, create_if_not_found)
 
         return chat_state
     elseif create_if_not_found then
-        print("CREATING NEW CHAT OBJECT")
         local chat_state = state.get(state_name)
 
         chat_state:update(function(_)
