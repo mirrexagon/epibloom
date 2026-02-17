@@ -5,9 +5,10 @@ import { Chat, ChatMessage } from "../types/api";
 
 interface MessageBubbleProps {
     message: ChatMessage;
+    onSelectTrace?: (traceId: string) => void;
 }
 
-function MessageBubble({ message }: MessageBubbleProps) {
+function MessageBubble({ message, onSelectTrace }: MessageBubbleProps) {
     const isUser = message.role === "user";
     const isSystem = message.role === "system";
 
@@ -28,16 +29,23 @@ function MessageBubble({ message }: MessageBubbleProps) {
                     {message.content}
                 </div>
                 {message.trace_id && (
-                    <div className="text-xs opacity-50 mt-1 font-mono">
+                    <button
+                        onClick={() => onSelectTrace?.(message.trace_id!)}
+                        className="text-xs opacity-50 hover:opacity-100 mt-1 font-mono transition-opacity hover:underline cursor-pointer text-left"
+                    >
                         trace: {message.trace_id}
-                    </div>
+                    </button>
                 )}
             </div>
         </div>
     );
 }
 
-export function ChatView() {
+interface ChatViewProps {
+    onSelectTrace?: (traceId: string) => void;
+}
+
+export function ChatView({ onSelectTrace }: ChatViewProps) {
     const [chatIds, setChatIds] = useState<string[]>([]);
     const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
     const [inputMessage, setInputMessage] = useState("");
@@ -60,8 +68,6 @@ export function ChatView() {
     const chatData = objects.find(
         (obj) => obj.name === `chat:${selectedChatId}`,
     )?.value as Chat | undefined;
-
-    console.log(chatData);
 
     // Ref for auto-scrolling to bottom
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -186,6 +192,7 @@ export function ChatView() {
                                         <MessageBubble
                                             key={index}
                                             message={message}
+                                            onSelectTrace={onSelectTrace}
                                         />
                                     ))}
                                     <div ref={messagesEndRef} />

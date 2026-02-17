@@ -13,6 +13,10 @@ interface DebugDrawerProps {
     onToggle: () => void;
     height: number;
     onHeightChange: (height: number) => void;
+    selectedTrace: TraceMetadata | null;
+    onSelectTrace: (trace: TraceMetadata) => void;
+    activeTab: TabType;
+    onTabChange: (tab: TabType) => void;
 }
 
 export function DebugDrawer({
@@ -20,11 +24,11 @@ export function DebugDrawer({
     onToggle,
     height,
     onHeightChange,
+    selectedTrace,
+    onSelectTrace,
+    activeTab,
+    onTabChange,
 }: DebugDrawerProps) {
-    const [activeTab, setActiveTab] = useState<TabType>("traces");
-    const [selectedTrace, setSelectedTrace] = useState<TraceMetadata | null>(
-        null,
-    );
     const [selectedStateName, setSelectedStateName] = useState<string | null>(
         null,
     );
@@ -37,10 +41,6 @@ export function DebugDrawer({
     } = useStateObjects(watchedObjects);
 
     const [isDragging, setIsDragging] = useState(false);
-
-    const handleSelectTrace = useCallback((trace: TraceMetadata) => {
-        setSelectedTrace(trace);
-    }, []);
 
     const handleAddStateObject = useCallback((objectName: string) => {
         setWatchedObjects((prev) => {
@@ -143,7 +143,7 @@ export function DebugDrawer({
                     onClick={(e) => e.stopPropagation()}
                 >
                     <button
-                        onClick={() => setActiveTab("traces")}
+                        onClick={() => onTabChange("traces")}
                         className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
                             activeTab === "traces"
                                 ? "bg-blue-600 text-white"
@@ -153,7 +153,7 @@ export function DebugDrawer({
                         Traces
                     </button>
                     <button
-                        onClick={() => setActiveTab("state")}
+                        onClick={() => onTabChange("state")}
                         className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
                             activeTab === "state"
                                 ? "bg-blue-600 text-white"
@@ -177,7 +177,7 @@ export function DebugDrawer({
                         <div className="w-64 flex-shrink-0 border-r border-gray-700">
                             <TraceList
                                 selectedTraceId={selectedTrace?.id || null}
-                                onSelectTrace={handleSelectTrace}
+                                onSelectTrace={onSelectTrace}
                             />
                         </div>
                         <div className="flex-1">

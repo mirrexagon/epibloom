@@ -1,10 +1,27 @@
 import { useState } from "react";
 import { DebugDrawer } from "./components/DebugDrawer";
 import { ChatView } from "./components/ChatView";
+import { TraceMetadata } from "./types/api";
 
 function App() {
     const [debugDrawerOpen, setDebugDrawerOpen] = useState(true);
     const [debugDrawerHeight, setDebugDrawerHeight] = useState(400);
+    const [selectedTrace, setSelectedTrace] = useState<TraceMetadata | null>(
+        null,
+    );
+    const [debugTab, setDebugTab] = useState<"traces" | "state">("traces");
+
+    const handleSelectTraceFromChat = (traceId: string) => {
+        // Create a minimal TraceMetadata object - the full data will be loaded by TraceView
+        setSelectedTrace({
+            id: traceId,
+            name: traceId,
+            created: "",
+            modified: "",
+        });
+        setDebugTab("traces");
+        setDebugDrawerOpen(true);
+    };
 
     return (
         <div className="h-screen flex flex-col bg-gray-900">
@@ -16,7 +33,7 @@ function App() {
             {/* Main content area */}
             <div className="flex-1 flex flex-col overflow-hidden">
                 {/* Primary panel - Chat UI */}
-                <ChatView />
+                <ChatView onSelectTrace={handleSelectTraceFromChat} />
 
                 {/* Debug drawer */}
                 <DebugDrawer
@@ -24,6 +41,10 @@ function App() {
                     onToggle={() => setDebugDrawerOpen(!debugDrawerOpen)}
                     height={debugDrawerHeight}
                     onHeightChange={setDebugDrawerHeight}
+                    selectedTrace={selectedTrace}
+                    onSelectTrace={setSelectedTrace}
+                    activeTab={debugTab}
+                    onTabChange={setDebugTab}
                 />
             </div>
         </div>
