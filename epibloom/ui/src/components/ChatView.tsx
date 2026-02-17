@@ -1,21 +1,58 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useScript } from "../hooks/useScript";
 import { useStateObjects } from "../hooks/useStateObjects";
-import { Chat } from "../types/api";
+import { Chat, ChatMessage } from "../types/api";
+
+interface MessageBubbleProps {
+    message: ChatMessage;
+}
+
+function MessageBubble({ message }: MessageBubbleProps) {
+    const isUser = message.role === "user";
+    const isSystem = message.role === "system";
+
+    return (
+        <div
+            className={`flex ${isUser ? "justify-end" : "justify-start"} ${isSystem ? "justify-center" : ""}`}
+        >
+            <div
+                className={`max-w-[70%] rounded-lg px-4 py-2 ${
+                    isUser
+                        ? "bg-blue-600 text-white"
+                        : isSystem
+                          ? "bg-gray-700 text-gray-300 text-sm italic"
+                          : "bg-gray-700 text-gray-100"
+                }`}
+            >
+                <div className="whitespace-pre-wrap break-words">
+                    {message.content}
+                </div>
+                {message.trace_id && (
+                    <div className="text-xs opacity-50 mt-1 font-mono">
+                        trace: {message.trace_id}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
 
 export function ChatView() {
     const [chatIds, setChatIds] = useState<string[]>([]);
     const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+    const [inputMessage, setInputMessage] = useState("");
 
     // Script hooks for chat actions
+    // TODO: Each chat should use its own script context
     const listScript = useScript<string[]>("chat", "chat_action");
     const newChatScript = useScript<string>("chat", "chat_action");
     const pokeScript = useScript<void>("chat", "chat_action");
+    const appendMessageScript = useScript<void>("chat", "chat_action");
 
     // State hook for selected chat - memoize to prevent infinite re-renders
     const stateObjectNames = useMemo(
         () => (selectedChatId ? [`chat:${selectedChatId}`] : []),
-        [selectedChatId]
+        [selectedChatId],
     );
     const { objects } = useStateObjects(stateObjectNames);
 
@@ -23,6 +60,11 @@ export function ChatView() {
     const chatData = objects.find(
         (obj) => obj.name === `chat:${selectedChatId}`,
     )?.value as Chat | undefined;
+
+    console.log(chatData);
+
+    // Ref for auto-scrolling to bottom
+    const messagesEndRef = useRef<HTMLDivElement>(null);
 
     // Load chat list on mount
     useEffect(() => {
@@ -36,6 +78,11 @@ export function ChatView() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // Auto-scroll to bottom when messages change
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [chatData?.messages]);
+
     const handleNewChat = async () => {
         const newChatId = await newChatScript.runScript({ action: "new" });
         if (newChatId) {
@@ -48,6 +95,21 @@ export function ChatView() {
         setSelectedChatId(chatId);
         // Poke the chat to load it into the state system
         await pokeScript.runScript({ action: "poke", chat_id: chatId });
+    };
+
+    const handleSendMessage = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedChatId || !inputMessage.trim()) return;
+
+        const messageToSend = inputMessage.trim();
+        setInputMessage(""); // Clear input immediately
+
+        await appendMessageScript.runScript({
+            action: "append_message",
+            chat_id: selectedChatId,
+            role: "user",
+            content: messageToSend,
+        });
     };
 
     return (
@@ -112,20 +174,60 @@ export function ChatView() {
                         </div>
                     </div>
                 ) : (
-                    <div className="flex-1 overflow-y-auto p-4">
-                        <div className="mb-4 text-gray-400 text-sm font-mono">
-                            Chat ID: {selectedChatId}
-                        </div>
-                        {chatData ? (
-                            <pre className="bg-gray-800 p-4 rounded text-gray-300 text-sm overflow-x-auto">
-                                {JSON.stringify(chatData, null, 2)}
-                            </pre>
-                        ) : (
-                            <div className="text-gray-500 text-sm">
-                                Loading chat data...
+                    <>
+                        {/* Messages area */}
+                        <div className="flex-1 overflow-y-auto p-4">
+                            <div className="mb-4 text-gray-400 text-xs font-mono">
+                                Chat ID: {selectedChatId}
                             </div>
-                        )}
-                    </div>
+                            {chatData ? (
+                                <div className="space-y-4">
+                                    {chatData.messages.map((message, index) => (
+                                        <MessageBubble
+                                            key={index}
+                                            message={message}
+                                        />
+                                    ))}
+                                    <div ref={messagesEndRef} />
+                                </div>
+                            ) : (
+                                <div className="text-gray-500 text-sm">
+                                    Loading chat data...
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Input bar */}
+                        <div className="border-t border-gray-700 bg-gray-800 p-4">
+                            <form
+                                onSubmit={handleSendMessage}
+                                className="flex gap-2"
+                            >
+                                <input
+                                    type="text"
+                                    value={inputMessage}
+                                    onChange={(e) =>
+                                        setInputMessage(e.target.value)
+                                    }
+                                    placeholder="Type a message..."
+                                    className="flex-1 px-4 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:outline-none focus:border-blue-500"
+                                    disabled={appendMessageScript.loading}
+                                />
+                                <button
+                                    type="submit"
+                                    disabled={
+                                        !inputMessage.trim() ||
+                                        appendMessageScript.loading
+                                    }
+                                    className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded transition-colors"
+                                >
+                                    {appendMessageScript.loading
+                                        ? "Sending..."
+                                        : "Send"}
+                                </button>
+                            </form>
+                        </div>
+                    </>
                 )}
             </div>
         </div>

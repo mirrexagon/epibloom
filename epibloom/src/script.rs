@@ -31,6 +31,8 @@ lazy_static! {
     static ref SERIALIZE_OPTIONS: mlua::SerializeOptions = mlua::SerializeOptions::new()
         .serialize_none_to_null(false)
         .serialize_unit_to_null(false);
+    static ref DESERIALIZE_OPTIONS: mlua::DeserializeOptions =
+        mlua::DeserializeOptions::new().encode_empty_tables_as_array(true);
 }
 
 pub struct ContextStore {
@@ -476,7 +478,7 @@ impl Context {
                 )
             })?;
 
-        Ok(lua.from_value(result)?)
+        Ok(lua.from_value_with(result, *DESERIALIZE_OPTIONS)?)
     }
 }
 
@@ -624,7 +626,7 @@ impl UserData for LuaTrace {
     }
 }
 
-// TODO: use lua.from_value(): https://github.com/mlua-rs/mlua/blob/main/examples/serde.rs#L31
+// TODO: use lua.from_value_with(): https://github.com/mlua-rs/mlua/blob/main/examples/serde.rs#L31
 // Fields can be made optional by setting #[serde(default)] on the target struct
 
 impl IntoLua for Message {
@@ -831,7 +833,7 @@ impl UserData for LuaStateObject {
                 .update(async |old_value| {
                     let lua_old_value = lua.to_value_with(&old_value, *SERIALIZE_OPTIONS)?;
                     let lua_new_value: Value = func.call_async(lua_old_value).await?;
-                    lua.from_value(lua_new_value)
+                    lua.from_value_with(lua_new_value, *DESERIALIZE_OPTIONS)
                 })
                 .await
         });
