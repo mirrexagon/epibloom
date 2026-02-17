@@ -108,16 +108,18 @@ export function DebugDrawer({
                 {/* Fake drag handle */}
                 <div
                     className="h-1 bg-gray-700 hover:bg-blue-500 cursor-ns-resize transition-colors"
-                    onMouseDown={onToggle}
+                    onMouseUp={onToggle}
                 />
 
-                <button
-                    onClick={onToggle}
-                    className="w-full py-2 px-4 text-sm text-gray-300 hover:bg-gray-700 flex items-center justify-end gap-2"
-                >
-                    <span className="font-semibold">DEBUG</span>
-                    <span className="text-gray-500">▲</span>
-                </button>
+                <div className="w-full py-2 px-4 text-sm flex items-center justify-end gap-2">
+                    <button
+                        onClick={onToggle}
+                        className="flex items-center gap-2 text-gray-300 hover:bg-gray-700 px-2 py-1 rounded transition-colors"
+                    >
+                        <span className="font-semibold">DEBUG</span>
+                        <span className="text-gray-500">▲</span>
+                    </button>
+                </div>
             </div>
         );
     }
@@ -134,14 +136,8 @@ export function DebugDrawer({
             />
 
             {/* Header with tabs and controls */}
-            <button
-                onClick={onToggle}
-                className="border-b border-gray-700 bg-gray-800 hover:bg-gray-700 px-4 py-2 flex items-center justify-between transition-colors w-full"
-            >
-                <div
-                    className="flex gap-1"
-                    onClick={(e) => e.stopPropagation()}
-                >
+            <div className="border-b border-gray-700 bg-gray-800 px-4 py-2 flex items-center justify-between w-full">
+                <div className="flex gap-1">
                     <button
                         onClick={() => onTabChange("traces")}
                         className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
@@ -164,11 +160,14 @@ export function DebugDrawer({
                     </button>
                 </div>
 
-                <div className="flex items-center gap-2 text-sm">
+                <button
+                    onClick={onToggle}
+                    className="flex items-center gap-2 text-sm hover:bg-gray-700 px-2 py-1 rounded transition-colors"
+                >
                     <span className="font-semibold text-gray-300">DEBUG</span>
                     <span className="text-gray-500">▼</span>
-                </div>
-            </button>
+                </button>
+            </div>
 
             {/* Tab content */}
             <div className="flex-1 flex overflow-hidden">
