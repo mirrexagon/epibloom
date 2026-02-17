@@ -90,6 +90,10 @@ function chat.generate(chat_id, ...)
         end
 
         -- TODO: Mark tree branch as generating and check for this before generating.
+        -- TODO: Stream chat message streaming as trace generates - send whole message with each update since JSON patch can't be done on parts of strings? Seems wasteful.
+        -- Trace would have to yield chunks which Lua can read. Lua trace would have to track which chunks have been read from this LuaTrace instance so that each LuaTrace independently yields chunks and taking them off one doesn't affect any other references to this trace. Make sure to keep the ability to run multiple traces at once.
+        -- Also trace messages should update from chunks, so if streaming is interrupted, the partial message is there, also to be consistent if script reads messages during generation.
+        --
 
         return value
     end)
