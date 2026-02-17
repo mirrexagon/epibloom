@@ -476,6 +476,7 @@ impl Session {
             {
                 let mut session = session_arc.write().await;
 
+                // TODO: Just create the final message and use its fields for this during streaming.
                 let new_thinking = session.current_assistant_thinking.clone();
                 let new_message = session.current_assistant_message.clone();
 
