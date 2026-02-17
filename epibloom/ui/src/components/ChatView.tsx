@@ -56,6 +56,7 @@ export function ChatView({ onSelectTrace }: ChatViewProps) {
     const newChatScript = useScript<string>("chat", "chat_action");
     const pokeScript = useScript<void>("chat", "chat_action");
     const appendMessageScript = useScript<void>("chat", "chat_action");
+    const generateScript = useScript<void>("chat", "chat_action");
 
     // State hook for selected chat - memoize to prevent infinite re-renders
     const stateObjectNames = useMemo(
@@ -115,6 +116,11 @@ export function ChatView({ onSelectTrace }: ChatViewProps) {
             chat_id: selectedChatId,
             role: "user",
             content: messageToSend,
+        });
+
+        await generateScript.runScript({
+            action: "generate",
+            chat_id: selectedChatId,
         });
     };
 
