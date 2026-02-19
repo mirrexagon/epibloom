@@ -107,11 +107,12 @@ function chat.generate(chat_id, ...)
             -- Continuation of assistant message, reuse trace if possible.
             trace = traces.get(generating_message.trace_id)
             if not trace then
-                trace = trace.new()
+                trace = traces.new()
             end
             generating_message.trace_id = trace.id
         else
             -- Normal assistant response after a user message.
+            trace = traces.new()
             generating_message = {
                 role = "assistant",
                 content = {},
@@ -122,7 +123,9 @@ function chat.generate(chat_id, ...)
         end
 
         for i, message in ipairs(value.messages) do
+            print("message", i, message.content)
             if message == generating_message then
+                print("Found generating message")
                 break
             end
 
@@ -131,9 +134,7 @@ function chat.generate(chat_id, ...)
             end
         end
 
-        trace = traces.new()
-        generate_handle = trace:generate()
-
+        generate_handle = trace:generate("anthropic")
         message_position = #value.messages
 
         return value
@@ -143,11 +144,21 @@ function chat.generate(chat_id, ...)
     -- small JSON Patch (array-element add) rather than replacing the whole
     -- content string, keeping per-chunk SSE payloads small.
     for chunk in generate_handle do
+        --- @cast chunk TraceGenerateChunk
+
         chat_state:update(function(value)
             --- @cast value Chat
 
             local message = value.messages[message_position]
-            message.content[#message.content + 1] = chunk
+
+            if chunk.type == "message" then
+                message.content[#message.content + 1] = chunk.delta
+            elseif chunk.type == "thinking" then
+                -- TODO: Save thinking in chat message
+            elseif chunk.type == "error" then
+                -- TODO: Save this in the message, for the UI to display with the message
+                log.error("Error in generation: %s", chunk.message)
+            end
 
             return value
         end)

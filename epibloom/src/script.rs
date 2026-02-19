@@ -15,13 +15,14 @@ use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
 
 use lazy_static::lazy_static;
-use mlua::{AnyUserData, FromLua, IntoLua, Lua, LuaSerdeExt, ObjectLike, Table, UserData, Value};
+use mlua::{FromLua, IntoLua, Lua, LuaSerdeExt, ObjectLike, Table, UserData, Value};
+use serde::{Deserialize, Serialize};
 use tokio::fs;
-use tokio::sync::mpsc;
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex};
 use uuid::Uuid;
 
 use crate::state::StateObject;
+use crate::trace::TraceEvent;
 use crate::{
     backend,
     state::StateStore,
@@ -564,7 +565,7 @@ impl UserData for LuaTrace {
                 };
 
                 Ok(LuaTraceGenerateHandle {
-                    receiver: tokio::sync::Mutex::new(chunk_rx),
+                    receiver: Some(chunk_rx),
                 })
             },
         );
@@ -799,11 +800,22 @@ impl From<trace::Error> for mlua::Error {
 /// Handle returned by `trace:generate()`. Supports both chunk-by-chunk
 /// iteration (via `handle:chunks()` in a `for` loop) and blocking until
 /// generation completes (via `handle:wait()`).
-///
-/// The underlying mpsc receiver is closed when the generation task finishes,
-/// which naturally terminates both iteration and waiting.
 struct LuaTraceGenerateHandle {
-    receiver: tokio::sync::Mutex<mpsc::Receiver<String>>,
+    receiver: Option<broadcast::Receiver<TraceEvent>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "type")]
+enum LuaTraceGenerateChunk {
+    Thinking { delta: String },
+    Message { delta: String },
+    Error { message: String },
+}
+
+impl IntoLua for LuaTraceGenerateChunk {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<Value> {
+        lua.to_value_with(&self, *SERIALIZE_OPTIONS)
+    }
 }
 
 impl UserData for LuaTraceGenerateHandle {
@@ -811,19 +823,68 @@ impl UserData for LuaTraceGenerateHandle {
         // __call: receive the next chunk from the generation stream.
         // Returns the chunk string, or nil when generation is complete.
         // Also allows the handle to be directly used in a generic for loop.
-        methods.add_async_meta_method("__call", async |_lua, handle, _args: mlua::MultiValue| {
-            let mut rx = handle.receiver.lock().await;
-            Ok(rx.recv().await)
-        });
+        methods.add_async_meta_method_mut(
+            "__call",
+            async |_lua, mut handle, _args: mlua::MultiValue| match handle.receiver {
+                None => Ok(None),
+                Some(ref mut rx) => loop {
+                    match rx.recv().await {
+                        Ok(event) => match event {
+                            TraceEvent::AssistantThinkingDelta { delta } => {
+                                break Ok(Some(LuaTraceGenerateChunk::Thinking { delta }));
+                            }
+
+                            TraceEvent::AssistantMessageDelta { delta } => {
+                                break Ok(Some(LuaTraceGenerateChunk::Message { delta }));
+                            }
+                            TraceEvent::AssistantMessageEnd { position: _ } => {
+                                handle.receiver.take();
+                                break Ok(None);
+                            }
+                            TraceEvent::Error { message } => {
+                                handle.receiver.take();
+                                break Ok(Some(LuaTraceGenerateChunk::Error { message }));
+                            }
+                            _ => {}
+                        },
+
+                        Err(err) => {
+                            handle.receiver.take();
+                            break Ok(Some(LuaTraceGenerateChunk::Error {
+                                message: err.to_string(),
+                            }));
+                        }
+                    }
+                },
+            },
+        );
 
         // wait(): block until generation completes, discarding all chunks.
-        // Safe to call after partial iteration of chunks() — drains whatever
-        // remains. Safe to call after generation is already done — returns
-        // immediately since the channel is already closed.
-        methods.add_async_method("wait", async |_lua, handle, ()| {
-            let mut rx = handle.receiver.lock().await;
-            while rx.recv().await.is_some() {}
-            Ok(())
+        // Safe to call after partial iteration of chunks() as it drains whatever
+        // remains. Safe to call after generation is already done as it returns
+        // immediately since the receiver has already been disposed of.
+        methods.add_async_method_mut("wait", async |_lua, mut handle, ()| match handle.receiver {
+            None => Ok((true, None)),
+            Some(ref mut rx) => loop {
+                match rx.recv().await {
+                    Ok(event) => match event {
+                        TraceEvent::AssistantMessageEnd { position: _ } => {
+                            handle.receiver.take();
+                            break Ok((true, None));
+                        }
+                        TraceEvent::Error { message } => {
+                            handle.receiver.take();
+                            break Ok((false, Some(message)));
+                        }
+                        _ => {}
+                    },
+
+                    Err(err) => {
+                        handle.receiver.take();
+                        break Ok((false, Some(err.to_string())));
+                    }
+                }
+            },
         });
     }
 }
