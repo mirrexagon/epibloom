@@ -235,15 +235,18 @@ impl Context {
                         let trace_id = Uuid::try_parse(&trace_id).map_err(mlua::Error::external)?;
 
                         if trace_store.trace_store.has_trace(trace_id).await {
-                            Ok(LuaTrace {
-                                id: trace_id,
-                                trace_store: Arc::clone(&trace_store.trace_store),
-                            })
+                            Ok((
+                                Some(LuaTrace {
+                                    id: trace_id,
+                                    trace_store: Arc::clone(&trace_store.trace_store),
+                                }),
+                                None,
+                            ))
                         } else {
-                            Err(mlua::Error::runtime(format!(
-                                "trace {} not found",
-                                trace_id.hyphenated()
-                            )))
+                            Ok((
+                                None,
+                                Some(format!("trace {} not found", trace_id.hyphenated())),
+                            ))
                         }
                     })?,
                 )?;
@@ -560,7 +563,7 @@ impl UserData for LuaTrace {
                     }
                 };
 
-                Ok(LuaTraceGenerationHandle {
+                Ok(LuaTraceGenerateHandle {
                     receiver: tokio::sync::Mutex::new(chunk_rx),
                 })
             },
@@ -799,11 +802,11 @@ impl From<trace::Error> for mlua::Error {
 ///
 /// The underlying mpsc receiver is closed when the generation task finishes,
 /// which naturally terminates both iteration and waiting.
-struct LuaTraceGenerationHandle {
+struct LuaTraceGenerateHandle {
     receiver: tokio::sync::Mutex<mpsc::Receiver<String>>,
 }
 
-impl UserData for LuaTraceGenerationHandle {
+impl UserData for LuaTraceGenerateHandle {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         // __call: receive the next chunk from the generation stream.
         // Returns the chunk string, or nil when generation is complete.

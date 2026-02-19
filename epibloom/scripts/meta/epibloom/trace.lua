@@ -12,9 +12,10 @@ local trace = {}
 --- @nodiscard
 function trace.new(name) end
 
---- Get a specific trace. Raises an error if the trace doesn't exist.
+--- Get a specific trace.
 --- @param trace_id TraceId # The ID of the trace to get.
---- @return Trace
+--- @return Trace?
+--- @return string? error_message
 --- @nodiscard
 function trace.get(trace_id) end
 

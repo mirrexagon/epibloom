@@ -90,57 +90,51 @@ function chat.set_message(chat_id, message_position, role, content)
 end
 
 function chat.generate(chat_id, ...)
-    local trace = traces.new()
-
     local chat_state = chat.get_state(chat_id)
+
+    local trace, generate_handle, message_position
 
     -- Copy the current chat messages into the trace. Content is joined from
     -- its chunk array into a plain string, as required by the trace/LLM layer.
     chat_state:update(function(value)
         --- @cast value Chat
 
+        -- TODO: Mark tree branch as generating, and check that flag before generating.
+
+        local generating_message = value.messages[#value.messages]
+
+        if generating_message and generating_message.role == "assistant" then
+            -- Continuation of assistant message, reuse trace if possible.
+            trace = traces.get(generating_message.trace_id)
+            if not trace then
+                trace = trace.new()
+            end
+            generating_message.trace_id = trace.id
+        else
+            -- Normal assistant response after a user message.
+            generating_message = {
+                role = "assistant",
+                content = {},
+                trace_id = trace.id,
+            }
+
+            value.messages[#value.messages + 1] = generating_message
+        end
+
         for i, message in ipairs(value.messages) do
+            if message == generating_message then
+                break
+            end
+
             if message.role and message.content then
                 trace[i] = { role = message.role, content = table.concat(message.content) }
             end
         end
 
-        -- TODO: Mark tree branch as generating, and check that flag before this.
-        -- TODO: Set message's trace here? Reuse trace if it already exists?
+        trace = traces.new()
+        generate_handle = trace:generate()
 
-        return value
-    end)
-
-    -- Start generation. Returns a handle that exposes the stream of content
-    -- chunks as they arrive from the LLM.
-    local handle = trace:generate(...)
-
-    -- Add the new assistant message to the chat state before any chunks
-    -- arrive, so the UI can show a loading state immediately. Capture the
-    -- message's index for use in the streaming loop below.
-    -- In the continuation case (last message is already assistant), we append
-    -- to that message instead of adding a new one.
-
-    local message_position
-    chat_state:update(function(value)
-        --- @cast value Chat
-
-        local last_message = value.messages[#value.messages]
-
-        if last_message and last_message.role == "assistant" then
-            -- Continuation of assistant message: update trace_id and stream
-            -- further chunks into the existing content list.
-            last_message.trace_id = trace.id
-            message_position = #value.messages
-        else
-            -- Normal assistant response after a user message.
-            value.messages[#value.messages + 1] = {
-                role = "assistant",
-                content = {},
-                trace_id = trace.id,
-            }
-            message_position = #value.messages
-        end
+        message_position = #value.messages
 
         return value
     end)
@@ -148,12 +142,13 @@ function chat.generate(chat_id, ...)
     -- Stream chunks from the LLM into the chat state. Each chunk triggers a
     -- small JSON Patch (array-element add) rather than replacing the whole
     -- content string, keeping per-chunk SSE payloads small.
-    for chunk in handle do
+    for chunk in generate_handle do
         chat_state:update(function(value)
             --- @cast value Chat
 
             local message = value.messages[message_position]
             message.content[#message.content + 1] = chunk
+
             return value
         end)
     end
@@ -162,10 +157,6 @@ function chat.generate(chat_id, ...)
     local final_value = chat_state:read()
     if final_value and final_value.messages and #final_value.messages > 0 then
         chat.save(final_value)
-        -- TODO: Why return? LLM added this.
-        return true
-    else
-        return false
     end
 end
 
