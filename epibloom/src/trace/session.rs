@@ -4,7 +4,7 @@ use std::sync::Arc;
 use async_stream::stream;
 use futures::Stream;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, Mutex, Notify, RwLock};
+use tokio::sync::{broadcast, mpsc, Mutex, Notify, RwLock};
 use typemap_rev::TypeMapKey;
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -207,7 +207,7 @@ impl TraceStore {
         &self,
         trace_id: Uuid,
         backend_config: B::Config,
-    ) -> Result<(), Error>
+    ) -> Result<mpsc::Receiver<String>, Error>
     where
         <B as Backend>::Config: Send + Sync + 'static,
         <B as Backend>::Error: Send + Sync + 'static,
@@ -219,8 +219,7 @@ impl TraceStore {
             .await
             .get::<B>()
             .map_err(|err| Error::Backend(err.to_string()))?;
-        Session::start_generating::<B>(session_arc, backend, backend_config).await?;
-        Ok(())
+        Session::start_generating::<B>(session_arc, backend, backend_config).await
     }
 
     pub async fn wait_for_generate_complete(&self, trace_id: Uuid) -> Result<(), Error> {
@@ -447,7 +446,7 @@ impl Session {
         session_arc: Arc<RwLock<Session>>,
         backend: Arc<B>,
         backend_config: B::Config,
-    ) -> Result<(), Error>
+    ) -> Result<mpsc::Receiver<String>, Error>
     where
         <B as Backend>::Config: Send + Sync + 'static,
         <B as Backend>::Error: Send + Sync + 'static,
@@ -462,12 +461,23 @@ impl Session {
             session.trace.clone()
         };
 
+        // Channel for streaming message content chunks to the caller (e.g.
+        // Lua scripts). Sending only MessageDelta text; ThinkingDelta is
+        // handled separately via the broadcast channel. The sender is held by
+        // the spawned task and dropped on completion, which closes the channel
+        // and signals the receiver that generation is done.
+        let (chunk_tx, chunk_rx) = mpsc::channel(256);
+
         let stream = backend.generate(&backend_config, &trace);
 
         tokio::spawn(async move {
-            let _ =
-                process_generation_stream(Arc::clone(&session_arc), stream, trace.messages.len())
-                    .await;
+            let _ = process_generation_stream(
+                Arc::clone(&session_arc),
+                stream,
+                trace.messages.len(),
+                chunk_tx,
+            )
+            .await;
 
             // If an error occurs in process_generation_stream(), a
             // TraceEvent::Error will be sent on the session's broadcast channel.
@@ -511,7 +521,7 @@ impl Session {
             }
         });
 
-        Ok(())
+        Ok(chunk_rx)
     }
 }
 
@@ -519,6 +529,7 @@ async fn process_generation_stream<S, E>(
     session_arc: Arc<RwLock<Session>>,
     stream: S,
     message_position: usize,
+    chunk_sender: mpsc::Sender<String>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 where
     S: futures::Stream<Item = Result<GenerateChunk, E>>,
@@ -538,34 +549,53 @@ where
     }
 
     while let Some(result) = stream.next().await {
-        let mut session = session_arc.write().await;
-        match result {
-            Ok(chunk) => match chunk {
-                GenerateChunk::ThinkingDelta(ref delta) => {
-                    session.current_assistant_thinking.push_str(delta);
+        // Extract the delta to forward (if any) while holding the session
+        // write lock, then release the lock before awaiting the mpsc send so
+        // we don't hold the lock across an await on a potentially-full channel.
+        let message_delta = {
+            let mut session = session_arc.write().await;
+            match result {
+                Ok(chunk) => match chunk {
+                    GenerateChunk::ThinkingDelta(ref delta) => {
+                        session.current_assistant_thinking.push_str(delta);
 
-                    // Ignore failure to send as there may be no receivers.
-                    let _ = session
-                        .event_broadcast
-                        .send(TraceEvent::AssistantThinkingDelta {
-                            delta: delta.clone(),
-                        });
+                        // Ignore failure to send as there may be no receivers.
+                        let _ = session
+                            .event_broadcast
+                            .send(TraceEvent::AssistantThinkingDelta {
+                                delta: delta.clone(),
+                            });
+                        None
+                    }
+                    GenerateChunk::MessageDelta(ref delta) => {
+                        session.current_assistant_message.push_str(delta);
+                        let _ = session
+                            .event_broadcast
+                            .send(TraceEvent::AssistantMessageDelta {
+                                delta: delta.clone(),
+                            });
+                        Some(delta.clone())
+                    }
+                },
+                Err(err) => {
+                    log::error!("Error in generation stream: {err}");
+                    let _ = session.event_broadcast.send(TraceEvent::Error {
+                        message: err.to_string(),
+                    });
+                    return Err(Box::new(err));
                 }
-                GenerateChunk::MessageDelta(ref delta) => {
-                    session.current_assistant_message.push_str(delta);
-                    let _ = session
-                        .event_broadcast
-                        .send(TraceEvent::AssistantMessageDelta {
-                            delta: delta.clone(),
-                        });
-                }
-            },
-            Err(err) => {
-                log::error!("Error in generation stream: {err}");
-                let _ = session.event_broadcast.send(TraceEvent::Error {
-                    message: err.to_string(),
-                });
-                return Err(Box::new(err));
+            }
+            // Session write lock released here.
+        };
+
+        // Forward message delta to any Lua caller iterating chunks. If the
+        // receiver has been dropped (e.g. Lua broke out of the for loop
+        // early), we silently stop forwarding but let generation continue.
+        if let Some(delta) = message_delta {
+            if chunk_sender.send(delta).await.is_err() {
+                log::debug!(
+                    "Chunk receiver dropped; continuing generation without forwarding chunks"
+                );
             }
         }
     }
@@ -580,4 +610,6 @@ where
     }
 
     Ok(())
+
+    // chunk_tx is dropped here, closing the channel.
 }

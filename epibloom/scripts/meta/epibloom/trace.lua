@@ -27,6 +27,7 @@ local Trace = {}
 --- Start generating a message from an LLM.
 --- @param backend BackendChoice
 --- @param config AnthropicConfig | FeatherlessConfig
+--- @return TraceGenerationHandle
 function Trace:generate(backend, config) end
 
 --- Wait for any current message generation to finish.
@@ -61,5 +62,14 @@ function Trace:wait_for_generate() end
 --- @field top_k integer|nil
 --- @field min_p number|nil
 --- @field stop_sequences string[]
+
+--- Handle to a generating message.
+--- Can be used in a for loop like `for chunk in handle do end` to iterate over
+--- message chunks as they are received.
+--- @class TraceGenerationHandle
+local TraceGenerationHandle = {}
+
+--- Block until the message generation completes.
+function TraceGenerationHandle:wait() end
 
 return trace

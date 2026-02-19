@@ -26,7 +26,7 @@ function MessageBubble({ message, onSelectTrace }: MessageBubbleProps) {
                 }`}
             >
                 <div className="whitespace-pre-wrap break-words">
-                    {message.content}
+                    {message.content.join("")}
                 </div>
                 {message.trace_id && (
                     <button

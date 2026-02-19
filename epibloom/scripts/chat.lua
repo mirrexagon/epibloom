@@ -23,7 +23,7 @@ end
 
 --- @class ChatMessage
 --- @field role Role
---- @field content string
+--- @field content string[] # Message content as a list of string chunks. Join them to get the full text.
 --- @field trace_id TraceId|nil # The trace that was used to generate this message, if applicable.
 
 --- Get the current state of a chat.
@@ -65,9 +65,23 @@ function chat.set_message(chat_id, message_position, role, content)
 
         local old_message = value.messages[message_position]
 
+        -- Content is stored as a list of string chunks for efficient streaming.
+        -- When provided as a plain string (e.g. from user input), wrap it in a
+        -- single-element list.
+        local new_content
+        if content then
+            if type(content) == "string" then
+                new_content = { content }
+            else
+                new_content = content
+            end
+        else
+            new_content = old_message and old_message.content or {}
+        end
+
         value.messages[message_position] = {
-            role = role or old_message.role,
-            content = content or old_message.content,
+            role = role or (old_message and old_message.role),
+            content = new_content,
         }
 
         chat.save(value)
@@ -80,64 +94,75 @@ function chat.generate(chat_id, ...)
 
     local chat_state = chat.get_state(chat_id)
 
+    -- Copy the current chat messages into the trace. Content is joined from
+    -- its chunk array into a plain string, as required by the trace/LLM layer.
     chat_state:update(function(value)
         --- @cast value Chat
 
         for i, message in ipairs(value.messages) do
             if message.role and message.content then
-                trace[i] = { role = message.role, content = message.content }
+                trace[i] = { role = message.role, content = table.concat(message.content) }
             end
         end
 
-        -- TODO: Mark tree branch as generating and check for this before generating.
-        --
-        -- TODO: Stream chat message streaming as trace generates - send a list of chunks, so the chunks can be JSON Patched.
-        --
-        -- Trace would have to yield chunks which Lua can read. Lua trace would
-        -- have to track which chunks have been read from this LuaTrace instance so
-        -- that each LuaTrace independently yields chunks and taking them off one
-        -- doesn't affect any other references to this trace. Make sure to keep the
-        -- ability to run multiple traces at once.
-        --
-        -- trace:generate() should return a userdata that can be used as an
-        -- iterator (eg. handle:chunks()) to be used as a generic-for iterator
-        -- over chunks of the message, or can just be handle:wait() to wait
-        -- for the entire generation to finish and maybe return the whole new
-        -- message at once.
-        -- I think this would work by the returned state value being a userdata
-        -- that wraps a stream of GenerateChunk.
+        -- TODO: Mark tree branch as generating, and check that flag before this.
+        -- TODO: Set message's trace here? Reuse trace if it already exists?
 
         return value
     end)
 
-    trace:generate(...)
-    trace:wait_for_generate()
+    -- Start generation. Returns a handle that exposes the stream of content
+    -- chunks as they arrive from the LLM.
+    local handle = trace:generate(...)
 
-    local new_message = trace[#trace]
-    if new_message then
-        print(new_message.content)
+    -- Add the new assistant message to the chat state before any chunks
+    -- arrive, so the UI can show a loading state immediately. Capture the
+    -- message's index for use in the streaming loop below.
+    -- In the continuation case (last message is already assistant), we append
+    -- to that message instead of adding a new one.
 
+    local message_position
+    chat_state:update(function(value)
+        --- @cast value Chat
+
+        local last_message = value.messages[#value.messages]
+
+        if last_message and last_message.role == "assistant" then
+            -- Continuation of assistant message: update trace_id and stream
+            -- further chunks into the existing content list.
+            last_message.trace_id = trace.id
+            message_position = #value.messages
+        else
+            -- Normal assistant response after a user message.
+            value.messages[#value.messages + 1] = {
+                role = "assistant",
+                content = {},
+                trace_id = trace.id,
+            }
+            message_position = #value.messages
+        end
+
+        return value
+    end)
+
+    -- Stream chunks from the LLM into the chat state. Each chunk triggers a
+    -- small JSON Patch (array-element add) rather than replacing the whole
+    -- content string, keeping per-chunk SSE payloads small.
+    for chunk in handle do
         chat_state:update(function(value)
             --- @cast value Chat
 
-            local last_message = value.messages[#value.messages]
-
-            if last_message.role == "assistant" then
-                -- Continuation of assistant message, append content.
-                last_message.content = last_message.content .. new_message.content
-                last_message.trace_id = trace.id
-            else
-                -- Normal assistant response after user message.
-                value.messages[#value.messages + 1] = {
-                    role = new_message.role,
-                    content = new_message.content,
-                    trace_id = trace.id,
-                }
-            end
-
-            chat.save(value)
+            local message = value.messages[message_position]
+            message.content[#message.content + 1] = chunk
             return value
         end)
+    end
+
+    -- Persist to disk once, after the full response has been received.
+    local final_value = chat_state:read()
+    if final_value and final_value.messages and #final_value.messages > 0 then
+        chat.save(final_value)
+        -- TODO: Why return? LLM added this.
         return true
     else
         return false
@@ -159,12 +184,7 @@ function chat.get_state(chat_id, create_if_not_found)
         local chat_state = state.get(state_name)
 
         chat_state:update(function(value)
-            if not value then
-                -- Read chat from file and put it in the state.
-                return chat.load(chat_id)
-            else
-                return value
-            end
+            return value or chat.load(chat_id)
         end)
 
         return chat_state

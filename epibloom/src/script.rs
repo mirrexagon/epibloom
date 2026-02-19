@@ -15,8 +15,9 @@ use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
 
 use lazy_static::lazy_static;
-use mlua::{FromLua, IntoLua, Lua, LuaSerdeExt, ObjectLike, Table, UserData, Value};
+use mlua::{AnyUserData, FromLua, IntoLua, Lua, LuaSerdeExt, ObjectLike, Table, UserData, Value};
 use tokio::fs;
+use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -518,7 +519,7 @@ impl UserData for LuaTrace {
         methods.add_async_method(
             "generate",
             async |lua, trace, (backend, config): (String, Option<Table>)| {
-                match backend.as_ref() {
+                let chunk_rx = match backend.as_ref() {
                     // TODO: Reduce this duplication.
                     "anthropic" => {
                         let config = match config {
@@ -532,7 +533,7 @@ impl UserData for LuaTrace {
                         trace
                             .trace_store
                             .start_generating::<backend::anthropic::AnthropicApi>(trace.id, config)
-                            .await?;
+                            .await?
                     }
 
                     "featherless" => {
@@ -549,7 +550,7 @@ impl UserData for LuaTrace {
                             .start_generating::<backend::featherless::FeatherlessApi>(
                                 trace.id, config,
                             )
-                            .await?;
+                            .await?
                     }
 
                     _ => {
@@ -557,12 +558,17 @@ impl UserData for LuaTrace {
                             r#"bad argument #1: unknown backend '{backend}'"#
                         )))
                     }
-                }
+                };
 
-                Ok(())
+                Ok(LuaTraceGenerationHandle {
+                    receiver: tokio::sync::Mutex::new(chunk_rx),
+                })
             },
         );
 
+        // TODO: Do I need this? Its only use now that I have
+        // TraceGenerationHandle is for other script contexts to wait until the
+        // trace is free, but I am not planning to reuse traces across scripts.
         methods.add_async_method("wait_for_generate", async |_lua, trace, ()| {
             trace
                 .trace_store
@@ -784,6 +790,38 @@ impl FromLua for backend::featherless::Config {
 impl From<trace::Error> for mlua::Error {
     fn from(value: trace::Error) -> Self {
         mlua::Error::external(value)
+    }
+}
+
+/// Handle returned by `trace:generate()`. Supports both chunk-by-chunk
+/// iteration (via `handle:chunks()` in a `for` loop) and blocking until
+/// generation completes (via `handle:wait()`).
+///
+/// The underlying mpsc receiver is closed when the generation task finishes,
+/// which naturally terminates both iteration and waiting.
+struct LuaTraceGenerationHandle {
+    receiver: tokio::sync::Mutex<mpsc::Receiver<String>>,
+}
+
+impl UserData for LuaTraceGenerationHandle {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        // __call: receive the next chunk from the generation stream.
+        // Returns the chunk string, or nil when generation is complete.
+        // Also allows the handle to be directly used in a generic for loop.
+        methods.add_async_meta_method("__call", async |_lua, handle, _args: mlua::MultiValue| {
+            let mut rx = handle.receiver.lock().await;
+            Ok(rx.recv().await)
+        });
+
+        // wait(): block until generation completes, discarding all chunks.
+        // Safe to call after partial iteration of chunks() — drains whatever
+        // remains. Safe to call after generation is already done — returns
+        // immediately since the channel is already closed.
+        methods.add_async_method("wait", async |_lua, handle, ()| {
+            let mut rx = handle.receiver.lock().await;
+            while rx.recv().await.is_some() {}
+            Ok(())
+        });
     }
 }
 

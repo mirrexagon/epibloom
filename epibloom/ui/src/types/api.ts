@@ -59,7 +59,9 @@ export interface StateObjectData {
 // Chat types
 export interface ChatMessage {
     role: Role;
-    content: string;
+    // Content is stored as a list of string chunks for efficient streaming via
+    // JSON Patch array-append operations. Join them to get the full text.
+    content: string[];
     trace_id?: string;
 }
 
