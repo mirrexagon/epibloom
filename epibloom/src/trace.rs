@@ -42,6 +42,9 @@ pub struct Message {
     pub role: Role,
     pub content: String,
     pub thinking: Option<String>,
+    // TODO: Add error for any error that occurred generating this message.
+    // Maybe make content an Option in case the error happens before any message
+    // chunks come in?
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -78,6 +81,7 @@ impl TraceMetadata {
     }
 }
 
+// TODO: Rename to Conversation and rename session to Trace
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Trace {
     #[serde(flatten)]
