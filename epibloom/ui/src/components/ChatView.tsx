@@ -1,7 +1,116 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { useScript } from "../hooks/useScript";
 import { useStateObjects } from "../hooks/useStateObjects";
 import { Chat, ChatMessage } from "../types/api";
+
+interface MarkdownContentProps {
+    text: string;
+    /** Extra CSS classes applied to the wrapping div */
+    className?: string;
+}
+
+function MarkdownContent({ text, className = "" }: MarkdownContentProps) {
+    return (
+        <div className={`markdown-content ${className}`}>
+            <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                    // Headings
+                    h1: ({ children }) => (
+                        <h1 className="text-xl font-bold mt-3 mb-1">{children}</h1>
+                    ),
+                    h2: ({ children }) => (
+                        <h2 className="text-lg font-bold mt-3 mb-1">{children}</h2>
+                    ),
+                    h3: ({ children }) => (
+                        <h3 className="text-base font-bold mt-2 mb-1">{children}</h3>
+                    ),
+                    // Paragraph — top margin only after the first child
+                    p: ({ children }) => (
+                        <p className="mt-2 first:mt-0 leading-relaxed">{children}</p>
+                    ),
+                    // Lists
+                    ul: ({ children }) => (
+                        <ul className="mt-2 ml-4 list-disc space-y-0.5">{children}</ul>
+                    ),
+                    ol: ({ children }) => (
+                        <ol className="mt-2 ml-4 list-decimal space-y-0.5">{children}</ol>
+                    ),
+                    li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                    // Inline code
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    code: ({ inline, className: cls, children, ...props }: any) => {
+                        const match = /language-(\w+)/.exec(cls || "");
+                        if (!inline && match) {
+                            return (
+                                <SyntaxHighlighter
+                                    style={vscDarkPlus}
+                                    language={match[1]}
+                                    PreTag="div"
+                                    className="rounded mt-2 text-sm"
+                                    {...props}
+                                >
+                                    {String(children).replace(/\n$/, "")}
+                                </SyntaxHighlighter>
+                            );
+                        }
+                        if (!inline) {
+                            // Fenced block with no language hint
+                            return (
+                                <SyntaxHighlighter
+                                    style={vscDarkPlus}
+                                    PreTag="div"
+                                    className="rounded mt-2 text-sm"
+                                    {...props}
+                                >
+                                    {String(children).replace(/\n$/, "")}
+                                </SyntaxHighlighter>
+                            );
+                        }
+                        return (
+                            <code
+                                className="bg-black/30 rounded px-1 py-0.5 font-mono text-sm"
+                                {...props}
+                            >
+                                {children}
+                            </code>
+                        );
+                    },
+                    // Blockquote
+                    blockquote: ({ children }) => (
+                        <blockquote className="mt-2 border-l-4 border-current opacity-70 pl-3 italic">
+                            {children}
+                        </blockquote>
+                    ),
+                    // Horizontal rule
+                    hr: () => <hr className="my-3 border-current opacity-30" />,
+                    // Links
+                    a: ({ href, children }) => (
+                        <a
+                            href={href}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline opacity-80 hover:opacity-100"
+                        >
+                            {children}
+                        </a>
+                    ),
+                    // Strong / em
+                    strong: ({ children }) => (
+                        <strong className="font-bold">{children}</strong>
+                    ),
+                    em: ({ children }) => <em className="italic">{children}</em>,
+                }}
+            >
+                {text}
+            </ReactMarkdown>
+        </div>
+    );
+}
 
 interface MessageBubbleProps {
     message: ChatMessage;
@@ -38,16 +147,14 @@ function MessageBubble({ message, onSelectTrace }: MessageBubbleProps) {
                             {showThinking ? "▼" : "►"} thinking
                         </button>
                         {showThinking && (
-                            <div className="mt-1 bg-gray-900 rounded p-2 text-xs text-gray-300 whitespace-pre-wrap break-words font-mono">
-                                {thinkingText}
+                            <div className="mt-1 bg-gray-900 rounded p-2 text-xs text-gray-300">
+                                <MarkdownContent text={thinkingText} />
                             </div>
                         )}
                     </div>
                 )}
 
-                <div className="whitespace-pre-wrap break-words">
-                    {contentText}
-                </div>
+                <MarkdownContent text={contentText} />
 
                 {message.error && (
                     <div className="mt-2 rounded bg-red-900/50 border border-red-700 px-3 py-2 text-xs text-red-300">
