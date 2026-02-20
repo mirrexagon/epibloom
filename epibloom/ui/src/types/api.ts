@@ -62,7 +62,11 @@ export interface ChatMessage {
     // Content is stored as a list of string chunks for efficient streaming via
     // JSON Patch array-append operations. Join them to get the full text.
     content: string[];
+    // Thinking text as a list of string chunks, if present. Join them to get the full text.
+    thinking?: string[];
     trace_id?: string;
+    // If an error occurred generating the message, this will have the error message.
+    error?: string;
 }
 
 export interface Chat {

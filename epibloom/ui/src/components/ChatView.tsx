@@ -11,6 +11,10 @@ interface MessageBubbleProps {
 function MessageBubble({ message, onSelectTrace }: MessageBubbleProps) {
     const isUser = message.role === "user";
     const isSystem = message.role === "system";
+    const [showThinking, setShowThinking] = useState(false);
+
+    const thinkingText = message.thinking?.join("");
+    const contentText = message.content.join("");
 
     return (
         <div
@@ -25,9 +29,33 @@ function MessageBubble({ message, onSelectTrace }: MessageBubbleProps) {
                           : "bg-gray-700 text-gray-100"
                 }`}
             >
+                {thinkingText && (
+                    <div className="mb-2">
+                        <button
+                            onClick={() => setShowThinking(!showThinking)}
+                            className="text-xs text-gray-400 hover:text-gray-200 underline"
+                        >
+                            {showThinking ? "▼" : "►"} thinking
+                        </button>
+                        {showThinking && (
+                            <div className="mt-1 bg-gray-900 rounded p-2 text-xs text-gray-300 whitespace-pre-wrap break-words font-mono">
+                                {thinkingText}
+                            </div>
+                        )}
+                    </div>
+                )}
+
                 <div className="whitespace-pre-wrap break-words">
-                    {message.content.join("")}
+                    {contentText}
                 </div>
+
+                {message.error && (
+                    <div className="mt-2 rounded bg-red-900/50 border border-red-700 px-3 py-2 text-xs text-red-300">
+                        <span className="font-bold">Error:</span>{" "}
+                        {message.error}
+                    </div>
+                )}
+
                 {message.trace_id && (
                     <button
                         onClick={() => onSelectTrace?.(message.trace_id!)}
