@@ -4,6 +4,56 @@
 
 Epibloom is being developed as a text adventure game engine built on LLM conversations. The current architecture (traces, scripts, state objects) is designed to support both chat-style interactions and more complex game mechanics like branching narratives, character stats, inventory systems, and structured game events.
 
+## Architecture
+
+Epibloom has three core primitives that work together: **traces**, **state objects**, and **scripts**.
+
+### Traces (`epibloom/src/trace.rs`, `epibloom/src/api/trace.rs`)
+
+A trace is an LLM conversation: an ordered list of messages, each with a `role` (`system`/`user`/`assistant`), message `content`, and possible other items like `thinking` for reasoning text. Traces are identified by UUID and persisted as JSON files.
+
+Generation is initiated from Lua via `trace:generate(backend)`, which returns an iterable handle that yields chunks with things like message content or any error that occurs as they stream in from the LLM backend.
+
+The UI subscribes to traces over SSE:
+- `GET /api/trace` — streams metadata for all existing traces, then any newly created ones.
+- `GET /api/trace/<id>` — streams the full message history of a trace, then live deltas (thinking chunks, content chunks, errors) as generation proceeds.
+
+### State Objects (`epibloom/src/state.rs`, `epibloom/src/api/state.rs`)
+
+A state object is a named, in-memory JSON value of any shape. Scripts read and update state objects; the UI subscribes to them. When a state object changes, subscribers receive a JSON Patch diff rather than the full value, keeping SSE payloads small even for large objects.
+
+Scripts interact with state objects via `require("epibloom.state")`:
+- `state.get(name)` — get or create a state object by name.
+- `obj:read()` — read the current value.
+- `obj:update(fn)` — atomic read-modify-write (the function receives the old value and returns the new one).
+
+The UI subscribes via `GET /api/state?objects=name1,name2,...`, receiving each object's current value first, then live patches as they change.
+
+State objects are not persisted. Scripts that need to persist data use `require("epibloom.filesystem")` to read/write JSON files in a sandboxed script data directory.
+
+### Scripts (`epibloom/src/script.rs`, `epibloom/src/api/script.rs`)
+
+Scripts are Lua files run server-side via mlua. They are the glue between the UI, state objects, and LLM generation. A script receives a JSON value as input and returns a JSON value as output.
+
+Scripts run inside named **contexts**, each of which is a persistent Lua VM — state (loaded modules, globals) is retained across runs on the same context. Requests to the same context are serialised (FIFO queue); different contexts run concurrently.
+
+Scripts are invoked via `POST /api/script/<context>/<path>` with a JSON body, and return a JSON result. The UI calls scripts for user actions (e.g. sending a chat message, triggering generation).
+
+Built-in Lua modules available to scripts:
+- `epibloom.trace` — create traces and start LLM generation.
+- `epibloom.state` — read/write named state objects (broadcasts patches to UI subscribers).
+- `epibloom.filesystem` — sandboxed JSON file I/O (for persistence).
+- `epibloom.log` — structured logging (levels: error/warn/info/debug/trace).
+- `epibloom.uuid` — generate UUIDs.
+
+Each built-in Lua module has a Lua Language Server meta/definition file which defines the types and function type information on the Lua side. These are in `epibloom/scripts/meta`.
+
+Script source files live in `epibloom/scripts/` and are deployed to `~/.config/epibloom/scripts/` by `just run`.
+
+### How they fit together (example: chat)
+
+The chat system (`epibloom/scripts/chat.lua`) illustrates the pattern: the UI calls a script action → the script updates a state object (chat messages) → state patches stream to the UI in real time → the script also creates a trace and drives LLM generation → generation chunks are written back into the state object → more patches reach the UI → the final chat is saved to disk via the filesystem module.
+
 ## Development Environment
 
 The user should launch you in a Nix shell which should have packages like `just`, `cargo`/`rustc`, and `npm`.
