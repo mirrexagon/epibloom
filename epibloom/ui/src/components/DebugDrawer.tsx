@@ -5,6 +5,7 @@ import { StateObjectList } from "./StateObjectList";
 import { StateObjectView } from "./StateObjectView";
 import { TraceMetadata } from "../types/api";
 import { useStateObjects } from "../hooks/useStateObjects";
+import { useTraceList } from "../hooks/useTraceList";
 
 type TabType = "traces" | "state";
 
@@ -29,6 +30,20 @@ export function DebugDrawer({
     activeTab,
     onTabChange,
 }: DebugDrawerProps) {
+    const {
+        traces,
+        error: traceListError,
+        connected: traceListConnected,
+        latestTrace,
+    } = useTraceList();
+
+    // Auto-select newly added traces
+    useEffect(() => {
+        if (latestTrace) {
+            onSelectTrace(latestTrace);
+        }
+    }, [latestTrace, onSelectTrace]);
+
     const [selectedStateName, setSelectedStateName] = useState<string | null>(
         null,
     );
@@ -175,6 +190,9 @@ export function DebugDrawer({
                     <>
                         <div className="w-64 flex-shrink-0 border-r border-gray-700">
                             <TraceList
+                                traces={traces}
+                                error={traceListError}
+                                connected={traceListConnected}
                                 selectedTraceId={selectedTrace?.id || null}
                                 onSelectTrace={onSelectTrace}
                             />
@@ -182,7 +200,11 @@ export function DebugDrawer({
                         <div className="flex-1">
                             <TraceView
                                 traceId={selectedTrace?.id || null}
-                                traceName={selectedTrace?.name || null}
+                                traceName={
+                                    selectedTrace
+                                        ? (traces.find(t => t.id === selectedTrace.id)?.name ?? selectedTrace.name)
+                                        : null
+                                }
                             />
                         </div>
                     </>
