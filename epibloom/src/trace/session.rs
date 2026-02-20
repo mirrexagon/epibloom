@@ -317,7 +317,10 @@ impl Session {
         self.trace.save_to_traces_directory().await?;
 
         let _ = self.event_broadcast.send(match message.role {
-            Role::System | Role::User => TraceEvent::UserMessageStart {
+            Role::System => TraceEvent::SystemMessageStart {
+                position: message_position,
+            },
+            Role::User => TraceEvent::UserMessageStart {
                 position: message_position,
             },
             Role::Assistant => TraceEvent::AssistantMessageStart {
@@ -334,7 +337,10 @@ impl Session {
         }
 
         let _ = self.event_broadcast.send(match message.role {
-            Role::System | Role::User => TraceEvent::UserMessageDelta {
+            Role::System => TraceEvent::SystemMessageDelta {
+                delta: message.content.to_owned(),
+            },
+            Role::User => TraceEvent::UserMessageDelta {
                 delta: message.content.to_owned(),
             },
             Role::Assistant => TraceEvent::AssistantMessageDelta {
@@ -343,10 +349,13 @@ impl Session {
         });
 
         let _ = self.event_broadcast.send(match message.role {
-            Role::System | Role::User => TraceEvent::UserMessageStart {
+            Role::System => TraceEvent::SystemMessageEnd {
                 position: message_position,
             },
-            Role::Assistant => TraceEvent::AssistantMessageStart {
+            Role::User => TraceEvent::UserMessageEnd {
+                position: message_position,
+            },
+            Role::Assistant => TraceEvent::AssistantMessageEnd {
                 position: message_position,
             },
         });
