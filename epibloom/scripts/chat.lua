@@ -23,8 +23,10 @@ end
 
 --- @class ChatMessage
 --- @field role Role
+--- @field thinking string[]? # Thinking text as a list of string chunks, if present. Join them to get the full text.
 --- @field content string[] # Message content as a list of string chunks. Join them to get the full text.
---- @field trace_id TraceId|nil # The trace that was used to generate this message, if applicable.
+--- @field trace_id TraceId? # The trace that was used to generate this message, if applicable.
+--- @field error string? # If an error occurred generating the message, this will have the error message.
 
 --- Get the current state of a chat.
 --- @param chat_id uuid
@@ -110,6 +112,7 @@ function chat.generate(chat_id, ...)
                 trace = traces.new()
             end
             generating_message.trace_id = trace.id
+            generating_message.error = nil
         else
             -- Normal assistant response after a user message.
             trace = traces.new()
@@ -123,9 +126,7 @@ function chat.generate(chat_id, ...)
         end
 
         for i, message in ipairs(value.messages) do
-            print("message", i, message.content)
             if message == generating_message then
-                print("Found generating message")
                 break
             end
 
@@ -154,9 +155,13 @@ function chat.generate(chat_id, ...)
             if chunk.type == "message" then
                 message.content[#message.content + 1] = chunk.delta
             elseif chunk.type == "thinking" then
-                -- TODO: Save thinking in chat message
+                if not message.thinking then
+                    message.thinking = {}
+                end
+
+                message.thinking[#message.thinking + 1] = chunk.delta
             elseif chunk.type == "error" then
-                -- TODO: Save this in the message, for the UI to display with the message
+                message.error = chunk.message
                 log.error("Error in generation: %s", chunk.message)
             end
 
