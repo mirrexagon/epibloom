@@ -1,5 +1,5 @@
 //! An LLM conversation, with message updates and generation chunks streamed to
-//clients.
+//! clients.
 
 mod session;
 

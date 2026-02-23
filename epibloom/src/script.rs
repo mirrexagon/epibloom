@@ -125,6 +125,8 @@ impl Context {
             package.set("path", package_path)?;
         }
 
+        // TODO: Put each module in its own Rust module and expose a function to add it to a Lua state.
+
         // Logging module.
         {
             let log_module = lua.create_table()?;
