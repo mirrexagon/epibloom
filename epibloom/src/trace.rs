@@ -3,8 +3,8 @@
 
 mod conversation;
 mod event;
-pub mod persistence;
-pub mod session;
+mod persistence;
+mod session;
 mod store;
 
 pub use conversation::{Message, Role, Trace};
