@@ -2,13 +2,31 @@ use std::sync::Arc;
 
 use async_stream::stream;
 use futures::Stream;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, Notify};
+use utoipa::ToSchema;
 
 use crate::backend::GenerateChunk;
 
 use super::conversation::{Message, Role, Trace};
-use super::event::TraceEvent;
 use super::Error;
+
+// TODO: Use JSON Patch of an entire trace instead of custom events?
+// Implement traces in terms of StateObjects and have backends and backened
+// reuqests exposed directly to Lua where scripts can feed chunks into state
+// objects that then get transmitted to the clients?
+// Or have traces in Rust still, exposed to Lua in the same way, but use the state objects to transmit to clients.
+//
+// Maybe a bit crazy. Streaming message generation would mean sending the whole message string across with each update
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum TraceEvent {
+    MessageStart { position: usize, role: Role },
+    ThinkingDelta { delta: String },
+    ContentDelta { delta: String },
+    MessageEnd { position: usize },
+    Error { message: String },
+}
 
 pub enum GenerationState {
     Idle,
@@ -26,20 +44,18 @@ impl GenerationState {
 }
 
 pub struct Session {
-    traces_dir: std::path::PathBuf,
     trace: Trace,
-    generation: GenerationState,
+    state: GenerationState,
     event_broadcast: broadcast::Sender<TraceEvent>,
 }
 
 impl Session {
-    pub fn new(traces_dir: std::path::PathBuf, trace: Trace) -> Self {
+    pub fn new(trace: Trace) -> Self {
         let (broadcast, _) = broadcast::channel(1024);
 
         Session {
-            traces_dir,
             trace,
-            generation: GenerationState::Idle,
+            state: GenerationState::Idle,
             event_broadcast: broadcast,
         }
     }
@@ -49,7 +65,7 @@ impl Session {
     }
 
     pub fn generation_state(&self) -> &GenerationState {
-        &self.generation
+        &self.state
     }
 
     pub fn get_message(&self, message_position: usize) -> Option<Message> {
@@ -66,12 +82,11 @@ impl Session {
         message_position: Option<usize>,
         message: Message,
     ) -> Result<(), Error> {
-        // Set message in trace.
         if message.thinking.is_some() && message.role != Role::Assistant {
             return Err(Error::ThinkingSuppliedForNonAssistantMessage);
         }
 
-        if self.generation.is_generating() {
+        if self.state.is_generating() {
             return Err(Error::CantModifyTraceWhileGenerating);
         }
 
@@ -95,7 +110,7 @@ impl Session {
         let message = &self.trace.messages[message_position];
 
         self.trace.metadata.modified = now;
-        super::persistence::save_to_directory(&self.traces_dir, &self.trace).await?;
+        super::persistence::save_to_directory(&self.trace).await?;
 
         let _ = self.event_broadcast.send(TraceEvent::MessageStart {
             position: message_position,
@@ -123,19 +138,17 @@ impl Session {
     pub async fn get_trace_stream(&self) -> impl Stream<Item = TraceEvent> {
         let mut rx = self.event_broadcast.subscribe();
         let past_messages = self.trace.messages.clone();
-        let current_thinking = match &self.generation {
+        let current_thinking = match &self.state {
             GenerationState::Generating {
                 thinking_so_far, ..
             } => Some(thinking_so_far.clone()),
             GenerationState::Idle => None,
         };
-        let current_content = match &self.generation {
-            GenerationState::Generating {
-                content_so_far, ..
-            } => Some(content_so_far.clone()),
+        let current_content = match &self.state {
+            GenerationState::Generating { content_so_far, .. } => Some(content_so_far.clone()),
             GenerationState::Idle => None,
         };
-        let is_generating = self.generation.is_generating();
+        let is_generating = self.state.is_generating();
 
         stream! {
             // Send past messages.
@@ -195,11 +208,11 @@ impl Session {
     /// Transition from Idle to Generating. Returns the current trace snapshot
     /// and a broadcast receiver for events.
     pub fn begin_generation(&mut self) -> Result<(Trace, broadcast::Receiver<TraceEvent>), Error> {
-        if self.generation.is_generating() {
+        if self.state.is_generating() {
             return Err(Error::CantModifyTraceWhileGenerating);
         }
 
-        self.generation = GenerationState::Generating {
+        self.state = GenerationState::Generating {
             thinking_so_far: String::new(),
             content_so_far: String::new(),
             complete_notify: Arc::new(Notify::new()),
@@ -214,7 +227,7 @@ impl Session {
             ref mut thinking_so_far,
             ref mut content_so_far,
             ..
-        } = self.generation
+        } = self.state
         {
             match chunk {
                 GenerateChunk::ThinkingDelta(delta) => {
@@ -257,7 +270,7 @@ impl Session {
     pub async fn finish_generation(&mut self) {
         let now = time::OffsetDateTime::now_local().unwrap();
 
-        let old_generation = std::mem::replace(&mut self.generation, GenerationState::Idle);
+        let old_generation = std::mem::replace(&mut self.state, GenerationState::Idle);
 
         if let GenerationState::Generating {
             thinking_so_far,
@@ -277,9 +290,7 @@ impl Session {
 
             self.trace.metadata.modified = now;
 
-            if let Err(err) =
-                super::persistence::save_to_directory(&self.traces_dir, &self.trace).await
-            {
+            if let Err(err) = super::persistence::save_to_directory(&self.trace).await {
                 log::error!(
                     "Failed to save trace {} to file",
                     self.trace.metadata.id.hyphenated()

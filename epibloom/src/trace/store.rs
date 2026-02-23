@@ -3,30 +3,36 @@ use std::sync::Arc;
 
 use async_stream::stream;
 use futures::Stream;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, Mutex, RwLock};
 use typemap_rev::TypeMapKey;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::backend::{Backend, Backends};
 
 use super::conversation::{Role, Trace, TraceMetadata};
-use super::event::{TraceEvent, TraceStoreEvent};
+use super::session::TraceEvent;
 use super::session::{GenerationState, Session};
 use super::Error;
 
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum TraceStoreEvent {
+    Added { trace: TraceMetadata },
+}
+
 pub struct TraceStore {
-    traces_dir: std::path::PathBuf,
     sessions: RwLock<HashMap<Uuid, Arc<RwLock<Session>>>>,
     backends: Mutex<Backends>,
     event_broadcast: broadcast::Sender<TraceStoreEvent>,
 }
 
 impl TraceStore {
-    pub fn new(traces_dir: std::path::PathBuf) -> Self {
+    pub fn new() -> Self {
         let (event_broadcast, _) = broadcast::channel(32);
 
         Self {
-            traces_dir,
             sessions: RwLock::new(HashMap::new()),
             backends: Mutex::new(Backends::new()),
             event_broadcast,
@@ -34,7 +40,7 @@ impl TraceStore {
     }
 
     pub async fn load_traces_from_directory(&self) -> Result<(), Error> {
-        let traces = super::persistence::load_all_from_directory(&self.traces_dir).await?;
+        let traces = super::persistence::load_all_from_directory().await?;
 
         for trace in traces {
             self.add_trace(trace).await?;
@@ -47,7 +53,7 @@ impl TraceStore {
         let sessions = self.sessions.read().await;
         let session_arc = sessions.get(&trace_id).ok_or(Error::TraceNotFound)?;
         let session = session_arc.read().await;
-        super::persistence::save_to_directory(&self.traces_dir, session.trace()).await?;
+        super::persistence::save_to_directory(session.trace()).await?;
         Ok(())
     }
 
@@ -56,7 +62,7 @@ impl TraceStore {
 
         for (_, session_arc) in sessions.iter() {
             let session = session_arc.read().await;
-            super::persistence::save_to_directory(&self.traces_dir, session.trace()).await?;
+            super::persistence::save_to_directory(session.trace()).await?;
         }
 
         Ok(())
@@ -101,7 +107,7 @@ impl TraceStore {
             trace_metadata.name
         );
 
-        super::persistence::save_to_directory(&self.traces_dir, &trace).await?;
+        super::persistence::save_to_directory(&trace).await?;
         self.add_trace(trace).await?;
 
         Ok(trace_metadata.id)
@@ -111,7 +117,7 @@ impl TraceStore {
     async fn add_trace(&self, trace: Trace) -> Result<(), Error> {
         let trace_metadata = trace.metadata.clone();
 
-        let new_session = Session::new(self.traces_dir.clone(), trace);
+        let new_session = Session::new(trace);
         log::info!(
             "Adding trace to store: {}: {}",
             trace_metadata.id,

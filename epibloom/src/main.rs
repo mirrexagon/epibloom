@@ -50,7 +50,7 @@ fn rocket() -> _ {
     fs::create_dir_all(SCRIPTS_DIR.get().unwrap()).unwrap();
     fs::create_dir_all(SCRIPT_DATA_DIR.get().unwrap()).unwrap();
 
-    let trace_store = Arc::new(trace::TraceStore::new(TRACES_DIR.get().unwrap().clone()));
+    let trace_store = Arc::new(trace::TraceStore::new());
     let state_store = Arc::new(state::StateStore::new());
     let script_context_store =
         script::ContextStore::new(Arc::clone(&trace_store), Arc::clone(&state_store));

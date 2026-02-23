@@ -5,7 +5,8 @@ use uuid::Uuid;
 
 use super::{Error, Trace};
 
-pub async fn load_all_from_directory(traces_dir: &Path) -> Result<Vec<Trace>, Error> {
+pub async fn load_all_from_directory() -> Result<Vec<Trace>, Error> {
+    let traces_dir = crate::TRACES_DIR.get().unwrap();
     let mut traces = Vec::new();
 
     let mut dir = fs::read_dir(traces_dir).await?;
@@ -16,12 +17,14 @@ pub async fn load_all_from_directory(traces_dir: &Path) -> Result<Vec<Trace>, Er
     Ok(traces)
 }
 
-pub async fn load_from_directory(traces_dir: &Path, trace_id: Uuid) -> Result<Trace, Error> {
+pub async fn load_from_directory(trace_id: Uuid) -> Result<Trace, Error> {
+    let traces_dir = crate::TRACES_DIR.get().unwrap();
     let file_path = traces_dir.join(format!("{}.json", trace_id.hyphenated()));
     load_from_file(&file_path).await
 }
 
-pub async fn save_to_directory(traces_dir: &Path, trace: &Trace) -> Result<(), Error> {
+pub async fn save_to_directory(trace: &Trace) -> Result<(), Error> {
+    let traces_dir = crate::TRACES_DIR.get().unwrap();
     let file_path = traces_dir.join(format!("{}.json", trace.metadata.id.hyphenated()));
     save_to_file(&file_path, trace).await
 }

@@ -2,14 +2,13 @@
 //! clients.
 
 mod conversation;
-mod event;
 mod persistence;
 mod session;
 mod store;
 
 pub use conversation::{Message, Role, Trace};
-pub use event::{TraceEvent, TraceStoreEvent};
-pub use store::TraceStore;
+pub use session::TraceEvent;
+pub use store::{TraceStore, TraceStoreEvent};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
