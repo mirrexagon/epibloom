@@ -516,6 +516,22 @@ struct LuaTrace {
     trace_store: Arc<TraceStore>,
 }
 
+// Deserialise the Lua `config` value into `$Config` (defaulting to
+// `$Config::default()` when nil), then start generation on `$trace` using
+// `$Api` as the backend.
+macro_rules! start_with_backend {
+    ($Api:ty, $Config:ty, $lua:expr, $config:expr, $trace:expr) => {{
+        let config = match $config {
+            Value::Nil => <$Config>::default(),
+            value => $lua.from_value_with(value, *DESERIALIZE_OPTIONS)?,
+        };
+        $trace
+            .trace_store
+            .start_generating::<$Api>($trace.id, config)
+            .await?
+    }};
+}
+
 impl UserData for LuaTrace {
     fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
         fields.add_field_method_get("id", |_lua, trace| Ok(format!("{}", trace.id.hyphenated())));
@@ -524,40 +540,23 @@ impl UserData for LuaTrace {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_method(
             "generate",
-            async |lua, trace, (backend, config): (String, Option<Table>)| {
+            async |lua, trace, (backend, config): (String, Value)| {
                 let chunk_rx = match backend.as_ref() {
-                    // TODO: Reduce this duplication.
-                    "anthropic" => {
-                        let config = match config {
-                            Some(config_table) => backend::anthropic::Config::from_lua(
-                                Value::Table(config_table),
-                                &lua,
-                            )?,
-                            None => backend::anthropic::Config::default(),
-                        };
-
+                    "anthropic" => start_with_backend!(
+                        backend::anthropic::AnthropicApi,
+                        backend::anthropic::Config,
+                        lua,
+                        config,
                         trace
-                            .trace_store
-                            .start_generating::<backend::anthropic::AnthropicApi>(trace.id, config)
-                            .await?
-                    }
+                    ),
 
-                    "featherless" => {
-                        let config = match config {
-                            Some(config_table) => backend::featherless::Config::from_lua(
-                                Value::Table(config_table),
-                                &lua,
-                            )?,
-                            None => backend::featherless::Config::default(),
-                        };
-
+                    "featherless" => start_with_backend!(
+                        backend::featherless::FeatherlessApi,
+                        backend::featherless::Config,
+                        lua,
+                        config,
                         trace
-                            .trace_store
-                            .start_generating::<backend::featherless::FeatherlessApi>(
-                                trace.id, config,
-                            )
-                            .await?
-                    }
+                    ),
 
                     _ => {
                         return Err(mlua::Error::runtime(format!(
@@ -697,99 +696,6 @@ impl FromLua for Role {
         };
 
         Ok(role)
-    }
-}
-
-impl FromLua for backend::anthropic::Config {
-    fn from_lua(value: Value, lua: &Lua) -> mlua::Result<Self> {
-        match value {
-            Value::Table(config_table) => {
-                let mut config = Self::default();
-
-                // TODO: Reduce this duplication.
-                let max_tokens: Option<u32> =
-                    FromLua::from_lua(config_table.get::<Value>("max_tokens")?, lua)?;
-                if let Some(max_tokens) = max_tokens {
-                    config.max_tokens = max_tokens;
-                }
-
-                let model: Option<String> =
-                    FromLua::from_lua(config_table.get::<Value>("model")?, lua)?;
-                if let Some(model) = model {
-                    config.model = model;
-                }
-
-                let stop_sequences: Option<Vec<String>> =
-                    FromLua::from_lua(config_table.get::<Value>("stop_sequences")?, lua)?;
-                if let Some(stop_sequences) = stop_sequences {
-                    config.stop_sequences = stop_sequences;
-                }
-
-                let thinking_budget: Option<u32> =
-                    FromLua::from_lua(config_table.get::<Value>("thinking_budget")?, lua)?;
-                config.thinking_budget = thinking_budget;
-
-                Ok(config)
-            }
-
-            value => Err(mlua::Error::runtime(format!(
-                "Anthropic config should be a table, got {:#?}",
-                value
-            ))),
-        }
-    }
-}
-
-impl FromLua for backend::featherless::Config {
-    fn from_lua(value: Value, lua: &Lua) -> mlua::Result<Self> {
-        match value {
-            Value::Table(config_table) => {
-                let mut config = Self::default();
-
-                let max_tokens: Option<u32> =
-                    FromLua::from_lua(config_table.get::<Value>("max_tokens")?, lua)?;
-                if let Some(max_tokens) = max_tokens {
-                    config.max_tokens = max_tokens;
-                }
-
-                let model: Option<String> =
-                    FromLua::from_lua(config_table.get::<Value>("model")?, lua)?;
-                if let Some(model) = model {
-                    config.model = model;
-                }
-
-                let temperature: Option<f32> =
-                    FromLua::from_lua(config_table.get::<Value>("temperature")?, lua)?;
-                if temperature.is_some() {
-                    config.temperature = temperature;
-                }
-
-                let top_p: Option<f32> =
-                    FromLua::from_lua(config_table.get::<Value>("top_p")?, lua)?;
-                if top_p.is_some() {
-                    config.top_p = top_p;
-                }
-
-                let top_k: Option<i32> =
-                    FromLua::from_lua(config_table.get::<Value>("top_k")?, lua)?;
-                if top_k.is_some() {
-                    config.top_k = top_k;
-                }
-
-                let stop_sequences: Option<Vec<String>> =
-                    FromLua::from_lua(config_table.get::<Value>("stop_sequences")?, lua)?;
-                if let Some(stop_sequences) = stop_sequences {
-                    config.stop_sequences = stop_sequences;
-                }
-
-                Ok(config)
-            }
-
-            value => Err(mlua::Error::runtime(format!(
-                "Featherless config should be a table, got {:#?}",
-                value
-            ))),
-        }
     }
 }
 
