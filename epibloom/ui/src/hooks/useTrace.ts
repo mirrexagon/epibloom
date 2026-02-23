@@ -35,70 +35,19 @@ export function useTrace(traceId: string | null): UseTraceResult {
                     const newMessages = [...prev];
 
                     switch (traceEvent.type) {
-                        case "system_message_start":
-                            // Start a new system message
+                        case "message_start":
                             newMessages[traceEvent.position] = {
-                                role: "system",
+                                role: traceEvent.role,
                                 content: "",
+                                thinking:
+                                    traceEvent.role === "assistant"
+                                        ? ""
+                                        : undefined,
                                 position: traceEvent.position,
                             };
                             break;
 
-                        case "system_message_delta":
-                            // Append to the current system message (should be the last one)
-                            if (newMessages.length > 0) {
-                                const lastIdx = newMessages.length - 1;
-                                newMessages[lastIdx] = {
-                                    ...newMessages[lastIdx],
-                                    content:
-                                        newMessages[lastIdx].content +
-                                        traceEvent.delta,
-                                };
-                            }
-                            break;
-
-                        case "system_message_end":
-                            // Message is complete, nothing special to do
-                            break;
-
-                        case "user_message_start":
-                            // Start a new user message
-                            newMessages[traceEvent.position] = {
-                                role: "user",
-                                content: "",
-                                position: traceEvent.position,
-                            };
-                            break;
-
-                        case "user_message_delta":
-                            // Append to the current user message (should be the last one)
-                            if (newMessages.length > 0) {
-                                const lastIdx = newMessages.length - 1;
-                                newMessages[lastIdx] = {
-                                    ...newMessages[lastIdx],
-                                    content:
-                                        newMessages[lastIdx].content +
-                                        traceEvent.delta,
-                                };
-                            }
-                            break;
-
-                        case "user_message_end":
-                            // Message is complete, nothing special to do
-                            break;
-
-                        case "assistant_message_start":
-                            // Start a new assistant message
-                            newMessages[traceEvent.position] = {
-                                role: "assistant",
-                                content: "",
-                                thinking: "",
-                                position: traceEvent.position,
-                            };
-                            break;
-
-                        case "assistant_thinking_delta":
-                            // Append to thinking
+                        case "thinking_delta":
                             if (newMessages.length > 0) {
                                 const lastIdx = newMessages.length - 1;
                                 newMessages[lastIdx] = {
@@ -110,8 +59,7 @@ export function useTrace(traceId: string | null): UseTraceResult {
                             }
                             break;
 
-                        case "assistant_message_delta":
-                            // Append to message text
+                        case "content_delta":
                             if (newMessages.length > 0) {
                                 const lastIdx = newMessages.length - 1;
                                 newMessages[lastIdx] = {
@@ -123,8 +71,8 @@ export function useTrace(traceId: string | null): UseTraceResult {
                             }
                             break;
 
-                        case "assistant_message_end":
-                            // Message is complete
+                        case "message_end":
+                            // Message is complete, nothing special to do
                             break;
 
                         case "error":

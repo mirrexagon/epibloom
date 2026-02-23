@@ -1,281 +1,55 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_stream::stream;
 use futures::Stream;
-use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, mpsc, Mutex, Notify, RwLock};
-use typemap_rev::TypeMapKey;
-use utoipa::ToSchema;
-use uuid::Uuid;
+use tokio::sync::{broadcast, Notify};
 
-use crate::backend::{Backend, Backends, GenerateChunk};
+use crate::backend::GenerateChunk;
 
-use super::{Error, Message, Role, Trace, TraceMetadata};
+use super::conversation::{Message, Role, Trace};
+use super::event::TraceEvent;
+use super::Error;
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum TraceStoreEvent {
-    Added { trace: TraceMetadata },
-}
-
-// TODO: Use JSON Patch of an entire trace instead of custom events?
-// Implement traces in terms of StateObjects and have backends and backened
-// reuqests exposed directly to Lua where scripts can feed chunks into state
-// objects that then get transmitted to the clients?
-// Or have traces in Rust still, exposed to Lua in the same way, but use the state objects to transmit to clients.
-//
-// Maybe a bit crazy. Streaming message generation would mean sending the whole message string across with each update
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum TraceEvent {
-    SystemMessageStart { position: usize },
-    SystemMessageDelta { delta: String },
-    SystemMessageEnd { position: usize },
-    UserMessageStart { position: usize },
-    UserMessageDelta { delta: String },
-    UserMessageEnd { position: usize },
-    AssistantMessageStart { position: usize },
-    AssistantThinkingDelta { delta: String },
-    AssistantMessageDelta { delta: String },
-    AssistantMessageEnd { position: usize },
-    Error { message: String },
-}
-
-pub struct TraceStore {
-    sessions: RwLock<HashMap<Uuid, Arc<RwLock<Session>>>>,
-    backends: Mutex<Backends>,
-    event_broadcast: broadcast::Sender<TraceStoreEvent>,
-}
-
-impl TraceStore {
-    pub fn new() -> Self {
-        let (event_broadcast, _) = broadcast::channel(32);
-
-        Self {
-            sessions: RwLock::new(HashMap::new()),
-            backends: Mutex::new(Backends::new()),
-            event_broadcast,
-        }
-    }
-
-    pub async fn load_traces_from_traces_directory(&self) -> Result<(), Error> {
-        let traces = Trace::load_all_from_traces_directory().await?;
-
-        for trace in traces {
-            self.add_trace(trace).await?;
-        }
-
-        Ok(())
-    }
-
-    pub async fn save_trace(&self, trace_id: Uuid) -> Result<(), Error> {
-        let sessions = self.sessions.read().await;
-        let session_arc = sessions.get(&trace_id).ok_or(Error::TraceNotFound)?;
-        let session = session_arc.read().await;
-        session.trace.save_to_traces_directory().await?;
-        Ok(())
-    }
-
-    pub async fn save_all_traces(&self) -> Result<(), Error> {
-        let sessions = self.sessions.read().await;
-
-        for (_, session_arc) in sessions.iter() {
-            let session = session_arc.read().await;
-            session.trace.save_to_traces_directory().await?;
-        }
-
-        Ok(())
-    }
-
-    pub async fn has_trace(&self, trace_id: Uuid) -> bool {
-        let sessions = self.sessions.read().await;
-        sessions.contains_key(&trace_id)
-    }
-
-    pub async fn list_traces(&self) -> Result<Vec<TraceMetadata>, super::Error> {
-        let sessions = self.sessions.read().await;
-
-        // TODO: This is inefficient since it has to lock every trace. Is there a
-        // better way to store traces so the metadata is more easily accessible?
-        let mut traces = Vec::new();
-        for (_, session_arc) in sessions.iter() {
-            let session = session_arc.read().await;
-            traces.push(session.trace.metadata.clone());
-        }
-
-        Ok(traces)
-    }
-
-    pub async fn get_session(&self, trace_id: Uuid) -> Result<Arc<RwLock<Session>>, Error> {
-        let sessions = self.sessions.read().await;
-
-        match sessions.get(&trace_id) {
-            Some(session_arc) => Ok(Arc::clone(session_arc)),
-            None => Err(Error::TraceNotFound),
-        }
-    }
-
-    /// Create a new blank trace and add it as a session.
-    pub async fn new_trace(&self, name: Option<&str>) -> Result<Uuid, Error> {
-        let trace = Trace::new(name);
-        let trace_metadata = trace.metadata.clone();
-
-        log::info!(
-            "Creating new trace: {}: {}",
-            trace_metadata.id,
-            trace_metadata.name
-        );
-
-        trace.save_to_traces_directory().await?;
-        self.add_trace(trace).await?;
-
-        Ok(trace_metadata.id)
-    }
-
-    /// Add a trace as a session.
-    async fn add_trace(&self, trace: Trace) -> Result<(), Error> {
-        let trace_metadata = trace.metadata.clone();
-
-        let new_session = Session::new(trace);
-        log::info!(
-            "Adding trace to store: {}: {}",
-            trace_metadata.id,
-            trace_metadata.name
-        );
-
-        let mut sessions = self.sessions.write().await;
-        sessions.insert(trace_metadata.id, Arc::new(RwLock::new(new_session)));
-
-        // We don't care if there are no receivers.
-        let _ = self.event_broadcast.send(TraceStoreEvent::Added {
-            trace: trace_metadata,
-        });
-
-        Ok(())
-    }
-
-    pub async fn get_trace_store_event_stream(&self) -> impl Stream<Item = TraceStoreEvent> {
-        // Get the current existing sessions. We also want to lock sessions so
-        // that no one can modify it while we subscribe to adds/removes and get
-        // the current trace list.
-        let sessions = self.sessions.read().await;
-
-        let mut initial_trace_store_events = Vec::new();
-        for (_trace_id, session_arc) in sessions.iter() {
-            // TODO: This is inefficient since it has to lock every trace. Is there a
-            // better way to store traces so the metadata is more easily
-            // accessible but still kept in sync with messages?
-
-            let session = session_arc.read().await;
-            initial_trace_store_events.push(TraceStoreEvent::Added {
-                trace: session.trace.metadata.clone(),
-            });
-        }
-
-        let mut rx = self.event_broadcast.subscribe();
-
-        stream! {
-            // Send current trace list.
-            for event in initial_trace_store_events {
-                yield event;
-            }
-
-
-            // Send any changes to the trace list.
-            use tokio::sync::broadcast::error::RecvError;
-
-            loop {
-                match rx.recv().await {
-                    Ok(event) => {
-                        yield event;
-                    }
-                    Err(RecvError::Lagged(num_skipped_messages)) => {
-                        log::error!(
-                            "Lagged behind {} messages from trace stream",
-                            num_skipped_messages
-                        );
-                    }
-                    Err(RecvError::Closed) => break,
-                }
-            }
-
-        }
-    }
-
-    /// Returns a mpsc receiver
-    pub async fn start_generating<B: Backend + TypeMapKey<Value = Arc<B>> + Send + Sync>(
-        &self,
-        trace_id: Uuid,
-        backend_config: B::Config,
-    ) -> Result<broadcast::Receiver<TraceEvent>, Error>
-    where
-        <B as Backend>::Config: Send + Sync + 'static,
-        <B as Backend>::Error: Send + Sync + 'static,
-    {
-        let session_arc = self.get_session(trace_id).await?;
-        let backend = self
-            .backends
-            .lock()
-            .await
-            .get::<B>()
-            .map_err(|err| Error::Backend(err.to_string()))?;
-        Session::start_generating::<B>(session_arc, backend, backend_config).await
-    }
-
-    pub async fn wait_for_generate_complete(&self, trace_id: Uuid) -> Result<(), Error> {
-        let session = self.get_session(trace_id).await?;
-
-        let notified = {
-            let session = session.read().await;
-
-            if session.state == State::Idle {
-                return Ok(());
-            }
-
-            let notify = Arc::clone(&session.generate_complete_notify);
-            notify.notified_owned()
-        };
-
-        notified.await;
-
-        Ok(())
-    }
-
-    // TODO: Cancel a trace that is generating
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum State {
+pub enum GenerationState {
     Idle,
-    Generating,
+    Generating {
+        thinking_so_far: String,
+        content_so_far: String,
+        complete_notify: Arc<Notify>,
+    },
+}
+
+impl GenerationState {
+    fn is_generating(&self) -> bool {
+        matches!(self, GenerationState::Generating { .. })
+    }
 }
 
 pub struct Session {
+    traces_dir: std::path::PathBuf,
     trace: Trace,
-    state: State,
-
-    /// Current incomplete assistant thinking. Will be added to the trace once it is complete.
-    current_assistant_thinking: String,
-    /// Current incomplete assistant message. Will be added to the trace once it is complete.
-    current_assistant_message: String,
-
+    generation: GenerationState,
     event_broadcast: broadcast::Sender<TraceEvent>,
-    generate_complete_notify: Arc<Notify>,
 }
 
 impl Session {
-    pub fn new(trace: Trace) -> Self {
+    pub fn new(traces_dir: std::path::PathBuf, trace: Trace) -> Self {
         let (broadcast, _) = broadcast::channel(1024);
 
         Session {
+            traces_dir,
             trace,
-            state: State::Idle,
-            current_assistant_message: String::new(),
-            current_assistant_thinking: String::new(),
+            generation: GenerationState::Idle,
             event_broadcast: broadcast,
-            generate_complete_notify: Arc::new(Notify::new()),
         }
+    }
+
+    pub fn trace(&self) -> &Trace {
+        &self.trace
+    }
+
+    pub fn generation_state(&self) -> &GenerationState {
+        &self.generation
     }
 
     pub fn get_message(&self, message_position: usize) -> Option<Message> {
@@ -297,7 +71,7 @@ impl Session {
             return Err(Error::ThinkingSuppliedForNonAssistantMessage);
         }
 
-        if self.state == State::Generating {
+        if self.generation.is_generating() {
             return Err(Error::CantModifyTraceWhileGenerating);
         }
 
@@ -321,50 +95,25 @@ impl Session {
         let message = &self.trace.messages[message_position];
 
         self.trace.metadata.modified = now;
-        self.trace.save_to_traces_directory().await?;
+        super::persistence::save_to_directory(&self.traces_dir, &self.trace).await?;
 
-        let _ = self.event_broadcast.send(match message.role {
-            Role::System => TraceEvent::SystemMessageStart {
-                position: message_position,
-            },
-            Role::User => TraceEvent::UserMessageStart {
-                position: message_position,
-            },
-            Role::Assistant => TraceEvent::AssistantMessageStart {
-                position: message_position,
-            },
+        let _ = self.event_broadcast.send(TraceEvent::MessageStart {
+            position: message_position,
+            role: message.role,
         });
 
         if let Some(ref thinking) = message.thinking {
-            let _ = self
-                .event_broadcast
-                .send(TraceEvent::AssistantThinkingDelta {
-                    delta: thinking.to_owned(),
-                });
+            let _ = self.event_broadcast.send(TraceEvent::ThinkingDelta {
+                delta: thinking.to_owned(),
+            });
         }
 
-        let _ = self.event_broadcast.send(match message.role {
-            Role::System => TraceEvent::SystemMessageDelta {
-                delta: message.content.to_owned(),
-            },
-            Role::User => TraceEvent::UserMessageDelta {
-                delta: message.content.to_owned(),
-            },
-            Role::Assistant => TraceEvent::AssistantMessageDelta {
-                delta: message.content.to_owned(),
-            },
+        let _ = self.event_broadcast.send(TraceEvent::ContentDelta {
+            delta: message.content.to_owned(),
         });
 
-        let _ = self.event_broadcast.send(match message.role {
-            Role::System => TraceEvent::SystemMessageEnd {
-                position: message_position,
-            },
-            Role::User => TraceEvent::UserMessageEnd {
-                position: message_position,
-            },
-            Role::Assistant => TraceEvent::AssistantMessageEnd {
-                position: message_position,
-            },
+        let _ = self.event_broadcast.send(TraceEvent::MessageEnd {
+            position: message_position,
         });
 
         Ok(())
@@ -374,61 +123,52 @@ impl Session {
     pub async fn get_trace_stream(&self) -> impl Stream<Item = TraceEvent> {
         let mut rx = self.event_broadcast.subscribe();
         let past_messages = self.trace.messages.clone();
-        let current_assistant_message = self.current_assistant_message.clone();
-        let current_assistant_thinking = self.current_assistant_thinking.clone();
-        let current_state = self.state;
+        let current_thinking = match &self.generation {
+            GenerationState::Generating {
+                thinking_so_far, ..
+            } => Some(thinking_so_far.clone()),
+            GenerationState::Idle => None,
+        };
+        let current_content = match &self.generation {
+            GenerationState::Generating {
+                content_so_far, ..
+            } => Some(content_so_far.clone()),
+            GenerationState::Idle => None,
+        };
+        let is_generating = self.generation.is_generating();
 
         stream! {
             // Send past messages.
             for (position, message) in past_messages.iter().enumerate() {
-                match message.role {
-                    Role::System => {
-                        yield TraceEvent::SystemMessageStart { position };
-                        yield TraceEvent::SystemMessageDelta {
-                            delta: message.content.clone(),
-                        };
-                        yield TraceEvent::SystemMessageEnd { position };
-                    }
-
-                    Role::User => {
-                        yield TraceEvent::UserMessageStart { position };
-                        yield TraceEvent::UserMessageDelta {
-                            delta: message.content.clone(),
-                        };
-                        yield TraceEvent::UserMessageEnd { position };
-                    }
-
-                    Role::Assistant => {
-                        yield TraceEvent::AssistantMessageStart { position };
-                        if let Some(ref thinking) = message.thinking {
-                            yield TraceEvent::AssistantThinkingDelta {
-                                delta: thinking.clone(),
-                            };
-                        }
-                        yield TraceEvent::AssistantMessageDelta {
-                            delta: message.content.clone(),
-                        };
-                        yield TraceEvent::AssistantMessageEnd { position };
-                    }
+                yield TraceEvent::MessageStart { position, role: message.role };
+                if let Some(ref thinking) = message.thinking {
+                    yield TraceEvent::ThinkingDelta { delta: thinking.clone() };
                 }
+                yield TraceEvent::ContentDelta { delta: message.content.clone() };
+                yield TraceEvent::MessageEnd { position };
             }
 
-            // Send current message so far.
-            if let State::Generating = current_state {
-                yield TraceEvent::AssistantMessageStart {
+            // Send current in-progress message so far.
+            if is_generating {
+                yield TraceEvent::MessageStart {
                     position: past_messages.len(),
+                    role: Role::Assistant,
                 };
 
-                if !current_assistant_thinking.is_empty() {
-                    yield TraceEvent::AssistantThinkingDelta {
-                        delta: current_assistant_thinking,
-                    };
+                if let Some(ref thinking) = current_thinking {
+                    if !thinking.is_empty() {
+                        yield TraceEvent::ThinkingDelta {
+                            delta: thinking.clone(),
+                        };
+                    }
                 }
 
-                if !current_assistant_message.is_empty() {
-                    yield TraceEvent::AssistantMessageDelta {
-                        delta: current_assistant_message,
-                    };
+                if let Some(ref content) = current_content {
+                    if !content.is_empty() {
+                        yield TraceEvent::ContentDelta {
+                            delta: content.clone(),
+                        };
+                    }
                 }
             }
 
@@ -452,143 +192,104 @@ impl Session {
         }
     }
 
-    async fn start_generating<B: Backend>(
-        session_arc: Arc<RwLock<Session>>,
-        backend: Arc<B>,
-        backend_config: B::Config,
-    ) -> Result<broadcast::Receiver<TraceEvent>, Error>
-    where
-        <B as Backend>::Config: Send + Sync + 'static,
-        <B as Backend>::Error: Send + Sync + 'static,
-    {
-        let (trace, rx) = {
-            let mut session = session_arc.write().await;
-            if let State::Generating = session.state {
-                return Err(Error::CantModifyTraceWhileGenerating);
-            }
+    /// Transition from Idle to Generating. Returns the current trace snapshot
+    /// and a broadcast receiver for events.
+    pub fn begin_generation(&mut self) -> Result<(Trace, broadcast::Receiver<TraceEvent>), Error> {
+        if self.generation.is_generating() {
+            return Err(Error::CantModifyTraceWhileGenerating);
+        }
 
-            session.state = State::Generating;
-
-            (session.trace.clone(), session.event_broadcast.subscribe())
+        self.generation = GenerationState::Generating {
+            thinking_so_far: String::new(),
+            content_so_far: String::new(),
+            complete_notify: Arc::new(Notify::new()),
         };
 
-        let stream = backend.generate(&backend_config, &trace);
+        Ok((self.trace.clone(), self.event_broadcast.subscribe()))
+    }
 
-        tokio::spawn(async move {
-            let _ =
-                process_generation_stream(Arc::clone(&session_arc), stream, trace.messages.len())
-                    .await;
-
-            // If an error occurs in process_generation_stream(), a
-            // TraceEvent::Error will be sent on the session's broadcast channel.
-
-            // Stream has completed.
-            {
-                let mut session = session_arc.write().await;
-
-                let new_thinking = session.current_assistant_thinking.clone();
-                let new_message = session.current_assistant_message.clone();
-
-                let now = time::OffsetDateTime::now_local().unwrap();
-
-                session.trace.messages.push(Message {
-                    role: Role::Assistant,
-                    thinking: if !new_thinking.is_empty() {
-                        Some(new_thinking)
-                    } else {
-                        None
-                    },
-                    content: new_message,
-                });
-
-                session.current_assistant_message.truncate(0);
-                session.current_assistant_thinking.truncate(0);
-
-                session.trace.metadata.modified = now;
-                session.state = State::Idle;
-
-                if let Err(err) = session.trace.save_to_traces_directory().await {
-                    log::error!(
-                        "Failed to save trace {} to file",
-                        session.trace.metadata.id.hyphenated()
-                    );
-                    let _ = session.event_broadcast.send(TraceEvent::Error {
-                        message: err.to_string(),
+    /// Process a generation chunk, accumulating content and broadcasting events.
+    pub fn process_chunk(&mut self, chunk: &GenerateChunk) {
+        if let GenerationState::Generating {
+            ref mut thinking_so_far,
+            ref mut content_so_far,
+            ..
+        } = self.generation
+        {
+            match chunk {
+                GenerateChunk::ThinkingDelta(delta) => {
+                    thinking_so_far.push_str(delta);
+                    let _ = self.event_broadcast.send(TraceEvent::ThinkingDelta {
+                        delta: delta.clone(),
                     });
                 }
-
-                session.generate_complete_notify.notify_waiters();
-            }
-        });
-
-        Ok(rx)
-    }
-}
-
-async fn process_generation_stream<S, E>(
-    session_arc: Arc<RwLock<Session>>,
-    stream: S,
-    message_position: usize,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
-where
-    S: futures::Stream<Item = Result<GenerateChunk, E>>,
-    E: std::error::Error + Send + Sync + 'static,
-{
-    use futures::stream::StreamExt;
-
-    futures::pin_mut!(stream);
-
-    {
-        let session = session_arc.write().await;
-
-        let event = TraceEvent::AssistantMessageStart {
-            position: message_position,
-        };
-
-        let _ = session.event_broadcast.send(event);
-    }
-
-    while let Some(result) = stream.next().await {
-        let mut session = session_arc.write().await;
-        match result {
-            Ok(chunk) => match chunk {
-                GenerateChunk::ThinkingDelta(ref delta) => {
-                    session.current_assistant_thinking.push_str(delta);
-
-                    let event = TraceEvent::AssistantThinkingDelta {
+                GenerateChunk::MessageDelta(delta) => {
+                    content_so_far.push_str(delta);
+                    let _ = self.event_broadcast.send(TraceEvent::ContentDelta {
                         delta: delta.clone(),
-                    };
-
-                    let _ = session.event_broadcast.send(event.clone());
+                    });
                 }
-                GenerateChunk::MessageDelta(ref delta) => {
-                    session.current_assistant_message.push_str(delta);
-
-                    let event = TraceEvent::AssistantMessageDelta {
-                        delta: delta.clone(),
-                    };
-
-                    let _ = session.event_broadcast.send(event.clone());
-                }
-            },
-            Err(err) => {
-                log::error!("Error in generation stream: {err}");
-                let _ = session.event_broadcast.send(TraceEvent::Error {
-                    message: err.to_string(),
-                });
             }
         }
     }
 
-    {
-        let session = session_arc.write().await;
-
-        let event = TraceEvent::AssistantMessageEnd {
-            position: message_position,
-        };
-
-        let _ = session.event_broadcast.send(event);
+    /// Broadcast an error event.
+    pub fn broadcast_error(&self, message: String) {
+        let _ = self.event_broadcast.send(TraceEvent::Error { message });
     }
 
-    Ok(())
+    /// Broadcast a message start event.
+    pub fn broadcast_message_start(&self, position: usize, role: Role) {
+        let _ = self
+            .event_broadcast
+            .send(TraceEvent::MessageStart { position, role });
+    }
+
+    /// Broadcast a message end event.
+    pub fn broadcast_message_end(&self, position: usize) {
+        let _ = self
+            .event_broadcast
+            .send(TraceEvent::MessageEnd { position });
+    }
+
+    /// Finish generation: commit the accumulated message to the trace and
+    /// transition back to Idle.
+    pub async fn finish_generation(&mut self) {
+        let now = time::OffsetDateTime::now_local().unwrap();
+
+        let old_generation = std::mem::replace(&mut self.generation, GenerationState::Idle);
+
+        if let GenerationState::Generating {
+            thinking_so_far,
+            content_so_far,
+            complete_notify,
+        } = old_generation
+        {
+            self.trace.messages.push(Message {
+                role: Role::Assistant,
+                thinking: if !thinking_so_far.is_empty() {
+                    Some(thinking_so_far)
+                } else {
+                    None
+                },
+                content: content_so_far,
+            });
+
+            self.trace.metadata.modified = now;
+
+            if let Err(err) =
+                super::persistence::save_to_directory(&self.traces_dir, &self.trace).await
+            {
+                log::error!(
+                    "Failed to save trace {} to file",
+                    self.trace.metadata.id.hyphenated()
+                );
+                let _ = self.event_broadcast.send(TraceEvent::Error {
+                    message: err.to_string(),
+                });
+            }
+
+            complete_notify.notify_waiters();
+        }
+    }
 }

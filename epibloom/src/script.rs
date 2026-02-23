@@ -832,14 +832,13 @@ impl UserData for LuaTraceGenerateHandle {
                 Some(ref mut rx) => loop {
                     match rx.recv().await {
                         Ok(event) => match event {
-                            TraceEvent::AssistantThinkingDelta { delta } => {
+                            TraceEvent::ThinkingDelta { delta } => {
                                 break Ok(Some(LuaTraceGenerateChunk::Thinking { delta }));
                             }
-
-                            TraceEvent::AssistantMessageDelta { delta } => {
+                            TraceEvent::ContentDelta { delta } => {
                                 break Ok(Some(LuaTraceGenerateChunk::Message { delta }));
                             }
-                            TraceEvent::AssistantMessageEnd { position: _ } => {
+                            TraceEvent::MessageEnd { position: _ } => {
                                 handle.receiver.take();
                                 break Ok(None);
                             }
@@ -870,7 +869,7 @@ impl UserData for LuaTraceGenerateHandle {
             Some(ref mut rx) => loop {
                 match rx.recv().await {
                     Ok(event) => match event {
-                        TraceEvent::AssistantMessageEnd { position: _ } => {
+                        TraceEvent::MessageEnd { position: _ } => {
                             handle.receiver.take();
                             break Ok((true, None));
                         }

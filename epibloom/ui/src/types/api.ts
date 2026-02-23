@@ -13,16 +13,10 @@ export type TraceStoreEvent = {
 };
 
 export type TraceEvent =
-    | { type: "system_message_start"; position: number }
-    | { type: "system_message_delta"; delta: string }
-    | { type: "system_message_end"; position: number }
-    | { type: "user_message_start"; position: number }
-    | { type: "user_message_delta"; delta: string }
-    | { type: "user_message_end"; position: number }
-    | { type: "assistant_message_start"; position: number }
-    | { type: "assistant_thinking_delta"; delta: string }
-    | { type: "assistant_message_delta"; delta: string }
-    | { type: "assistant_message_end"; position: number }
+    | { type: "message_start"; position: number; role: Role }
+    | { type: "thinking_delta"; delta: string }
+    | { type: "content_delta"; delta: string }
+    | { type: "message_end"; position: number }
     | { type: "error"; message: string };
 
 export type Role = "system" | "assistant" | "user";
