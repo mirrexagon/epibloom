@@ -6,6 +6,7 @@ import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { useScript } from "../hooks/useScript";
 import { useStateObjects } from "../hooks/useStateObjects";
 import { Chat, ChatMessage } from "../types/api";
+import { ChatFlowchart } from "./ChatFlowchart";
 
 // ---------------------------------------------------------------------------
 // Tree helpers
@@ -173,12 +174,8 @@ function MarkdownContent({ text, className = "" }: MarkdownContentProps) {
                     ),
                     // Inline code
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    code: ({
-                        inline,
-                        className: cls,
-                        children,
-                        ...props
-                    }: any) => {
+                    code: (codeProps: any) => {
+                        const { inline, className: cls, children, ...props } = codeProps;
                         const match = /language-(\w+)/.exec(cls || "");
                         if (!inline && match) {
                             return (
@@ -347,6 +344,8 @@ export function ChatView({
 }: ChatViewProps) {
     const [chatIds, setChatIds] = useState<string[]>([]);
     const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+    const [showFlowchart, setShowFlowchart] = useState(true);
+    const [flowchartWidth, setFlowchartWidth] = useState(320);
 
     // selectedLeafId: the "cursor" — the node currently at the bottom of the
     // viewed path.  In branch mode this can be a middle node.
@@ -575,6 +574,17 @@ export function ChatView({
     };
 
     // ---------------------------------------------------------------------------
+    // Flowchart node selection — navigate to the first-leaf under the clicked node.
+    // ---------------------------------------------------------------------------
+    const handleSelectNode = useCallback(
+        (nodeId: string) => {
+            if (!chatData) return;
+            setLeafIds(getFirstLeaf(chatData.messages, nodeId));
+        },
+        [chatData, setLeafIds],
+    );
+
+    // ---------------------------------------------------------------------------
     // Input bar derived state
     // ---------------------------------------------------------------------------
     const selectedMsg = selectedLeafId
@@ -638,7 +648,7 @@ export function ChatView({
                 </div>
             </div>
 
-            {/* Main panel */}
+            {/* Chat column */}
             <div className="flex-1 flex flex-col overflow-hidden bg-gray-900">
                 {!selectedChatId ? (
                     <div className="flex-1 flex items-center justify-center text-gray-500">
@@ -651,6 +661,27 @@ export function ChatView({
                     </div>
                 ) : (
                     <>
+                        {/* Chat header */}
+                        <div className="flex items-center justify-end px-4 py-1.5 border-b border-gray-700 bg-gray-800">
+                            <button
+                                onClick={() =>
+                                    setShowFlowchart((v) => !v)
+                                }
+                                title={
+                                    showFlowchart
+                                        ? "Hide tree view"
+                                        : "Show tree view"
+                                }
+                                className={`text-sm px-2 py-0.5 rounded transition-colors ${
+                                    showFlowchart
+                                        ? "bg-blue-700 text-white"
+                                        : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                                }`}
+                            >
+                                ⎇ Tree
+                            </button>
+                        </div>
+
                         {/* Messages area */}
                         <div className="flex-1 overflow-y-auto p-4">
                             <button
@@ -779,6 +810,48 @@ export function ChatView({
                     </>
                 )}
             </div>
+
+            {/* Flowchart panel */}
+            {showFlowchart && selectedChatId && chatData && (
+                <>
+                    {/* Resize handle */}
+                    <div
+                        className="w-1 flex-shrink-0 cursor-col-resize bg-gray-700 hover:bg-blue-500 active:bg-blue-400 transition-colors"
+                        onMouseDown={(e) => {
+                            e.preventDefault();
+                            const startX = e.clientX;
+                            const startWidth = flowchartWidth;
+                            const onMove = (ev: MouseEvent) => {
+                                const delta = startX - ev.clientX;
+                                setFlowchartWidth(
+                                    Math.max(200, Math.min(800, startWidth + delta)),
+                                );
+                            };
+                            const onUp = () => {
+                                window.removeEventListener("mousemove", onMove);
+                                window.removeEventListener("mouseup", onUp);
+                            };
+                            window.addEventListener("mousemove", onMove);
+                            window.addEventListener("mouseup", onUp);
+                        }}
+                    />
+                    <div
+                        className="flex-shrink-0 border-l border-gray-700 bg-gray-900 flex flex-col"
+                        style={{ width: flowchartWidth }}
+                    >
+                        <div className="px-3 py-1.5 border-b border-gray-700 text-xs text-gray-400 font-medium tracking-wide">
+                            Tree
+                        </div>
+                        <div className="flex-1 overflow-hidden">
+                            <ChatFlowchart
+                                messages={chatData.messages}
+                                selectedLeafId={selectedLeafId}
+                                onSelectNode={handleSelectNode}
+                            />
+                        </div>
+                    </div>
+                </>
+            )}
         </div>
     );
 }
