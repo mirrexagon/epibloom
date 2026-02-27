@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { TraceList } from "./TraceList";
 import { TraceView } from "./TraceView";
 import { StateObjectList } from "./StateObjectList";
@@ -18,6 +18,8 @@ interface DebugDrawerProps {
     onSelectTrace: (trace: TraceMetadata) => void;
     activeTab: TabType;
     onTabChange: (tab: TabType) => void;
+    /** When set, the drawer adds this state object to the watch list and selects it. */
+    requestedStateObject?: string | null;
 }
 
 export function DebugDrawer({
@@ -29,6 +31,7 @@ export function DebugDrawer({
     onSelectTrace,
     activeTab,
     onTabChange,
+    requestedStateObject,
 }: DebugDrawerProps) {
     const {
         traces,
@@ -65,6 +68,19 @@ export function DebugDrawer({
             return [...prev, objectName];
         });
     }, []);
+
+    // When requestedStateObject changes, add it to the watch list and select it.
+    const prevRequestedStateObject = useRef<string | null | undefined>(undefined);
+    useEffect(() => {
+        if (
+            requestedStateObject &&
+            requestedStateObject !== prevRequestedStateObject.current
+        ) {
+            prevRequestedStateObject.current = requestedStateObject;
+            handleAddStateObject(requestedStateObject);
+            setSelectedStateName(requestedStateObject);
+        }
+    }, [requestedStateObject, handleAddStateObject]);
 
     const handleRemoveStateObject = useCallback(
         (objectName: string) => {

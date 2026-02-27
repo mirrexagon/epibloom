@@ -234,9 +234,10 @@ function MessageBubble({ message, onSelectTrace }: MessageBubbleProps) {
 
 interface ChatViewProps {
     onSelectTrace?: (traceId: string) => void;
+    onSelectStateObject?: (name: string) => void;
 }
 
-export function ChatView({ onSelectTrace }: ChatViewProps) {
+export function ChatView({ onSelectTrace, onSelectStateObject }: ChatViewProps) {
     const [chatIds, setChatIds] = useState<string[]>([]);
     const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
     const [selectedLeafId, setSelectedLeafId] = useState<string | null>(null);
@@ -422,9 +423,16 @@ export function ChatView({ onSelectTrace }: ChatViewProps) {
                     <>
                         {/* Messages area */}
                         <div className="flex-1 overflow-y-auto p-4">
-                            <div className="mb-4 text-gray-400 text-xs font-mono">
+                            <button
+                                onClick={() =>
+                                    onSelectStateObject?.(
+                                        `chat:${selectedChatId}`,
+                                    )
+                                }
+                                className="mb-4 text-gray-400 hover:text-blue-400 text-xs font-mono transition-colors cursor-pointer hover:underline text-left"
+                            >
                                 Chat ID: {selectedChatId}
-                            </div>
+                            </button>
                             {chatData ? (
                                 <div className="space-y-4">
                                     {currentPath.map((message) => (

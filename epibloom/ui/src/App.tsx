@@ -10,6 +10,7 @@ function App() {
         null,
     );
     const [debugTab, setDebugTab] = useState<"traces" | "state">("traces");
+    const [requestedStateObject, setRequestedStateObject] = useState<string | null>(null);
 
     const handleSelectTraceFromChat = (traceId: string) => {
         // Create a minimal TraceMetadata object - the full data will be loaded by TraceView
@@ -23,6 +24,12 @@ function App() {
         setDebugDrawerOpen(true);
     };
 
+    const handleSelectStateObject = (name: string) => {
+        setRequestedStateObject(name);
+        setDebugTab("state");
+        setDebugDrawerOpen(true);
+    };
+
     return (
         <div className="h-screen flex flex-col bg-gray-900">
             {/* App header */}
@@ -33,7 +40,10 @@ function App() {
             {/* Main content area */}
             <div className="flex-1 flex flex-col overflow-hidden">
                 {/* Primary panel - Chat UI */}
-                <ChatView onSelectTrace={handleSelectTraceFromChat} />
+                <ChatView
+                    onSelectTrace={handleSelectTraceFromChat}
+                    onSelectStateObject={handleSelectStateObject}
+                />
 
                 {/* Debug drawer */}
                 <DebugDrawer
@@ -45,6 +55,7 @@ function App() {
                     onSelectTrace={setSelectedTrace}
                     activeTab={debugTab}
                     onTabChange={setDebugTab}
+                    requestedStateObject={requestedStateObject}
                 />
             </div>
         </div>
