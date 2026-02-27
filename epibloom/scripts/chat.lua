@@ -19,9 +19,11 @@ end
 
 --- @class Chat
 --- @field id uuid
---- @field messages ChatMessage[]
+--- @field messages table<uuid, ChatMessage>
 
 --- @class ChatMessage
+--- @field id uuid # Unique node identifier.
+--- @field parent_id uuid? # Parent message ID; nil only for root nodes.
 --- @field role Role
 --- @field thinking string[]? # Thinking text as a list of string chunks, if present. Join them to get the full text.
 --- @field content string[] # Message content as a list of string chunks. Join them to get the full text.
@@ -42,7 +44,7 @@ function chat.poke(chat_id)
 end
 
 --- Get a list of all existing chats.
---- @return Chat[]
+--- @return uuid[]
 function chat.list_chats()
     local list = {}
 
@@ -53,23 +55,19 @@ function chat.list_chats()
     return list
 end
 
-function chat.set_message(chat_id, message_position, role, content)
+--- Add a new message node to the chat tree and return its ID.
+--- @param chat_id uuid
+--- @param parent_id uuid? # The parent message ID, or nil for a root node.
+--- @param role Role
+--- @param content string | string[] | nil
+--- @return uuid # The new message ID.
+function chat.add_message(chat_id, parent_id, role, content)
     local chat_state = chat.get_state(chat_id)
+    local new_id = uuid.new()
 
     chat_state:update(function(value)
         --- @cast value Chat
 
-        if not message_position then
-            message_position = #value.messages + 1
-        end
-
-        assert(message_position <= (#value.messages + 1), "tried to add message past the end of the message list")
-
-        local old_message = value.messages[message_position]
-
-        -- Content is stored as a list of string chunks for efficient streaming.
-        -- When provided as a plain string (e.g. from user input), wrap it in a
-        -- single-element list.
         local new_content
         if content then
             if type(content) == "string" then
@@ -78,65 +76,78 @@ function chat.set_message(chat_id, message_position, role, content)
                 new_content = content
             end
         else
-            new_content = old_message and old_message.content or {}
+            new_content = {}
         end
 
-        value.messages[message_position] = {
-            role = role or (old_message and old_message.role),
+        value.messages[new_id] = {
+            id = new_id,
+            parent_id = parent_id,
+            role = role,
             content = new_content,
         }
 
         chat.save(value)
         return value
     end)
+
+    return new_id
 end
 
-function chat.generate(chat_id, ...)
+--- Walk parent_id links from node_id back to the root and return a
+--- root-first ordered array of nodes.
+--- @param messages table<uuid, ChatMessage>
+--- @param node_id uuid
+--- @return ChatMessage[]
+function chat.get_path(messages, node_id)
+    local path = {}
+    local current_id = node_id
+
+    while current_id do
+        local node = messages[current_id]
+        if not node then
+            break
+        end
+        table.insert(path, 1, node)
+        current_id = node.parent_id
+    end
+
+    return path
+end
+
+--- Generate an assistant response as a child of parent_message_id.
+--- @param chat_id uuid
+--- @param parent_message_id uuid # The user-message node to respond to.
+function chat.generate(chat_id, parent_message_id)
     local chat_state = chat.get_state(chat_id)
 
-    local trace, generate_handle, message_position
+    local trace, generate_handle, new_message_id
 
-    -- Copy the current chat messages into the trace. Content is joined from
-    -- its chunk array into a plain string, as required by the trace/LLM layer.
+    -- Create the empty assistant node and start generation inside one atomic
+    -- update so the SSE push reaches clients before streaming starts.
     chat_state:update(function(value)
         --- @cast value Chat
 
-        -- TODO: Mark tree branch as generating, and check that flag before generating.
+        new_message_id = uuid.new()
+        trace = traces.new()
 
-        local generating_message = value.messages[#value.messages]
+        -- Add the new empty assistant node as a child of parent_message_id.
+        value.messages[new_message_id] = {
+            id = new_message_id,
+            parent_id = parent_message_id,
+            role = "assistant",
+            content = {},
+            trace_id = trace.id,
+        }
 
-        if generating_message and generating_message.role == "assistant" then
-            -- Continuation of assistant message, reuse trace if possible.
-            trace = traces.get(generating_message.trace_id)
-            if not trace then
-                trace = traces.new()
-            end
-            generating_message.trace_id = trace.id
-            generating_message.error = nil
-        else
-            -- Normal assistant response after a user message.
-            trace = traces.new()
-            generating_message = {
-                role = "assistant",
-                content = {},
-                trace_id = trace.id,
-            }
-
-            value.messages[#value.messages + 1] = generating_message
-        end
-
-        for i, message in ipairs(value.messages) do
-            if message == generating_message then
-                break
-            end
-
+        -- Build the LLM trace from root → parent_message_id.
+        local path = chat.get_path(value.messages, parent_message_id)
+        for i, message in ipairs(path) do
             if message.role and message.content then
                 trace[i] = { role = message.role, content = table.concat(message.content) }
             end
         end
 
         generate_handle = trace:generate("anthropic")
-        message_position = #value.messages
 
         return value
     end)
@@ -150,7 +161,7 @@ function chat.generate(chat_id, ...)
         chat_state:update(function(value)
             --- @cast value Chat
 
-            local message = value.messages[message_position]
+            local message = value.messages[new_message_id]
 
             if chunk.type == "message" then
                 message.content[#message.content + 1] = chunk.delta
@@ -171,7 +182,7 @@ function chat.generate(chat_id, ...)
 
     -- Persist to disk once, after the full response has been received.
     local final_value = chat_state:read()
-    if final_value and final_value.messages and #final_value.messages > 0 then
+    if final_value then
         chat.save(final_value)
     end
 end

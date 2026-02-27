@@ -7,6 +7,54 @@ import { useScript } from "../hooks/useScript";
 import { useStateObjects } from "../hooks/useStateObjects";
 import { Chat, ChatMessage } from "../types/api";
 
+// ---------------------------------------------------------------------------
+// Tree helpers
+// ---------------------------------------------------------------------------
+
+/** Returns the direct children of parentId, sorted by UUIDv7 (insertion order). */
+function getChildren(
+    messages: Record<string, ChatMessage>,
+    parentId: string | null,
+): ChatMessage[] {
+    return Object.values(messages)
+        .filter((m) => m.parent_id === parentId)
+        .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/** Walks parent_id links from leafId to the root and returns a root-first array. */
+function getPath(
+    messages: Record<string, ChatMessage>,
+    leafId: string,
+): ChatMessage[] {
+    const path: ChatMessage[] = [];
+    let currentId: string | null = leafId;
+    while (currentId !== null) {
+        const node = messages[currentId];
+        if (!node) break;
+        path.unshift(node);
+        currentId = node.parent_id;
+    }
+    return path;
+}
+
+/** Follows the first child repeatedly from nodeId until reaching a leaf; returns that leaf's id. */
+function getFirstLeaf(
+    messages: Record<string, ChatMessage>,
+    nodeId: string,
+): string {
+    let currentId = nodeId;
+    let children = getChildren(messages, currentId);
+    while (children.length > 0) {
+        currentId = children[0].id;
+        children = getChildren(messages, currentId);
+    }
+    return currentId;
+}
+
+// ---------------------------------------------------------------------------
+// MarkdownContent
+// ---------------------------------------------------------------------------
+
 interface MarkdownContentProps {
     text: string;
     /** Extra CSS classes applied to the wrapping div */
@@ -112,6 +160,10 @@ function MarkdownContent({ text, className = "" }: MarkdownContentProps) {
     );
 }
 
+// ---------------------------------------------------------------------------
+// MessageBubble
+// ---------------------------------------------------------------------------
+
 interface MessageBubbleProps {
     message: ChatMessage;
     onSelectTrace?: (traceId: string) => void;
@@ -176,6 +228,10 @@ function MessageBubble({ message, onSelectTrace }: MessageBubbleProps) {
     );
 }
 
+// ---------------------------------------------------------------------------
+// ChatView
+// ---------------------------------------------------------------------------
+
 interface ChatViewProps {
     onSelectTrace?: (traceId: string) => void;
 }
@@ -183,6 +239,7 @@ interface ChatViewProps {
 export function ChatView({ onSelectTrace }: ChatViewProps) {
     const [chatIds, setChatIds] = useState<string[]>([]);
     const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+    const [selectedLeafId, setSelectedLeafId] = useState<string | null>(null);
     const [inputMessage, setInputMessage] = useState("");
 
     // Script hooks for chat actions
@@ -190,7 +247,7 @@ export function ChatView({ onSelectTrace }: ChatViewProps) {
     const listScript = useScript<string[]>("chat", "chat_action");
     const newChatScript = useScript<string>("chat", "chat_action");
     const pokeScript = useScript<void>("chat", "chat_action");
-    const appendMessageScript = useScript<void>("chat", "chat_action");
+    const addUserMessageScript = useScript<string>("chat", "chat_action");
     const generateScript = useScript<void>("chat", "chat_action");
 
     // State hook for selected chat - memoize to prevent infinite re-renders
@@ -208,6 +265,40 @@ export function ChatView({ onSelectTrace }: ChatViewProps) {
     // Ref for auto-scrolling to bottom
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
+    // When chatData arrives for a newly opened chat and selectedLeafId is null,
+    // navigate to the deepest first-child leaf.
+    useEffect(() => {
+        if (!chatData || selectedLeafId !== null) return;
+        const messages = chatData.messages;
+        const rootNodes = getChildren(messages, null);
+        if (rootNodes.length === 0) return;
+        setSelectedLeafId(getFirstLeaf(messages, rootNodes[0].id));
+    }, [chatData, selectedLeafId]);
+
+    // Auto-navigate: when the selected leaf is a user-message node that gains
+    // its first child (the streaming assistant reply), move the cursor to it.
+    useEffect(() => {
+        if (!chatData || !selectedLeafId) return;
+        const msg = chatData.messages[selectedLeafId];
+        if (!msg || msg.role !== "user") return;
+        const children = getChildren(chatData.messages, selectedLeafId);
+        if (children.length > 0) {
+            setSelectedLeafId(children[0].id);
+        }
+    }, [chatData, selectedLeafId]);
+
+    // Compute the ordered list of messages to display (root → selectedLeaf).
+    const currentPath = useMemo(() => {
+        if (!chatData || !selectedLeafId) return [];
+        if (!chatData.messages[selectedLeafId]) return [];
+        return getPath(chatData.messages, selectedLeafId);
+    }, [chatData, selectedLeafId]);
+
+    // Auto-scroll to bottom when the current path changes.
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [currentPath]);
+
     // Load chat list on mount
     useEffect(() => {
         const loadChats = async () => {
@@ -220,21 +311,18 @@ export function ChatView({ onSelectTrace }: ChatViewProps) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Auto-scroll to bottom when messages change
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [chatData?.messages]);
-
     const handleNewChat = async () => {
         const newChatId = await newChatScript.runScript({ action: "new" });
         if (newChatId) {
             setChatIds((prev) => [...prev, newChatId]);
             setSelectedChatId(newChatId);
+            setSelectedLeafId(null);
         }
     };
 
     const handleSelectChat = async (chatId: string) => {
         setSelectedChatId(chatId);
+        setSelectedLeafId(null);
         // Poke the chat to load it into the state system
         await pokeScript.runScript({ action: "poke", chat_id: chatId });
     };
@@ -246,17 +334,27 @@ export function ChatView({ onSelectTrace }: ChatViewProps) {
         const messageToSend = inputMessage.trim();
         setInputMessage(""); // Clear input immediately
 
-        await appendMessageScript.runScript({
-            action: "append_message",
+        // Add the user message as a child of the current leaf (or as the root
+        // if there are no messages yet).
+        const newUserMsgId = await addUserMessageScript.runScript({
+            action: "add_user_message",
             chat_id: selectedChatId,
-            role: "user",
+            parent_id: selectedLeafId, // null → first message in the chat
             content: messageToSend,
         });
 
-        await generateScript.runScript({
-            action: "generate",
-            chat_id: selectedChatId,
-        });
+        if (newUserMsgId) {
+            // Move cursor to the user message; the auto-navigate effect will
+            // advance it to the assistant reply once streaming begins.
+            setSelectedLeafId(newUserMsgId);
+
+            // Fire-and-forget — streaming content arrives via state SSE.
+            generateScript.runScript({
+                action: "generate",
+                chat_id: selectedChatId,
+                parent_message_id: newUserMsgId,
+            });
+        }
     };
 
     return (
@@ -329,9 +427,9 @@ export function ChatView({ onSelectTrace }: ChatViewProps) {
                             </div>
                             {chatData ? (
                                 <div className="space-y-4">
-                                    {chatData.messages.map((message, index) => (
+                                    {currentPath.map((message) => (
                                         <MessageBubble
-                                            key={index}
+                                            key={message.id}
                                             message={message}
                                             onSelectTrace={onSelectTrace}
                                         />
@@ -359,17 +457,17 @@ export function ChatView({ onSelectTrace }: ChatViewProps) {
                                     }
                                     placeholder="Type a message..."
                                     className="flex-1 px-4 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:outline-none focus:border-blue-500"
-                                    disabled={appendMessageScript.loading}
+                                    disabled={addUserMessageScript.loading}
                                 />
                                 <button
                                     type="submit"
                                     disabled={
                                         !inputMessage.trim() ||
-                                        appendMessageScript.loading
+                                        addUserMessageScript.loading
                                     }
                                     className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded transition-colors"
                                 >
-                                    {appendMessageScript.loading
+                                    {addUserMessageScript.loading
                                         ? "Sending..."
                                         : "Send"}
                                 </button>

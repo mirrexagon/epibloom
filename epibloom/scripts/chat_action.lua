@@ -36,20 +36,25 @@ local dispatch = {
         return chat.get(arg.chat_id)
     end,
 
+    -- Add a user message as a child of the given parent node.
     -- Parameters:
     -- - chat_id
-    -- - role
-    -- - content
-    append_message = function(arg)
-        print("chat_action.append_message", arg.chat_id)
-        chat.set_message(arg.chat_id, nil, arg.role, arg.content)
+    -- - parent_id (string | null) -- the parent message ID, or null for the first message
+    -- - content (string)
+    -- Return:
+    -- New message ID (UUID as hyphenated string)
+    add_user_message = function(arg)
+        print("chat_action.add_user_message", arg.chat_id)
+        return chat.add_message(arg.chat_id, arg.parent_id, "user", arg.content)
     end,
 
+    -- Generate an assistant response as a child of parent_message_id.
     -- Parameters:
     -- - chat_id
+    -- - parent_message_id (string) -- the user-message node to respond to
     generate = function(arg)
         print("chat_action.generate", arg.chat_id)
-        chat.generate(arg.chat_id, "anthropic")
+        chat.generate(arg.chat_id, arg.parent_message_id)
     end,
 }
 

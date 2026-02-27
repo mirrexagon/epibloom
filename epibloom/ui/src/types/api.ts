@@ -52,6 +52,8 @@ export interface StateObjectData {
 
 // Chat types
 export interface ChatMessage {
+    id: string;
+    parent_id: string | null;
     role: Role;
     // Content is stored as a list of string chunks for efficient streaming via
     // JSON Patch array-append operations. Join them to get the full text.
@@ -65,5 +67,5 @@ export interface ChatMessage {
 
 export interface Chat {
     id: string;
-    messages: ChatMessage[];
+    messages: Record<string, ChatMessage>;
 }
