@@ -14,8 +14,14 @@ import { Chat, ChatMessage } from "../types/api";
 /** Returns the direct children of parentId, sorted by UUIDv7 (insertion order). */
 function getChildren(
     messages: Record<string, ChatMessage>,
-    parentId: string | null,
+    parentId: string | null | undefined,
 ): ChatMessage[] {
+    // When there is no parent ID, it is just missing from the object, due to
+    // Lua->JSON serialization quirks.
+    if (parentId === null) {
+        parentId = undefined;
+    }
+
     return Object.values(messages)
         .filter((m) => m.parent_id === parentId)
         .sort((a, b) => a.id.localeCompare(b.id));
@@ -69,29 +75,48 @@ function MarkdownContent({ text, className = "" }: MarkdownContentProps) {
                 components={{
                     // Headings
                     h1: ({ children }) => (
-                        <h1 className="text-xl font-bold mt-3 mb-1">{children}</h1>
+                        <h1 className="text-xl font-bold mt-3 mb-1">
+                            {children}
+                        </h1>
                     ),
                     h2: ({ children }) => (
-                        <h2 className="text-lg font-bold mt-3 mb-1">{children}</h2>
+                        <h2 className="text-lg font-bold mt-3 mb-1">
+                            {children}
+                        </h2>
                     ),
                     h3: ({ children }) => (
-                        <h3 className="text-base font-bold mt-2 mb-1">{children}</h3>
+                        <h3 className="text-base font-bold mt-2 mb-1">
+                            {children}
+                        </h3>
                     ),
                     // Paragraph — top margin only after the first child
                     p: ({ children }) => (
-                        <p className="mt-2 first:mt-0 leading-relaxed">{children}</p>
+                        <p className="mt-2 first:mt-0 leading-relaxed">
+                            {children}
+                        </p>
                     ),
                     // Lists
                     ul: ({ children }) => (
-                        <ul className="mt-2 ml-4 list-disc space-y-0.5">{children}</ul>
+                        <ul className="mt-2 ml-4 list-disc space-y-0.5">
+                            {children}
+                        </ul>
                     ),
                     ol: ({ children }) => (
-                        <ol className="mt-2 ml-4 list-decimal space-y-0.5">{children}</ol>
+                        <ol className="mt-2 ml-4 list-decimal space-y-0.5">
+                            {children}
+                        </ol>
                     ),
-                    li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                    li: ({ children }) => (
+                        <li className="leading-relaxed">{children}</li>
+                    ),
                     // Inline code
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    code: ({ inline, className: cls, children, ...props }: any) => {
+                    code: ({
+                        inline,
+                        className: cls,
+                        children,
+                        ...props
+                    }: any) => {
                         const match = /language-(\w+)/.exec(cls || "");
                         if (!inline && match) {
                             return (
@@ -151,7 +176,9 @@ function MarkdownContent({ text, className = "" }: MarkdownContentProps) {
                     strong: ({ children }) => (
                         <strong className="font-bold">{children}</strong>
                     ),
-                    em: ({ children }) => <em className="italic">{children}</em>,
+                    em: ({ children }) => (
+                        <em className="italic">{children}</em>
+                    ),
                 }}
             >
                 {text}
@@ -237,7 +264,10 @@ interface ChatViewProps {
     onSelectStateObject?: (name: string) => void;
 }
 
-export function ChatView({ onSelectTrace, onSelectStateObject }: ChatViewProps) {
+export function ChatView({
+    onSelectTrace,
+    onSelectStateObject,
+}: ChatViewProps) {
     const [chatIds, setChatIds] = useState<string[]>([]);
     const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
     const [selectedLeafId, setSelectedLeafId] = useState<string | null>(null);
