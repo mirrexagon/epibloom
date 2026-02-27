@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -38,7 +38,7 @@ function getPath(
         const node = messages[currentId];
         if (!node) break;
         path.unshift(node);
-        currentId = node.parent_id;
+        currentId = node.parent_id ?? null;
     }
     return path;
 }
@@ -55,6 +55,68 @@ function getFirstLeaf(
         children = getChildren(messages, currentId);
     }
     return currentId;
+}
+
+// ---------------------------------------------------------------------------
+// SiblingNavigator
+// ---------------------------------------------------------------------------
+
+interface SiblingNavigatorProps {
+    messages: Record<string, ChatMessage>;
+    node: ChatMessage;
+    isUser: boolean;
+    /** Called with the first-leaf id of the newly selected sibling. */
+    onNavigate: (leafId: string) => void;
+}
+
+function SiblingNavigator({
+    messages,
+    node,
+    isUser,
+    onNavigate,
+}: SiblingNavigatorProps) {
+    const siblings = getChildren(messages, node.parent_id ?? null);
+    if (siblings.length <= 1) return null;
+
+    const currentIndex = siblings.findIndex((s) => s.id === node.id);
+
+    const goTo = (idx: number) => {
+        if (idx >= 0 && idx < siblings.length) {
+            onNavigate(getFirstLeaf(messages, siblings[idx].id));
+        }
+    };
+
+    return (
+        <div
+            className={`flex items-center gap-1.5 text-xs text-gray-400 mb-1 ${
+                isUser ? "justify-end" : "justify-start"
+            }`}
+        >
+            <button
+                onClick={(e) => {
+                    e.stopPropagation();
+                    goTo(currentIndex - 1);
+                }}
+                disabled={currentIndex === 0}
+                className="px-1 hover:text-gray-200 disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+                ←
+            </button>
+            <span>
+                {currentIndex + 1} / {siblings.length}
+            </span>
+            <button
+                onClick={(e) => {
+                    e.stopPropagation();
+                    goTo(currentIndex + 1);
+                }}
+                disabled={currentIndex === siblings.length - 1}
+                className="px-1 hover:text-gray-200 disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+                →
+            </button>
+        </div>
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -111,12 +173,7 @@ function MarkdownContent({ text, className = "" }: MarkdownContentProps) {
                     ),
                     // Inline code
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    code: ({
-                        inline,
-                        className: cls,
-                        children,
-                        ...props
-                    }: any) => {
+                    code: ({ inline, className: cls, children, ...props }: any) => {
                         const match = /language-(\w+)/.exec(cls || "");
                         if (!inline && match) {
                             return (
@@ -194,9 +251,17 @@ function MarkdownContent({ text, className = "" }: MarkdownContentProps) {
 interface MessageBubbleProps {
     message: ChatMessage;
     onSelectTrace?: (traceId: string) => void;
+    onClick?: () => void;
+    /** Highlight this bubble as the active branch point. */
+    isSelected?: boolean;
 }
 
-function MessageBubble({ message, onSelectTrace }: MessageBubbleProps) {
+function MessageBubble({
+    message,
+    onSelectTrace,
+    onClick,
+    isSelected = false,
+}: MessageBubbleProps) {
     const isUser = message.role === "user";
     const isSystem = message.role === "system";
     const [showThinking, setShowThinking] = useState(false);
@@ -209,18 +274,22 @@ function MessageBubble({ message, onSelectTrace }: MessageBubbleProps) {
             className={`flex ${isUser ? "justify-end" : "justify-start"} ${isSystem ? "justify-center" : ""}`}
         >
             <div
-                className={`max-w-[70%] rounded-lg px-4 py-2 ${
+                onClick={onClick}
+                className={`max-w-[70%] rounded-lg px-4 py-2 cursor-pointer transition-all ${
                     isUser
                         ? "bg-blue-600 text-white"
                         : isSystem
                           ? "bg-gray-700 text-gray-300 text-sm italic"
                           : "bg-gray-700 text-gray-100"
-                }`}
+                } ${isSelected ? "ring-2 ring-yellow-400" : "hover:ring-1 hover:ring-gray-500"}`}
             >
                 {thinkingText && (
                     <div className="mb-2">
                         <button
-                            onClick={() => setShowThinking(!showThinking)}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setShowThinking(!showThinking);
+                            }}
                             className="text-xs text-gray-400 hover:text-gray-200 underline"
                         >
                             {showThinking ? "▼" : "►"} thinking
@@ -244,7 +313,10 @@ function MessageBubble({ message, onSelectTrace }: MessageBubbleProps) {
 
                 {message.trace_id && (
                     <button
-                        onClick={() => onSelectTrace?.(message.trace_id!)}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectTrace?.(message.trace_id!);
+                        }}
                         className="text-xs opacity-50 hover:opacity-100 mt-1 font-mono transition-opacity hover:underline cursor-pointer text-left"
                     >
                         trace: {message.trace_id}
@@ -270,8 +342,24 @@ export function ChatView({
 }: ChatViewProps) {
     const [chatIds, setChatIds] = useState<string[]>([]);
     const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+
+    // selectedLeafId: the "cursor" — the node currently at the bottom of the
+    // viewed path.  In branch mode this can be a middle node.
     const [selectedLeafId, setSelectedLeafId] = useState<string | null>(null);
+    // committedLeafId: the "real" deepest leaf of the active thread.  Branch
+    // mode is active when selectedLeafId !== committedLeafId.
+    const [committedLeafId, setCommittedLeafId] = useState<string | null>(null);
+
     const [inputMessage, setInputMessage] = useState("");
+
+    // pendingNewChildOf: when set, we are waiting for a *new* child of this
+    // node to appear in chatData (e.g. after a generate call).  The ref stores
+    // the node id and the set of child ids that existed *before* the call so we
+    // can detect the freshly-added child.
+    const pendingNewChildOf = useRef<{
+        nodeId: string;
+        existingChildIds: Set<string>;
+    } | null>(null);
 
     // Script hooks for chat actions
     // TODO: Each chat should use its own script context
@@ -296,6 +384,13 @@ export function ChatView({
     // Ref for auto-scrolling to bottom
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
+    // Helper: set both cursor and committed leaf atomically (used for primary
+    // navigation flows — initial load, send, sibling nav, regenerate).
+    const setLeafIds = useCallback((id: string | null) => {
+        setSelectedLeafId(id);
+        setCommittedLeafId(id);
+    }, []);
+
     // When chatData arrives for a newly opened chat and selectedLeafId is null,
     // navigate to the deepest first-child leaf.
     useEffect(() => {
@@ -303,20 +398,32 @@ export function ChatView({
         const messages = chatData.messages;
         const rootNodes = getChildren(messages, null);
         if (rootNodes.length === 0) return;
-        setSelectedLeafId(getFirstLeaf(messages, rootNodes[0].id));
-    }, [chatData, selectedLeafId]);
+        setLeafIds(getFirstLeaf(messages, rootNodes[0].id));
+    }, [chatData, selectedLeafId, setLeafIds]);
 
-    // Auto-navigate: when the selected leaf is a user-message node that gains
-    // its first child (the streaming assistant reply), move the cursor to it.
+    // Watch for a newly-added child of `pendingNewChildOf`.  When found,
+    // advance the cursor (and committed leaf) to that new child.
     useEffect(() => {
-        if (!chatData || !selectedLeafId) return;
-        const msg = chatData.messages[selectedLeafId];
-        if (!msg || msg.role !== "user") return;
-        const children = getChildren(chatData.messages, selectedLeafId);
-        if (children.length > 0) {
-            setSelectedLeafId(children[0].id);
+        if (!chatData || !pendingNewChildOf.current) return;
+        const { nodeId, existingChildIds } = pendingNewChildOf.current;
+        const children = getChildren(chatData.messages, nodeId);
+        const newChild = children.find((c) => !existingChildIds.has(c.id));
+        if (newChild) {
+            setLeafIds(newChild.id);
+            pendingNewChildOf.current = null;
         }
-    }, [chatData, selectedLeafId]);
+    }, [chatData, setLeafIds]);
+
+    // Escape key: cancel branch mode.
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape" && selectedLeafId !== committedLeafId) {
+                setSelectedLeafId(committedLeafId);
+            }
+        };
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [selectedLeafId, committedLeafId]);
 
     // Compute the ordered list of messages to display (root → selectedLeaf).
     const currentPath = useMemo(() => {
@@ -325,10 +432,30 @@ export function ChatView({
         return getPath(chatData.messages, selectedLeafId);
     }, [chatData, selectedLeafId]);
 
-    // Auto-scroll to bottom when the current path changes.
+    // In branch mode the path is extended to the committed leaf so that dimmed
+    // bubbles below the branch point are still visible.
+    const fullPath = useMemo(() => {
+        if (!chatData || !committedLeafId) return currentPath;
+        if (selectedLeafId === committedLeafId) return currentPath;
+        if (!chatData.messages[committedLeafId]) return currentPath;
+        return getPath(chatData.messages, committedLeafId);
+    }, [chatData, committedLeafId, currentPath, selectedLeafId]);
+
+    // Index of the selectedLeafId in fullPath — everything after it is dimmed.
+    const branchCutIndex = useMemo(() => {
+        if (!selectedLeafId) return fullPath.length - 1;
+        return fullPath.findIndex((m) => m.id === selectedLeafId);
+    }, [fullPath, selectedLeafId]);
+
+    const isBranchMode =
+        selectedLeafId !== null &&
+        committedLeafId !== null &&
+        selectedLeafId !== committedLeafId;
+
+    // Auto-scroll to bottom when the displayed path changes.
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [currentPath]);
+    }, [fullPath]);
 
     // Load chat list on mount
     useEffect(() => {
@@ -347,16 +474,29 @@ export function ChatView({
         if (newChatId) {
             setChatIds((prev) => [...prev, newChatId]);
             setSelectedChatId(newChatId);
-            setSelectedLeafId(null);
+            setLeafIds(null);
         }
     };
 
     const handleSelectChat = async (chatId: string) => {
         setSelectedChatId(chatId);
-        setSelectedLeafId(null);
+        setLeafIds(null);
         // Poke the chat to load it into the state system
         await pokeScript.runScript({ action: "poke", chat_id: chatId });
     };
+
+    /** Click on a bubble: set branch point, or cancel if already there. */
+    const handleBubbleClick = useCallback(
+        (messageId: string) => {
+            if (selectedLeafId === messageId) {
+                // Same bubble clicked again → cancel branch mode
+                setSelectedLeafId(committedLeafId);
+            } else {
+                setSelectedLeafId(messageId);
+            }
+        },
+        [selectedLeafId, committedLeafId],
+    );
 
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -375,9 +515,14 @@ export function ChatView({
         });
 
         if (newUserMsgId) {
-            // Move cursor to the user message; the auto-navigate effect will
-            // advance it to the assistant reply once streaming begins.
-            setSelectedLeafId(newUserMsgId);
+            // Move cursor and committed leaf to the new user message.
+            setLeafIds(newUserMsgId);
+
+            // Prepare to navigate to the assistant reply when it arrives.
+            pendingNewChildOf.current = {
+                nodeId: newUserMsgId,
+                existingChildIds: new Set<string>(),
+            };
 
             // Fire-and-forget — streaming content arrives via state SSE.
             generateScript.runScript({
@@ -388,6 +533,57 @@ export function ChatView({
         }
     };
 
+    /** Regenerate: create a new assistant response.
+     *  - If cursor is on a user message, generate a child of it.
+     *  - If cursor is on an assistant message, generate a sibling (child of its parent).
+     */
+    const handleRegenerate = async () => {
+        if (!selectedChatId || !selectedLeafId || !chatData) return;
+        const msg = chatData.messages[selectedLeafId];
+        if (!msg) return;
+
+        let targetUserMsgId: string;
+        if (msg.role === "user") {
+            targetUserMsgId = selectedLeafId;
+        } else if (msg.role === "assistant" && msg.parent_id) {
+            targetUserMsgId = msg.parent_id;
+        } else {
+            return;
+        }
+
+        // Snapshot existing children so we can detect the new one.
+        const existingChildren = getChildren(
+            chatData.messages,
+            targetUserMsgId,
+        );
+        pendingNewChildOf.current = {
+            nodeId: targetUserMsgId,
+            existingChildIds: new Set(existingChildren.map((c) => c.id)),
+        };
+
+        // Fire-and-forget.
+        generateScript.runScript({
+            action: "generate",
+            chat_id: selectedChatId,
+            parent_message_id: targetUserMsgId,
+        });
+    };
+
+    // ---------------------------------------------------------------------------
+    // Input bar derived state
+    // ---------------------------------------------------------------------------
+    const selectedMsg = selectedLeafId
+        ? chatData?.messages[selectedLeafId]
+        : null;
+    const selectedMsgRole = selectedMsg?.role ?? null;
+    const textInputEnabled = selectedMsgRole !== "user";
+    // Show Regenerate when cursor is on an assistant or user message node.
+    const showRegenerate =
+        selectedLeafId !== null && selectedMsg !== undefined;
+
+    // ---------------------------------------------------------------------------
+    // Render
+    // ---------------------------------------------------------------------------
     return (
         <div className="flex-1 flex overflow-hidden">
             {/* Sidebar */}
@@ -465,13 +661,45 @@ export function ChatView({
                             </button>
                             {chatData ? (
                                 <div className="space-y-4">
-                                    {currentPath.map((message) => (
-                                        <MessageBubble
-                                            key={message.id}
-                                            message={message}
-                                            onSelectTrace={onSelectTrace}
-                                        />
-                                    ))}
+                                    {fullPath.map((message, index) => {
+                                        const isDimmed =
+                                            branchCutIndex >= 0 &&
+                                            index > branchCutIndex;
+                                        const isSelectedBubble =
+                                            isBranchMode &&
+                                            message.id === selectedLeafId;
+                                        return (
+                                            <div
+                                                key={message.id}
+                                                className={`transition-opacity ${isDimmed ? "opacity-50" : ""}`}
+                                            >
+                                                <SiblingNavigator
+                                                    messages={chatData.messages}
+                                                    node={message}
+                                                    isUser={
+                                                        message.role === "user"
+                                                    }
+                                                    onNavigate={(leafId) => {
+                                                        setLeafIds(leafId);
+                                                    }}
+                                                />
+                                                <MessageBubble
+                                                    message={message}
+                                                    onSelectTrace={
+                                                        onSelectTrace
+                                                    }
+                                                    onClick={() =>
+                                                        handleBubbleClick(
+                                                            message.id,
+                                                        )
+                                                    }
+                                                    isSelected={
+                                                        isSelectedBubble
+                                                    }
+                                                />
+                                            </div>
+                                        );
+                                    })}
                                     <div ref={messagesEndRef} />
                                 </div>
                             ) : (
@@ -483,6 +711,19 @@ export function ChatView({
 
                         {/* Input bar */}
                         <div className="border-t border-gray-700 bg-gray-800 p-4">
+                            {isBranchMode && (
+                                <div className="mb-2 text-xs text-yellow-400 flex items-center gap-1">
+                                    <span>⎇ Branching from here</span>
+                                    <button
+                                        onClick={() =>
+                                            setSelectedLeafId(committedLeafId)
+                                        }
+                                        className="ml-2 underline hover:text-yellow-200"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            )}
                             <form
                                 onSubmit={handleSendMessage}
                                 className="flex gap-2"
@@ -493,22 +734,42 @@ export function ChatView({
                                     onChange={(e) =>
                                         setInputMessage(e.target.value)
                                     }
-                                    placeholder="Type a message..."
-                                    className="flex-1 px-4 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:outline-none focus:border-blue-500"
-                                    disabled={addUserMessageScript.loading}
-                                />
-                                <button
-                                    type="submit"
+                                    placeholder={
+                                        textInputEnabled
+                                            ? "Type a message..."
+                                            : "Select a response above to continue…"
+                                    }
+                                    className="flex-1 px-4 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:outline-none focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                                     disabled={
-                                        !inputMessage.trim() ||
+                                        !textInputEnabled ||
                                         addUserMessageScript.loading
                                     }
-                                    className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded transition-colors"
-                                >
-                                    {addUserMessageScript.loading
-                                        ? "Sending..."
-                                        : "Send"}
-                                </button>
+                                />
+                                {textInputEnabled && (
+                                    <button
+                                        type="submit"
+                                        disabled={
+                                            !inputMessage.trim() ||
+                                            addUserMessageScript.loading
+                                        }
+                                        className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded transition-colors"
+                                    >
+                                        {addUserMessageScript.loading
+                                            ? "Sending..."
+                                            : "Send"}
+                                    </button>
+                                )}
+                                {showRegenerate && (
+                                    <button
+                                        type="button"
+                                        onClick={handleRegenerate}
+                                        disabled={generateScript.loading}
+                                        className="px-4 py-2 bg-gray-600 hover:bg-gray-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded transition-colors whitespace-nowrap"
+                                        title="Generate another response"
+                                    >
+                                        ↺ Regenerate
+                                    </button>
+                                )}
                             </form>
                         </div>
                     </>
