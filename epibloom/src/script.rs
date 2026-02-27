@@ -836,7 +836,6 @@ impl UserData for LuaStateObject {
                     let lua_old_value = lua.to_value_with(&old_value, *SERIALIZE_OPTIONS)?;
                     let lua_new_value: Value = func.call_async(lua_old_value).await?;
                     let value = lua.from_value_with(lua_new_value, *DESERIALIZE_OPTIONS)?;
-                    log::debug!("State {} changed to {:?}", &obj.name, &value);
                     Ok(value)
                 })
                 .await
