@@ -33,8 +33,9 @@ lazy_static! {
     static ref SERIALIZE_OPTIONS: mlua::SerializeOptions = mlua::SerializeOptions::new()
         .serialize_none_to_null(false)
         .serialize_unit_to_null(false);
-    static ref DESERIALIZE_OPTIONS: mlua::DeserializeOptions =
-        mlua::DeserializeOptions::new().encode_empty_tables_as_array(true);
+    static ref DESERIALIZE_OPTIONS: mlua::DeserializeOptions = mlua::DeserializeOptions::new()
+        .encode_empty_tables_as_array(true)
+        .detect_mixed_tables(true);
 }
 
 pub struct ContextStore {
@@ -294,8 +295,6 @@ impl Context {
             filesystem_module.set(
                 "files",
                 lua.create_async_function(async |_lua, mut pattern: String| {
-                    debug!("epibloom.filesystem.files called with pattern '{pattern}'");
-
                     let script_data_dir = crate::SCRIPT_DATA_DIR.get().unwrap();
 
                     if !pattern.starts_with('/') {
@@ -310,15 +309,11 @@ impl Context {
                         ))?,
                     );
 
-                    debug!("Full pattern is '{pattern}'");
-
                     // Collect all items in the directory into a vector.
                     let paths = glob::glob(&pattern)
                         .map_err(mlua::Error::external)?
                         .collect::<Result<Vec<_>, glob::GlobError>>()
                         .map_err(mlua::Error::external)?;
-
-                    debug!("Files found: {paths:#?}");
 
                     // Only keep JSON files, and use the relative path.
                     let paths = paths
@@ -331,8 +326,6 @@ impl Context {
                             }
                         })
                         .collect::<Vec<_>>();
-
-                    debug!("Final paths: {paths:#?}");
 
                     Ok(paths)
                 })?,
@@ -842,7 +835,9 @@ impl UserData for LuaStateObject {
                 .update(async |old_value| {
                     let lua_old_value = lua.to_value_with(&old_value, *SERIALIZE_OPTIONS)?;
                     let lua_new_value: Value = func.call_async(lua_old_value).await?;
-                    lua.from_value_with(lua_new_value, *DESERIALIZE_OPTIONS)
+                    let value = lua.from_value_with(lua_new_value, *DESERIALIZE_OPTIONS)?;
+                    log::debug!("State {} changed to {:?}", &obj.name, &value);
+                    Ok(value)
                 })
                 .await
         });

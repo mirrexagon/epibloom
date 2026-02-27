@@ -86,6 +86,8 @@ function chat.add_message(chat_id, parent_id, role, content)
             content = new_content,
         }
 
+        print("new message:", value.messages[new_id])
+
         chat.save(value)
         return value
     end)
