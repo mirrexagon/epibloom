@@ -24,6 +24,7 @@ local dispatch = {
     -- Parameters:
     -- - chat_id
     poke = function(arg)
+        print("chat_action.poke", arg.chat_id)
         chat.poke(arg.chat_id)
     end,
 
