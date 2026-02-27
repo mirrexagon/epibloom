@@ -99,3 +99,15 @@ In `epibloom/ui/`, React + TypeScript + Vite + Tailwind CSS.
 
 - `just check-ui` - Runs `npm run lint` to run ESLint.
 - `just serve` - Runs `npm run dev` to start development server (proxies `/api/*` to backend at `:8000`) - the user will already have this running in most cases.
+
+## Gotchas
+
+### Lua-JSON serialization
+
+mlua has a serde-based serialization (Rust to Lua)/deserialization (Lua to Rust) functionality, which is used for easy converting of Rust structs to and from Lua, but primarily getting and setting the values of state objects with `epibloom.state`, and for saving to disk with `epibloom.filesystem`, both of which convert Lua values to and from freeform `serde_json::Json` values. This has a few quirks.
+
+`epibloom/src/script.rs` has explicit options set in `SERIALIZE_OPTIONS` and `DESERIALIZE_OPTIONS`, which set:
+
+- Serializing `None` and `()` unit to "null" is disabled. When enabled, this uses a Lua light userdata value of `0x0` as a stand-in for a key in an object existing but being null, since in Lua a nil value for a key means that key doesn't even exist. This can cause issues when the UI is expecting a field to be present but can be null, so such code needs to take into account that the key-value pair may be missing entirely.
+- `encode_empty_tables_as_array` is enabled, since with an earlier representation of chat messages (`epibloom/scripts/chat.lua`), an empty messages array was encoded as an object instead of an array and caused issues in the frontend.
+- `detect_mixed_tables` is enabled to ensure that object-like tables get deserialized into JSON properly. The mlua documentation states, "When this option is disabled, a table with a non-zero length (with one or more borders) will be always encoded as an array." For some reason this seemed to be happening even with a table with no integer keys.
