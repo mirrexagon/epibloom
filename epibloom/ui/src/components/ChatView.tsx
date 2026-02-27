@@ -173,7 +173,12 @@ function MarkdownContent({ text, className = "" }: MarkdownContentProps) {
                     ),
                     // Inline code
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    code: ({ inline, className: cls, children, ...props }: any) => {
+                    code: ({
+                        inline,
+                        className: cls,
+                        children,
+                        ...props
+                    }: any) => {
                         const match = /language-(\w+)/.exec(cls || "");
                         if (!inline && match) {
                             return (
@@ -362,7 +367,7 @@ export function ChatView({
     } | null>(null);
 
     // Script hooks for chat actions
-    // TODO: Each chat should use its own script context
+    // TODO: Each message generation should use its own script context, so multiple branches can be generating at once.
     const listScript = useScript<string[]>("chat", "chat_action");
     const newChatScript = useScript<string>("chat", "chat_action");
     const pokeScript = useScript<void>("chat", "chat_action");
@@ -578,8 +583,7 @@ export function ChatView({
     const selectedMsgRole = selectedMsg?.role ?? null;
     const textInputEnabled = selectedMsgRole !== "user";
     // Show Regenerate when cursor is on an assistant or user message node.
-    const showRegenerate =
-        selectedLeafId !== null && selectedMsg !== undefined;
+    const showRegenerate = selectedLeafId !== null && selectedMsg !== undefined;
 
     // ---------------------------------------------------------------------------
     // Render

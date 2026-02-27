@@ -149,6 +149,8 @@ function chat.generate(chat_id, parent_message_id)
 
         generate_handle = trace:generate("anthropic")
 
+        -- TODO: Mark message as generating so it can't be branched off or affected while generating
+
         return value
     end)
 
