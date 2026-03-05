@@ -79,6 +79,7 @@ Start by making a simpler text adventure game with locations and exits, inventor
 
 - Save prompts and other inputs used to generate and do things and allow them to be viewed in the UI (probably bring them up in the debug panel) - things like ComfyUI workflows and prompts used for images
 - Tracking what the player should know/has found out, instead of just having NPCs have descriptions and knowing their names immediately.
+    - https://www.reddit.com/r/aiRPGofficial/comments/1rjrdup/what_i_have_done_to_eliminate_spoilers_in_ai_rpg/
 
 # Inspirations
 - Freely-editable markdown plain text as chat: https://github.com/rusiaaman/chat.md
