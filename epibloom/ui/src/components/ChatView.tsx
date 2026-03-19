@@ -23,6 +23,8 @@ function getChildren(
         parentId = undefined;
     }
 
+    // TODO: Check if the sort here is actually sorting by timestamp, or if only
+    // a subset of the bits of the UUID should be considered.
     return Object.values(messages)
         .filter((m) => m.parent_id === parentId)
         .sort((a, b) => a.id.localeCompare(b.id));
@@ -175,7 +177,12 @@ function MarkdownContent({ text, className = "" }: MarkdownContentProps) {
                     // Inline code
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     code: (codeProps: any) => {
-                        const { inline, className: cls, children, ...props } = codeProps;
+                        const {
+                            inline,
+                            className: cls,
+                            children,
+                            ...props
+                        } = codeProps;
                         const match = /language-(\w+)/.exec(cls || "");
                         if (!inline && match) {
                             return (
@@ -664,9 +671,7 @@ export function ChatView({
                         {/* Chat header */}
                         <div className="flex items-center justify-end px-4 py-1.5 border-b border-gray-700 bg-gray-800">
                             <button
-                                onClick={() =>
-                                    setShowFlowchart((v) => !v)
-                                }
+                                onClick={() => setShowFlowchart((v) => !v)}
                                 title={
                                     showFlowchart
                                         ? "Hide tree view"
@@ -824,7 +829,10 @@ export function ChatView({
                             const onMove = (ev: MouseEvent) => {
                                 const delta = startX - ev.clientX;
                                 setFlowchartWidth(
-                                    Math.max(200, Math.min(800, startWidth + delta)),
+                                    Math.max(
+                                        200,
+                                        Math.min(800, startWidth + delta),
+                                    ),
                                 );
                             };
                             const onUp = () => {

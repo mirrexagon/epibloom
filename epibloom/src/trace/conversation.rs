@@ -36,6 +36,7 @@ pub struct Message {
     // TODO: Add error for any error that occurred generating this message.
     // Maybe make content an Option in case the error happens before any message
     // chunks come in?
+    // TODO: Track when generation started and when it ended.
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

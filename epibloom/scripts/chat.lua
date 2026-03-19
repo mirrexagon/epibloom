@@ -63,6 +63,10 @@ end
 --- @return uuid # The new message ID.
 function chat.add_message(chat_id, parent_id, role, content)
     local chat_state = chat.get_state(chat_id)
+
+    -- NOTE: This module assumes that this UUID is UUIDv7, which is
+    -- time-orderable, to record the order multiple branch messages coming off a
+    -- single parent message.
     local new_id = uuid.new()
 
     chat_state:update(function(value)
@@ -223,6 +227,7 @@ end
 
 --- @private
 function chat.load(chat_id)
+    -- TODO: Normalize list of message chunks into a single string in the list.
     return fs.load_json(string.format("chats/%s.json", chat_id))
 end
 
