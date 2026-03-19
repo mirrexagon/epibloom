@@ -6,7 +6,7 @@ import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { useScript } from "../hooks/useScript";
 import { useStateObjects } from "../hooks/useStateObjects";
 import { Chat, ChatMessage } from "../types/api";
-import { ChatFlowchart } from "./ChatFlowchart";
+import { ChatFlowchart, ChatFlowchartHandle } from "./ChatFlowchart";
 
 // ---------------------------------------------------------------------------
 // Tree helpers
@@ -363,6 +363,15 @@ export function ChatView({
 
     const [inputMessage, setInputMessage] = useState("");
 
+    // Ref to the flowchart so we can imperatively re-centre it on navigation.
+    const flowchartRef = useRef<ChatFlowchartHandle>(null);
+
+    // Map from message id → its DOM container element, for scroll-to.
+    const messageRefs = useRef<Map<string, HTMLElement>>(new Map());
+
+    // When set, the next render after fullPath changes will scroll to this id.
+    const scrollToMessageId = useRef<string | null>(null);
+
     // pendingNewChildOf: when set, we are waiting for a *new* child of this
     // node to appear in chatData (e.g. after a generate call).  The ref stores
     // the node id and the set of child ids that existed *before* the call so we
@@ -466,6 +475,18 @@ export function ChatView({
     // Auto-scroll to bottom when the displayed path changes.
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [fullPath]);
+
+    // Scroll the chat to a specific message after a tree-node click.
+    // This runs after fullPath updates (so the element is in the DOM).
+    useEffect(() => {
+        const target = scrollToMessageId.current;
+        if (!target) return;
+        const el = messageRefs.current.get(target);
+        if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+            scrollToMessageId.current = null;
+        }
     }, [fullPath]);
 
     // Load chat list on mount
@@ -581,12 +602,15 @@ export function ChatView({
     };
 
     // ---------------------------------------------------------------------------
-    // Flowchart node selection — navigate to the first-leaf under the clicked node.
+    // Flowchart node selection — navigate to the first-leaf under the clicked node
+    // and scroll the chat to the clicked message.
     // ---------------------------------------------------------------------------
     const handleSelectNode = useCallback(
         (nodeId: string) => {
             if (!chatData) return;
             setLeafIds(getFirstLeaf(chatData.messages, nodeId));
+            // After fullPath updates, scroll the chat to the clicked node.
+            scrollToMessageId.current = nodeId;
         },
         [chatData, setLeafIds],
     );
@@ -711,6 +735,10 @@ export function ChatView({
                                         return (
                                             <div
                                                 key={message.id}
+                                                ref={(el) => {
+                                                    if (el) messageRefs.current.set(message.id, el);
+                                                    else messageRefs.current.delete(message.id);
+                                                }}
                                                 className={`transition-opacity ${isDimmed ? "opacity-50" : ""}`}
                                             >
                                                 <SiblingNavigator
@@ -721,6 +749,8 @@ export function ChatView({
                                                     }
                                                     onNavigate={(leafId) => {
                                                         setLeafIds(leafId);
+                                                        // Jump the tree view to the new leaf.
+                                                        flowchartRef.current?.centerOnNode(leafId);
                                                     }}
                                                 />
                                                 <MessageBubble
@@ -852,6 +882,7 @@ export function ChatView({
                         </div>
                         <div className="flex-1 overflow-hidden">
                             <ChatFlowchart
+                                ref={flowchartRef}
                                 messages={chatData.messages}
                                 selectedLeafId={selectedLeafId}
                                 onSelectNode={handleSelectNode}
