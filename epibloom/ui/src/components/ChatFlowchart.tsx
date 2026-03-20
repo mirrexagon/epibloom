@@ -54,7 +54,10 @@ interface LayoutResult {
     rootIds: string[];
 }
 
-function computeLayout(messages: Record<string, ChatMessage>): LayoutResult {
+function computeLayout(
+    messages: Record<string, ChatMessage>,
+    pathIds?: Set<string>,
+): LayoutResult {
     // Build children map, treating null parent as "__root__".
     const childrenMap: Record<string, string[]> = {};
     for (const id of Object.keys(messages)) {
@@ -63,9 +66,27 @@ function computeLayout(messages: Record<string, ChatMessage>): LayoutResult {
         if (!childrenMap[parentKey]) childrenMap[parentKey] = [];
         childrenMap[parentKey].push(id);
     }
-    // Sort by UUID for stable UUIDv7 insertion order.
+    // Sort by UUID for stable UUIDv7 insertion order, then reorder so the
+    // on-path child sits in the middle index.  This makes the active trunk go
+    // roughly straight down instead of drifting sideways at every branch point.
     for (const key of Object.keys(childrenMap)) {
         childrenMap[key].sort((a, b) => a.localeCompare(b));
+
+        if (pathIds && pathIds.size > 0 && childrenMap[key].length > 1) {
+            const kids = childrenMap[key];
+            const pathIdx = kids.findIndex((c) => pathIds.has(c));
+            if (pathIdx !== -1) {
+                const pathChild = kids[pathIdx];
+                const others = kids.filter((c) => c !== pathChild);
+                // Split non-path siblings: half on the left, half on the right.
+                const leftCount = Math.floor(others.length / 2);
+                childrenMap[key] = [
+                    ...others.slice(0, leftCount),
+                    pathChild,
+                    ...others.slice(leftCount),
+                ];
+            }
+        }
     }
 
     const rootIds = (childrenMap["__root__"] ?? []).slice();
@@ -167,16 +188,18 @@ export const ChatFlowchart = forwardRef<ChatFlowchartHandle, ChatFlowchartProps>
 
         const svgRef = useRef<SVGSVGElement>(null);
 
-        // Recompute layout whenever messages change.
-        const { positions, childrenMap } = useMemo(
-            () => computeLayout(messages),
-            [messages],
-        );
-
-        // Set of node IDs on the current path (for highlight ring).
+        // Set of node IDs on the current path (computed first so layout can use it).
         const pathIds = useMemo(
             () => getPathIds(messages, selectedLeafId),
             [messages, selectedLeafId],
+        );
+
+        // Recompute layout whenever messages or the active path changes.
+        // pathIds is passed so the on-path child is placed in the middle at each
+        // branch point, keeping the active trunk roughly straight down.
+        const { positions, childrenMap } = useMemo(
+            () => computeLayout(messages, pathIds),
+            [messages, pathIds],
         );
 
         // ---------------------------------------------------------------------------

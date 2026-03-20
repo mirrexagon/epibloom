@@ -369,8 +369,11 @@ export function ChatView({
     // Map from message id → its DOM container element, for scroll-to.
     const messageRefs = useRef<Map<string, HTMLElement>>(new Map());
 
-    // When set, the next render after fullPath changes will scroll to this id.
+    // When set, the next scroll effect will scroll to this message id.
     const scrollToMessageId = useRef<string | null>(null);
+    // Incremented every time handleSelectNode is called so the scroll effect
+    // fires even when fullPath hasn't changed (same-branch ancestor click).
+    const [scrollVersion, setScrollVersion] = useState(0);
 
     // pendingNewChildOf: when set, we are waiting for a *new* child of this
     // node to appear in chatData (e.g. after a generate call).  The ref stores
@@ -472,22 +475,27 @@ export function ChatView({
         committedLeafId !== null &&
         selectedLeafId !== committedLeafId;
 
-    // Auto-scroll to bottom when the displayed path changes.
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [fullPath]);
-
-    // Scroll the chat to a specific message after a tree-node click.
-    // This runs after fullPath updates (so the element is in the DOM).
+    // Unified scroll effect.
+    //
+    // When a tree node was clicked (scrollToMessageId is set), scroll to that
+    // specific message — even if fullPath didn't change (ancestor of current
+    // selection in a linear section).  Otherwise scroll to the bottom as usual.
+    //
+    // Depends on both fullPath (content changes) and scrollVersion (tree clicks
+    // that don't change the path still need to trigger a scroll).
     useEffect(() => {
         const target = scrollToMessageId.current;
-        if (!target) return;
-        const el = messageRefs.current.get(target);
-        if (el) {
-            el.scrollIntoView({ behavior: "smooth", block: "center" });
+        if (target) {
             scrollToMessageId.current = null;
+            const el = messageRefs.current.get(target);
+            if (el) {
+                el.scrollIntoView({ behavior: "smooth", block: "center" });
+                return;
+            }
+            // Target not in the current path — fall through to scroll-to-bottom.
         }
-    }, [fullPath]);
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [scrollVersion, fullPath]);
 
     // Load chat list on mount
     useEffect(() => {
@@ -609,8 +617,11 @@ export function ChatView({
         (nodeId: string) => {
             if (!chatData) return;
             setLeafIds(getFirstLeaf(chatData.messages, nodeId));
-            // After fullPath updates, scroll the chat to the clicked node.
+            // Scroll the chat to the clicked node.  scrollVersion is incremented
+            // so the effect fires even when fullPath doesn't change (e.g. clicking
+            // an ancestor in the same linear branch).
             scrollToMessageId.current = nodeId;
+            setScrollVersion((v) => v + 1);
         },
         [chatData, setLeafIds],
     );
