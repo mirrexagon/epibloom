@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -375,6 +375,20 @@ export function ChatView({
     // fires even when fullPath hasn't changed (same-branch ancestor click).
     const [scrollVersion, setScrollVersion] = useState(0);
 
+    // Ref to the scrollable messages container, used for scroll-anchor maths.
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+    // When set, the next useLayoutEffect will adjust scrollTop so the given
+    // message stays at the recorded pixel offset from the container top.
+    const pendingScrollAnchor = useRef<{
+        messageId: string;
+        offsetFromContainerTop: number;
+    } | null>(null);
+
+    // When true, the normal scroll-to-bottom useEffect skips once (used when
+    // sibling navigation is handling scroll via the anchor instead).
+    const suppressDefaultScroll = useRef(false);
+
     // pendingNewChildOf: when set, we are waiting for a *new* child of this
     // node to appear in chatData (e.g. after a generate call).  The ref stores
     // the node id and the set of child ids that existed *before* the call so we
@@ -441,6 +455,7 @@ export function ChatView({
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === "Escape" && selectedLeafId !== committedLeafId) {
+                suppressDefaultScroll.current = true;
                 setSelectedLeafId(committedLeafId);
             }
         };
@@ -475,6 +490,25 @@ export function ChatView({
         committedLeafId !== null &&
         selectedLeafId !== committedLeafId;
 
+    // Scroll-anchor correction — runs synchronously before the browser paints
+    // so the user never sees the scroll jump when switching sibling branches.
+    // Only active when pendingScrollAnchor has been set by handleSiblingNavigate.
+    useLayoutEffect(() => {
+        const anchor = pendingScrollAnchor.current;
+        if (!anchor) return;
+        pendingScrollAnchor.current = null;
+
+        const container = scrollContainerRef.current;
+        const el = messageRefs.current.get(anchor.messageId);
+        if (!el || !container) return;
+
+        const containerRect = container.getBoundingClientRect();
+        const elRect = el.getBoundingClientRect();
+        const currentOffset = elRect.top - containerRect.top;
+        // Adjust scrollTop by however much the element moved from where it was.
+        container.scrollTop += currentOffset - anchor.offsetFromContainerTop;
+    }, [fullPath]);
+
     // Unified scroll effect.
     //
     // When a tree node was clicked (scrollToMessageId is set), scroll to that
@@ -484,6 +518,12 @@ export function ChatView({
     // Depends on both fullPath (content changes) and scrollVersion (tree clicks
     // that don't change the path still need to trigger a scroll).
     useEffect(() => {
+        // Sibling navigation handles its own scroll via the layout-effect anchor;
+        // skip the default behaviour for that one render cycle.
+        if (suppressDefaultScroll.current) {
+            suppressDefaultScroll.current = false;
+            return;
+        }
         const target = scrollToMessageId.current;
         if (target) {
             scrollToMessageId.current = null;
@@ -525,9 +565,37 @@ export function ChatView({
         await pokeScript.runScript({ action: "poke", chat_id: chatId });
     };
 
+    // Called by SiblingNavigator when the user clicks ← or →.
+    // Before changing the leaf we record where the parent message currently sits
+    // so the useLayoutEffect can restore that position after the re-render.
+    const handleSiblingNavigate = useCallback(
+        (node: ChatMessage, leafId: string) => {
+            // The "anchor" is the parent message — the last shared message above
+            // the branch point that stays visible in both siblings.
+            const anchorId = node.parent_id ?? node.id;
+            const container = scrollContainerRef.current;
+            const el = messageRefs.current.get(anchorId);
+            if (el && container) {
+                const containerRect = container.getBoundingClientRect();
+                const elRect = el.getBoundingClientRect();
+                pendingScrollAnchor.current = {
+                    messageId: anchorId,
+                    offsetFromContainerTop: elRect.top - containerRect.top,
+                };
+                suppressDefaultScroll.current = true;
+            }
+
+            setLeafIds(leafId);
+            flowchartRef.current?.centerOnNode(leafId);
+        },
+        [setLeafIds],
+    );
+
     /** Click on a bubble: set branch point, or cancel if already there. */
     const handleBubbleClick = useCallback(
         (messageId: string) => {
+            // Don't scroll — the user is just clicking in place.
+            suppressDefaultScroll.current = true;
             if (selectedLeafId === messageId) {
                 // Same bubble clicked again → cancel branch mode
                 setSelectedLeafId(committedLeafId);
@@ -723,7 +791,7 @@ export function ChatView({
                         </div>
 
                         {/* Messages area */}
-                        <div className="flex-1 overflow-y-auto p-4">
+                        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-4">
                             <button
                                 onClick={() =>
                                     onSelectStateObject?.(
@@ -758,11 +826,9 @@ export function ChatView({
                                                     isUser={
                                                         message.role === "user"
                                                     }
-                                                    onNavigate={(leafId) => {
-                                                        setLeafIds(leafId);
-                                                        // Jump the tree view to the new leaf.
-                                                        flowchartRef.current?.centerOnNode(leafId);
-                                                    }}
+                                                    onNavigate={(leafId) =>
+                                                        handleSiblingNavigate(message, leafId)
+                                                    }
                                                 />
                                                 <MessageBubble
                                                     message={message}
@@ -796,9 +862,10 @@ export function ChatView({
                                 <div className="mb-2 text-xs text-yellow-400 flex items-center gap-1">
                                     <span>⎇ Branching from here</span>
                                     <button
-                                        onClick={() =>
-                                            setSelectedLeafId(committedLeafId)
-                                        }
+                                        onClick={() => {
+                                            suppressDefaultScroll.current = true;
+                                            setSelectedLeafId(committedLeafId);
+                                        }}
                                         className="ml-2 underline hover:text-yellow-200"
                                     >
                                         Cancel
