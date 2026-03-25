@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -68,11 +68,11 @@ interface SiblingNavigatorProps {
     messages: Record<string, ChatMessage>;
     node: ChatMessage;
     isUser: boolean;
-    /** Called with the first-leaf id of the newly selected sibling. */
-    onNavigate: (leafId: string) => void;
+    /** Called with the pivot node and the first-leaf id of the newly selected sibling. */
+    onNavigate: (node: ChatMessage, leafId: string) => void;
 }
 
-function SiblingNavigator({
+const SiblingNavigator = memo(function SiblingNavigator({
     messages,
     node,
     isUser,
@@ -85,7 +85,7 @@ function SiblingNavigator({
 
     const goTo = (idx: number) => {
         if (idx >= 0 && idx < siblings.length) {
-            onNavigate(getFirstLeaf(messages, siblings[idx].id));
+            onNavigate(node, getFirstLeaf(messages, siblings[idx].id));
         }
     };
 
@@ -120,7 +120,7 @@ function SiblingNavigator({
             </button>
         </div>
     );
-}
+});
 
 // ---------------------------------------------------------------------------
 // MarkdownContent
@@ -260,15 +260,16 @@ function MarkdownContent({ text, className = "" }: MarkdownContentProps) {
 interface MessageBubbleProps {
     message: ChatMessage;
     onSelectTrace?: (traceId: string) => void;
-    onClick?: () => void;
+    /** Called with the message id when the bubble is clicked. */
+    onBubbleClick?: (messageId: string) => void;
     /** Highlight this bubble as the active branch point. */
     isSelected?: boolean;
 }
 
-function MessageBubble({
+const MessageBubble = memo(function MessageBubble({
     message,
     onSelectTrace,
-    onClick,
+    onBubbleClick,
     isSelected = false,
 }: MessageBubbleProps) {
     const isUser = message.role === "user";
@@ -283,7 +284,7 @@ function MessageBubble({
             className={`flex ${isUser ? "justify-end" : "justify-start"} ${isSystem ? "justify-center" : ""}`}
         >
             <div
-                onClick={onClick}
+                onClick={() => onBubbleClick?.(message.id)}
                 className={`max-w-[70%] rounded-lg px-4 py-2 cursor-pointer transition-all ${
                     isUser
                         ? "bg-blue-600 text-white"
@@ -334,7 +335,7 @@ function MessageBubble({
             </div>
         </div>
     );
-}
+});
 
 // ---------------------------------------------------------------------------
 // ChatView
@@ -826,20 +827,14 @@ export function ChatView({
                                                     isUser={
                                                         message.role === "user"
                                                     }
-                                                    onNavigate={(leafId) =>
-                                                        handleSiblingNavigate(message, leafId)
-                                                    }
+                                                    onNavigate={handleSiblingNavigate}
                                                 />
                                                 <MessageBubble
                                                     message={message}
                                                     onSelectTrace={
                                                         onSelectTrace
                                                     }
-                                                    onClick={() =>
-                                                        handleBubbleClick(
-                                                            message.id,
-                                                        )
-                                                    }
+                                                    onBubbleClick={handleBubbleClick}
                                                     isSelected={
                                                         isSelectedBubble
                                                     }

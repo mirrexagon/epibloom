@@ -5,6 +5,7 @@ import {
     useCallback,
     useRef,
     useEffect,
+    memo,
 } from "react";
 import {
     ReactFlow,
@@ -110,7 +111,7 @@ function computeLayout(
 // across renders (React Flow unmounts/remounts nodes when nodeTypes changes).
 // ---------------------------------------------------------------------------
 
-function ChatNodeComponent({ id, data }: NodeProps<ChatNode>) {
+const ChatNodeComponent = memo(function ChatNodeComponent({ id, data }: NodeProps<ChatNode>) {
     const { message, isSelected, isOnPath, childCount } = data;
 
     const bgColor =
@@ -211,7 +212,7 @@ function ChatNodeComponent({ id, data }: NodeProps<ChatNode>) {
             />
         </div>
     );
-}
+});
 
 // Stable reference — defined once, outside of any component.
 const nodeTypes = { chatMessage: ChatNodeComponent };
