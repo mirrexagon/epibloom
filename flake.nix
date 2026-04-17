@@ -41,8 +41,11 @@
 
           devShells.default = pkgs.mkShell {
             nativeBuildInputs = with pkgs; [
+              # Tools.
               just
+              httpie
 
+              # Server dependencies.
               rustc
               cargo
               clippy
@@ -51,11 +54,14 @@
               pkg-config
               openssl.dev
 
+              lua54Packages.lua
+
+              # tl CLI deps.
+              lua54Packages.argparse
+              lua54Packages.luafilesystem
+
+              # UI dependencies.
               nodejs
-
-              lua-language-server
-
-              httpie
             ];
 
             NODE_ENV = "development";
