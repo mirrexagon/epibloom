@@ -72,6 +72,20 @@
 - If some features need support from the backend (eg. token probabilities, how sampler chose tokens), make a new backend based on llama.cpp called Epicalyx (see Epibloom README for why)
 - How to support swipes and general transforms before sending the chat? Do the transforms in scripts, replace the entire content of a chat with the result, and send that? Or have a chat be assignable a transform script that makes any changes before it gets sent to the backend?
 
+Teal, try to make the scripting nicer to easily use and write scripts for
+
+Move debug to top level tab instead of drawer. Then there is RP/chat tab and game tab
+
+Dedicated guy making own story/RP interface with anti slop https://reddit.com/comments/1sh9tz7/comment/ofb7mhp?context=3
+
+Use a Reduxy thing where you emit an event to cause UI state to change? Eg. Clicking on a trace ID on a chat message emits an event to set the UI to debug tab and select that trace to show
+
+Ask AI how to make the scripting API nicer to use, perhaps by just having individual generations create traces behind the scenes automatically, since we probably never want to add to a trace after it is done, it's just to see how a generation went
+That would simplify the model a bunch, generate function would just return the new trace ID
+Also add agentic loop support for tool calling in a single generate call from scripting
+
+Also ask about cleaning up the streaming implementation
+
 # RPG Ideas
 Based on AI RPG.
 
