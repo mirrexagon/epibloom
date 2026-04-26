@@ -86,6 +86,8 @@ Also add agentic loop support for tool calling in a single generate call from sc
 
 Also ask about cleaning up the streaming implementation
 
+For each swipe/tree branch, be able to tag it in some way. Maybe just be able to tag messages, add notes, etc. eg. for which swipes I like and what about them I like.
+
 # RPG Ideas
 Based on AI RPG.
 
