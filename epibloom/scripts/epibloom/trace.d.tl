@@ -21,7 +21,7 @@ local record trace
     end
 
     --- Configuration for the Anthropic backend.
-    --- All fields are optional; omitted fields use server-side defaults.
+    --- Omitted fields use defaults.
     record AnthropicConfig
         max_tokens: integer
         model: string
@@ -30,7 +30,7 @@ local record trace
     end
 
     --- Configuration for the Featherless backend.
-    --- All fields are optional; omitted fields use server-side defaults.
+    --- Omitted fields use defaults.
     record FeatherlessConfig
         max_tokens: integer
         model: string
@@ -49,12 +49,17 @@ local record trace
         "featherless"
     end
 
+    enum TraceGenerateChunkType
+        "thinking"
+        "message"
+        "error"
+    end
+
     --- A single chunk received during streaming LLM generation.
-    --- The `type` field is one of "thinking", "message", or "error".
     --- `delta` is populated for "thinking" and "message" chunks.
     --- `message` is populated for "error" chunks.
     record TraceGenerateChunk
-        type: string
+        type: TraceGenerateChunkType
         delta: string
         message: string
     end
