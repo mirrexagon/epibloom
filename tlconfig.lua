@@ -1,5 +1,5 @@
 return {
     include_dir = {
-        "scripts",
+        "epibloom/scripts",
     },
 }

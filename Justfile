@@ -4,7 +4,7 @@ check-server:
     cd epibloom && cargo clippy
 
 check-scripts:
-    cd epibloom && fd -0 -tfile '\.lua$|\.tl$' scripts | xargs -0 lua deps/tl/tl check
+    fd -0 -tfile '\.lua$|\.tl$' epibloom/scripts | xargs -0 lua epibloom/deps/tl/tl check
 
 check-ui:
     cd epibloom/ui && npm run lint
