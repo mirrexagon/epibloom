@@ -13,6 +13,7 @@ run: copy-scripts
     cd epibloom && cargo run
 
 copy-scripts:
+    fd -0 -tfile '\.tl$' epibloom/scripts | xargs -0 -I{} sh -c 'lua epibloom/deps/tl/tl gen -o "$(dirname "$1")/$(basename "$1" .tl).lua" "$1"' _ {}
     rsync -rvP --delete epibloom/scripts ~/.config/epibloom
 
 serve-ui:
