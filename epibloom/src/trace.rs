@@ -15,18 +15,6 @@ pub enum Error {
     #[error("trace not found")]
     TraceNotFound,
 
-    #[error("trace has no messages")]
-    TraceHasNoMessages,
-
-    #[error("message not found")]
-    MessageNotFound,
-
-    #[error("can't modify trace while generating")]
-    CantModifyTraceWhileGenerating,
-
-    #[error("thinking was supplied for a non-assistant message")]
-    ThinkingSuppliedForNonAssistantMessage,
-
     #[error("Backend error: {0}")]
     Backend(String),
 

@@ -1,15 +1,12 @@
-use std::sync::Arc;
-
 use async_stream::stream;
 use futures::Stream;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, Notify};
+use tokio::sync::broadcast;
 use utoipa::ToSchema;
 
 use crate::backend::GenerateChunk;
 
 use super::conversation::{Message, Role, Trace};
-use super::Error;
 
 // TODO: Use JSON Patch of an entire trace instead of custom events?
 // Implement traces in terms of StateObjects and have backends and backened
@@ -33,7 +30,6 @@ pub enum GenerationState {
     Generating {
         thinking_so_far: String,
         content_so_far: String,
-        complete_notify: Arc<Notify>,
     },
 }
 
@@ -62,76 +58,6 @@ impl Session {
 
     pub fn trace(&self) -> &Trace {
         &self.trace
-    }
-
-    pub fn generation_state(&self) -> &GenerationState {
-        &self.state
-    }
-
-    pub fn get_message(&self, message_position: usize) -> Option<Message> {
-        self.trace.messages.get(message_position).cloned()
-    }
-
-    pub fn get_message_count(&self) -> usize {
-        self.trace.messages.len()
-    }
-
-    /// Provide no message position to append a message.
-    pub async fn set_message(
-        &mut self,
-        message_position: Option<usize>,
-        message: Message,
-    ) -> Result<(), Error> {
-        if message.thinking.is_some() && message.role != Role::Assistant {
-            return Err(Error::ThinkingSuppliedForNonAssistantMessage);
-        }
-
-        if self.state.is_generating() {
-            return Err(Error::CantModifyTraceWhileGenerating);
-        }
-
-        let now = time::OffsetDateTime::now_local().unwrap();
-        let message_position = message_position.unwrap_or(self.trace.messages.len());
-
-        match self.trace.messages.len() {
-            len if message_position == len => {
-                // Push new message on the end.
-                self.trace.messages.push(message);
-            }
-
-            len if message_position < len => {
-                self.trace.messages[message_position] = message;
-            }
-
-            _ => return Err(Error::MessageNotFound),
-        }
-
-        // Broadcast that the message was added or changed.
-        let message = &self.trace.messages[message_position];
-
-        self.trace.metadata.modified = now;
-        super::persistence::save_to_directory(&self.trace).await?;
-
-        let _ = self.event_broadcast.send(TraceEvent::MessageStart {
-            position: message_position,
-            role: message.role,
-        });
-
-        if let Some(ref thinking) = message.thinking {
-            let _ = self.event_broadcast.send(TraceEvent::ThinkingDelta {
-                delta: thinking.to_owned(),
-            });
-        }
-
-        let _ = self.event_broadcast.send(TraceEvent::ContentDelta {
-            delta: message.content.to_owned(),
-        });
-
-        let _ = self.event_broadcast.send(TraceEvent::MessageEnd {
-            position: message_position,
-        });
-
-        Ok(())
     }
 
     /// Get a stream that yields events corresponding to existing messages, then any future message chunks.
@@ -205,20 +131,15 @@ impl Session {
         }
     }
 
-    /// Transition from Idle to Generating. Returns the current trace snapshot
+    /// Transition to Generating state. Returns the current trace snapshot
     /// and a broadcast receiver for events.
-    pub fn begin_generation(&mut self) -> Result<(Trace, broadcast::Receiver<TraceEvent>), Error> {
-        if self.state.is_generating() {
-            return Err(Error::CantModifyTraceWhileGenerating);
-        }
-
+    pub fn begin_generation(&mut self) -> (Trace, broadcast::Receiver<TraceEvent>) {
         self.state = GenerationState::Generating {
             thinking_so_far: String::new(),
             content_so_far: String::new(),
-            complete_notify: Arc::new(Notify::new()),
         };
 
-        Ok((self.trace.clone(), self.event_broadcast.subscribe()))
+        (self.trace.clone(), self.event_broadcast.subscribe())
     }
 
     /// Process a generation chunk, accumulating content and broadcasting events.
@@ -275,7 +196,6 @@ impl Session {
         if let GenerationState::Generating {
             thinking_so_far,
             content_so_far,
-            complete_notify,
         } = old_generation
         {
             self.trace.messages.push(Message {
@@ -299,8 +219,6 @@ impl Session {
                     message: err.to_string(),
                 });
             }
-
-            complete_notify.notify_waiters();
         }
     }
 }

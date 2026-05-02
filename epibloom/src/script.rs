@@ -22,11 +22,10 @@ use tokio::sync::{broadcast, Mutex};
 use uuid::Uuid;
 
 use crate::state::StateObject;
-use crate::trace::TraceEvent;
 use crate::{
     backend,
     state::StateStore,
-    trace::{self, Message, Role, TraceStore},
+    trace::{Message, Role, TraceEvent, TraceStore},
 };
 
 lazy_static! {
@@ -199,93 +198,68 @@ impl Context {
             package_loaded.set("epibloom.uuid", uuid_module)?;
         }
 
-        // Trace module.
+        // LLM module.
         {
             lua.set_named_registry_value(
-                "epibloom.store.trace",
+                "epibloom.llm.trace_store",
                 lua.create_userdata(LuaTraceStore {
                     trace_store: Arc::clone(&trace_store),
                 })?,
             )?;
 
-            {
-                let trace_store_proxy_module = lua.create_table()?;
+            let llm_module = lua.create_table()?;
 
-                trace_store_proxy_module.set(
-                    "new",
-                    lua.create_async_function(async |lua, name: Option<String>| {
-                        let trace_store: LuaTraceStore =
-                            lua.named_registry_value("epibloom.store.trace")?;
+            llm_module.set(
+                "generate",
+                lua.create_async_function(
+                    async |lua, (messages_table, backend, config): (mlua::Table, String, Value)| {
+                        let messages: Vec<Message> = messages_table
+                            .sequence_values::<Message>()
+                            .collect::<mlua::Result<_>>()?;
 
-                        let new_trace_id = trace_store
-                            .trace_store
-                            .new_trace(name.as_deref())
-                            .await
-                            .map_err(mlua::Error::external)?;
+                        let store: LuaTraceStore =
+                            lua.named_registry_value("epibloom.llm.trace_store")?;
 
-                        Ok(LuaTrace {
-                            id: new_trace_id,
-                            trace_store: Arc::clone(&trace_store.trace_store),
+                        let (trace_id, rx) = match backend.as_str() {
+                            "anthropic" => {
+                                let cfg = match config {
+                                    Value::Nil => backend::anthropic::Config::default(),
+                                    v => lua.from_value_with(v, *DESERIALIZE_OPTIONS)?,
+                                };
+                                store
+                                    .trace_store
+                                    .generate::<backend::anthropic::AnthropicApi>(messages, cfg)
+                                    .await
+                                    .map_err(mlua::Error::external)?
+                            }
+                            "featherless" => {
+                                let cfg = match config {
+                                    Value::Nil => backend::featherless::Config::default(),
+                                    v => lua.from_value_with(v, *DESERIALIZE_OPTIONS)?,
+                                };
+                                store
+                                    .trace_store
+                                    .generate::<backend::featherless::FeatherlessApi>(messages, cfg)
+                                    .await
+                                    .map_err(mlua::Error::external)?
+                            }
+                            _ => {
+                                return Err(mlua::Error::runtime(format!(
+                                    r#"bad argument #2: unknown backend '{backend}'"#
+                                )))
+                            }
+                        };
+
+                        Ok(LuaLlmGenerateHandle {
+                            trace_id: format!("{}", trace_id.hyphenated()),
+                            receiver: Some(rx),
                         })
-                    })?,
-                )?;
+                    },
+                )?,
+            )?;
 
-                trace_store_proxy_module.set(
-                    "get",
-                    lua.create_async_function(async |lua, trace_id: String| {
-                        let trace_store: LuaTraceStore =
-                            lua.named_registry_value("epibloom.store.trace")?;
-
-                        let trace_id = Uuid::try_parse(&trace_id).map_err(mlua::Error::external)?;
-
-                        if trace_store.trace_store.has_trace(trace_id).await {
-                            Ok((
-                                Some(LuaTrace {
-                                    id: trace_id,
-                                    trace_store: Arc::clone(&trace_store.trace_store),
-                                }),
-                                None,
-                            ))
-                        } else {
-                            Ok((
-                                None,
-                                Some(format!("trace {} not found", trace_id.hyphenated())),
-                            ))
-                        }
-                    })?,
-                )?;
-
-                let package_loaded: Table = globals.get_path("package.loaded")?;
-                package_loaded.set("epibloom.trace", trace_store_proxy_module)?;
-            }
-
-            {
-                let message_metatable = lua.create_table()?;
-
-                message_metatable.set(
-                    "__tostring",
-                    lua.create_function(|_lua, message: Message| {
-                        if message.thinking.is_some() {
-                            Ok(format!(
-                                "Message {{ role = \"{}\", content = \"{}\", thinking = \"{}\" }}",
-                                message.role,
-                                message.content,
-                                message.thinking.unwrap()
-                            ))
-                        } else {
-                            Ok(format!(
-                                "Message {{ role = \"{}\", content = \"{}\" }}",
-                                message.role, message.content
-                            ))
-                        }
-                    })?,
-                )?;
-
-                lua.set_named_registry_value(
-                    "epibloom.trace.message.metatable",
-                    message_metatable,
-                )?;
-            }
+            let package_loaded: Table = globals.get_path("package.loaded")?;
+            package_loaded.set("epibloom.llm", llm_module)?;
         }
 
         // Filesystem module.
@@ -504,161 +478,6 @@ impl FromLua for LuaTraceStore {
     }
 }
 
-struct LuaTrace {
-    id: Uuid,
-    trace_store: Arc<TraceStore>,
-}
-
-// Deserialise the Lua `config` value into `$Config` (defaulting to
-// `$Config::default()` when nil), then start generation on `$trace` using
-// `$Api` as the backend.
-macro_rules! start_with_backend {
-    ($Api:ty, $Config:ty, $lua:expr, $config:expr, $trace:expr) => {{
-        let config = match $config {
-            Value::Nil => <$Config>::default(),
-            value => $lua.from_value_with(value, *DESERIALIZE_OPTIONS)?,
-        };
-        $trace
-            .trace_store
-            .start_generating::<$Api>($trace.id, config)
-            .await?
-    }};
-}
-
-impl UserData for LuaTrace {
-    fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
-        fields.add_field_method_get("id", |_lua, trace| Ok(format!("{}", trace.id.hyphenated())));
-    }
-
-    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_async_method(
-            "generate",
-            async |lua, trace, (backend, config): (String, Value)| {
-                let chunk_rx = match backend.as_ref() {
-                    "anthropic" => start_with_backend!(
-                        backend::anthropic::AnthropicApi,
-                        backend::anthropic::Config,
-                        lua,
-                        config,
-                        trace
-                    ),
-
-                    "featherless" => start_with_backend!(
-                        backend::featherless::FeatherlessApi,
-                        backend::featherless::Config,
-                        lua,
-                        config,
-                        trace
-                    ),
-
-                    _ => {
-                        return Err(mlua::Error::runtime(format!(
-                            r#"bad argument #1: unknown backend '{backend}'"#
-                        )))
-                    }
-                };
-
-                Ok(LuaTraceGenerateHandle {
-                    receiver: Some(chunk_rx),
-                })
-            },
-        );
-
-        // TODO: Do I need this? Its only use now that I have
-        // TraceGenerationHandle is for other script contexts to wait until the
-        // trace is free, but I am not planning to reuse traces across scripts.
-        methods.add_async_method("wait_for_generate", async |_lua, trace, ()| {
-            trace
-                .trace_store
-                .wait_for_generate_complete(trace.id)
-                .await?;
-
-            Ok(())
-        });
-
-        methods.add_async_meta_method("__index", async |_lua, trace, message_position: usize| {
-            let session = trace
-                .trace_store
-                .get_session(trace.id)
-                .await
-                .map_err(mlua::Error::external)?;
-
-            let session = session.read().await;
-
-            if message_position == 0 {
-                return Err(mlua::Error::runtime("message position cannot be 0"));
-            }
-
-            Ok(session.get_message(message_position - 1))
-        });
-
-        methods.add_async_meta_method(
-            "__newindex",
-            async |_lua, trace, (message_position, message): (usize, Message)| {
-                let session = trace
-                    .trace_store
-                    .get_session(trace.id)
-                    .await
-                    .map_err(mlua::Error::external)?;
-
-                let mut session = session.write().await;
-
-                if message_position == 0 {
-                    return Err(mlua::Error::runtime("message position cannot be 0"));
-                }
-
-                session
-                    .set_message(Some(message_position - 1), message)
-                    .await
-                    .map_err(mlua::Error::external)?;
-
-                Ok(())
-            },
-        );
-
-        methods.add_async_meta_method("__len", async |_lua, trace, ()| {
-            let session = trace
-                .trace_store
-                .get_session(trace.id)
-                .await
-                .map_err(mlua::Error::external)?;
-
-            let session = session.read().await;
-
-            Ok(session.get_message_count())
-        });
-    }
-}
-
-// TODO: use lua.from_value_with(): https://github.com/mlua-rs/mlua/blob/main/examples/serde.rs#L31
-// Fields can be made optional by setting #[serde(default)] on the target struct
-
-impl IntoLua for Message {
-    fn into_lua(self, lua: &Lua) -> mlua::Result<Value> {
-        let message_table = lua.create_table()?;
-
-        message_table.set("role", self.role.into_lua(lua)?)?;
-        message_table.set("content", self.content.into_lua(lua)?)?;
-        message_table.set("thinking", self.thinking.into_lua(lua)?)?;
-
-        let metatable = lua.named_registry_value("epibloom.trace.message.metatable")?;
-        message_table.set_metatable(Some(metatable))?;
-
-        Ok(Value::Table(message_table))
-    }
-}
-
-impl IntoLua for Role {
-    fn into_lua(self, lua: &Lua) -> mlua::Result<Value> {
-        match self {
-            Self::System => "system",
-            Self::User => "user",
-            Self::Assistant => "assistant",
-        }
-        .into_lua(lua)
-    }
-}
-
 impl FromLua for Message {
     fn from_lua(value: Value, lua: &Lua) -> mlua::Result<Self> {
         match value {
@@ -692,38 +511,34 @@ impl FromLua for Role {
     }
 }
 
-impl From<trace::Error> for mlua::Error {
-    fn from(value: trace::Error) -> Self {
-        mlua::Error::external(value)
-    }
-}
-
-/// Handle returned by `trace:generate()`. Supports both chunk-by-chunk
-/// iteration (via `handle:chunks()` in a `for` loop) and blocking until
-/// generation completes (via `handle:wait()`).
-struct LuaTraceGenerateHandle {
+/// Handle returned by `llm.generate()`. Supports chunk-by-chunk iteration
+/// (via `__call`) and blocking until complete (via `wait()`).
+struct LuaLlmGenerateHandle {
+    trace_id: String,
     receiver: Option<broadcast::Receiver<TraceEvent>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
-enum LuaTraceGenerateChunk {
+enum LuaLlmGenerateChunk {
     Thinking { delta: String },
     Message { delta: String },
     Error { message: String },
 }
 
-impl IntoLua for LuaTraceGenerateChunk {
+impl IntoLua for LuaLlmGenerateChunk {
     fn into_lua(self, lua: &Lua) -> mlua::Result<Value> {
         lua.to_value_with(&self, *SERIALIZE_OPTIONS)
     }
 }
 
-impl UserData for LuaTraceGenerateHandle {
+impl UserData for LuaLlmGenerateHandle {
+    fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
+        fields.add_field_method_get("trace_id", |_lua, handle| Ok(handle.trace_id.clone()));
+    }
+
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
-        // __call: receive the next chunk from the generation stream.
-        // Returns the chunk string, or nil when generation is complete.
-        // Also allows the handle to be directly used in a generic for loop.
+        // __call: return the next chunk, or nil when generation is complete.
         methods.add_async_meta_method_mut(
             "__call",
             async |_lua, mut handle, _args: mlua::MultiValue| match handle.receiver {
@@ -732,25 +547,24 @@ impl UserData for LuaTraceGenerateHandle {
                     match rx.recv().await {
                         Ok(event) => match event {
                             TraceEvent::ThinkingDelta { delta } => {
-                                break Ok(Some(LuaTraceGenerateChunk::Thinking { delta }));
+                                break Ok(Some(LuaLlmGenerateChunk::Thinking { delta }));
                             }
                             TraceEvent::ContentDelta { delta } => {
-                                break Ok(Some(LuaTraceGenerateChunk::Message { delta }));
+                                break Ok(Some(LuaLlmGenerateChunk::Message { delta }));
                             }
-                            TraceEvent::MessageEnd { position: _ } => {
+                            TraceEvent::MessageEnd { .. } => {
                                 handle.receiver.take();
                                 break Ok(None);
                             }
                             TraceEvent::Error { message } => {
                                 handle.receiver.take();
-                                break Ok(Some(LuaTraceGenerateChunk::Error { message }));
+                                break Ok(Some(LuaLlmGenerateChunk::Error { message }));
                             }
                             _ => {}
                         },
-
                         Err(err) => {
                             handle.receiver.take();
-                            break Ok(Some(LuaTraceGenerateChunk::Error {
+                            break Ok(Some(LuaLlmGenerateChunk::Error {
                                 message: err.to_string(),
                             }));
                         }
@@ -759,16 +573,13 @@ impl UserData for LuaTraceGenerateHandle {
             },
         );
 
-        // wait(): block until generation completes, discarding all chunks.
-        // Safe to call after partial iteration of chunks() as it drains whatever
-        // remains. Safe to call after generation is already done as it returns
-        // immediately since the receiver has already been disposed of.
+        // wait(): drain remaining chunks, returning (success, error_message).
         methods.add_async_method_mut("wait", async |_lua, mut handle, ()| match handle.receiver {
             None => Ok((true, None)),
             Some(ref mut rx) => loop {
                 match rx.recv().await {
                     Ok(event) => match event {
-                        TraceEvent::MessageEnd { position: _ } => {
+                        TraceEvent::MessageEnd { .. } => {
                             handle.receiver.take();
                             break Ok((true, None));
                         }
@@ -778,7 +589,6 @@ impl UserData for LuaTraceGenerateHandle {
                         }
                         _ => {}
                     },
-
                     Err(err) => {
                         handle.receiver.take();
                         break Ok((false, Some(err.to_string())));

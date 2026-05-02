@@ -16,15 +16,7 @@ use super::ApiErrorResponse;
 impl From<trace::Error> for ApiErrorResponse {
     fn from(value: trace::Error) -> Self {
         match value {
-            trace::Error::TraceNotFound
-            | trace::Error::TraceHasNoMessages
-            | trace::Error::MessageNotFound => ApiErrorResponse::NotFound(value.to_string()),
-            trace::Error::CantModifyTraceWhileGenerating => {
-                ApiErrorResponse::Conflict(value.to_string())
-            }
-            trace::Error::ThinkingSuppliedForNonAssistantMessage => {
-                ApiErrorResponse::BadRequest(value.to_string())
-            }
+            trace::Error::TraceNotFound => ApiErrorResponse::NotFound(value.to_string()),
             trace::Error::Io(_) | trace::Error::Json(_) => {
                 ApiErrorResponse::InternalServerError(value.to_string())
             }

@@ -11,9 +11,9 @@ use uuid::Uuid;
 
 use crate::backend::{Backend, Backends};
 
-use super::conversation::{Role, Trace, TraceMetadata};
+use super::conversation::{Message, Role, Trace, TraceMetadata};
 use super::session::TraceEvent;
-use super::session::{GenerationState, Session};
+use super::session::Session;
 use super::Error;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -49,30 +49,6 @@ impl TraceStore {
         Ok(())
     }
 
-    pub async fn save_trace(&self, trace_id: Uuid) -> Result<(), Error> {
-        let sessions = self.sessions.read().await;
-        let session_arc = sessions.get(&trace_id).ok_or(Error::TraceNotFound)?;
-        let session = session_arc.read().await;
-        super::persistence::save_to_directory(session.trace()).await?;
-        Ok(())
-    }
-
-    pub async fn save_all_traces(&self) -> Result<(), Error> {
-        let sessions = self.sessions.read().await;
-
-        for (_, session_arc) in sessions.iter() {
-            let session = session_arc.read().await;
-            super::persistence::save_to_directory(session.trace()).await?;
-        }
-
-        Ok(())
-    }
-
-    pub async fn has_trace(&self, trace_id: Uuid) -> bool {
-        let sessions = self.sessions.read().await;
-        sessions.contains_key(&trace_id)
-    }
-
     pub async fn list_traces(&self) -> Result<Vec<TraceMetadata>, Error> {
         let sessions = self.sessions.read().await;
 
@@ -94,23 +70,6 @@ impl TraceStore {
             Some(session_arc) => Ok(Arc::clone(session_arc)),
             None => Err(Error::TraceNotFound),
         }
-    }
-
-    /// Create a new blank trace and add it as a session.
-    pub async fn new_trace(&self, name: Option<&str>) -> Result<Uuid, Error> {
-        let trace = Trace::new(name);
-        let trace_metadata = trace.metadata.clone();
-
-        log::info!(
-            "Creating new trace: {}: {}",
-            trace_metadata.id,
-            trace_metadata.name
-        );
-
-        super::persistence::save_to_directory(&trace).await?;
-        self.add_trace(trace).await?;
-
-        Ok(trace_metadata.id)
     }
 
     /// Add a trace as a session.
@@ -181,16 +140,27 @@ impl TraceStore {
         }
     }
 
-    pub async fn start_generating<B: Backend + TypeMapKey<Value = Arc<B>> + Send + Sync>(
+    /// Create a trace from the given messages, persist it, and immediately
+    /// start LLM generation. Returns the new trace's ID and a receiver for
+    /// streaming generation events.
+    pub async fn generate<B: Backend + TypeMapKey<Value = Arc<B>> + Send + Sync>(
         &self,
-        trace_id: Uuid,
+        messages: Vec<Message>,
         backend_config: B::Config,
-    ) -> Result<broadcast::Receiver<TraceEvent>, Error>
+    ) -> Result<(Uuid, broadcast::Receiver<TraceEvent>), Error>
     where
         <B as Backend>::Config: Send + Sync + 'static,
         <B as Backend>::Error: Send + Sync + 'static,
     {
-        let session_arc = self.get_session(trace_id).await?;
+        let trace = Trace {
+            metadata: TraceMetadata::new(None),
+            messages,
+        };
+        let trace_id = trace.metadata.id;
+
+        super::persistence::save_to_directory(&trace).await?;
+        self.add_trace(trace).await?;
+
         let backend = self
             .backends
             .lock()
@@ -198,13 +168,15 @@ impl TraceStore {
             .get::<B>()
             .map_err(|err| Error::Backend(err.to_string()))?;
 
-        let (trace, rx) = {
+        let session_arc = self.get_session(trace_id).await?;
+
+        let (trace_snapshot, rx) = {
             let mut session = session_arc.write().await;
-            session.begin_generation()?
+            session.begin_generation()
         };
 
-        let message_position = trace.messages.len();
-        let stream = backend.generate(&backend_config, &trace);
+        let message_position = trace_snapshot.messages.len();
+        let stream = backend.generate(&backend_config, &trace_snapshot);
 
         tokio::spawn(async move {
             {
@@ -231,33 +203,13 @@ impl TraceStore {
                 session.broadcast_message_end(message_position);
             }
 
-            // Finish generation: commit message, save, notify waiters.
             {
                 let mut session = session_arc.write().await;
                 session.finish_generation().await;
             }
         });
 
-        Ok(rx)
-    }
-
-    pub async fn wait_for_generate_complete(&self, trace_id: Uuid) -> Result<(), Error> {
-        let session = self.get_session(trace_id).await?;
-
-        let notified = {
-            let session = session.read().await;
-
-            match session.generation_state() {
-                GenerationState::Idle => return Ok(()),
-                GenerationState::Generating {
-                    complete_notify, ..
-                } => Arc::clone(complete_notify).notified_owned(),
-            }
-        };
-
-        notified.await;
-
-        Ok(())
+        Ok((trace_id, rx))
     }
 
     // TODO: Cancel a trace that is generating

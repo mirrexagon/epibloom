@@ -1,7 +1,7 @@
 local fs = require("epibloom.filesystem")
 local log = require("epibloom.log")
 local state = require("epibloom.state")
-local traces = require("epibloom.trace")
+local llm = require("epibloom.llm")
 local uuid = require("epibloom.uuid")
 local util = require("util")
 
@@ -15,7 +15,7 @@ local record ChatMessage
     --- Parent message ID; nil only for root nodes.
     parent_id: string | nil
     --- Who authored this message.
-    role: traces.Role
+    role: llm.Role
     --- Thinking text as a list of string chunks, if present.
     thinking: {string} | nil
     --- Message content as a list of string chunks.
@@ -40,7 +40,7 @@ local record ChatModule
     get: function(chat_id: string, create_if_not_found?: boolean): Chat
     poke: function(chat_id: string)
     list_chats: function(): {string}
-    add_message: function(chat_id: string, parent_id: string | nil, role: traces.Role, content: string | {string} | nil): string
+    add_message: function(chat_id: string, parent_id: string | nil, role: llm.Role, content: string | {string} | nil): string
     get_path: function(messages: {string: ChatMessage}, node_id: string): {ChatMessage}
     generate: function(chat_id: string, parent_message_id: string)
     get_state: function(chat_id: string, create_if_not_found?: boolean): state.StateObject
@@ -89,7 +89,7 @@ function chat.list_chats(): {string}
 end
 
 --- Add a new message node to the chat tree and return its ID.
-function chat.add_message(chat_id: string, parent_id: string | nil, role: traces.Role, content: string | {string} | nil): string
+function chat.add_message(chat_id: string, parent_id: string | nil, role: llm.Role, content: string | {string} | nil): string
     local chat_state = chat.get_state(chat_id)
 
     -- NOTE: UUIDv7 is time-orderable, which lets us record the order of
@@ -146,56 +146,45 @@ end
 function chat.generate(chat_id: string, parent_message_id: string)
     local chat_state = chat.get_state(chat_id)
 
-    local trace_obj: traces.Trace | nil = nil
-    local generate_handle: traces.TraceGenerateHandle | nil = nil
-    local new_message_id: string | nil = nil
+    -- Read the current state to build the message path.
+    local current_value = chat_state:read() as Chat
+    local path = chat.get_path(current_value.messages, parent_message_id)
 
-    -- Create the empty assistant node and start generation inside one atomic
-    -- update so the SSE push reaches clients before streaming starts.
+    -- Flatten each node's content chunks into a single string for the LLM.
+    local messages: {llm.Message} = {}
+    for _, message in ipairs(path) do
+        if message.role and message.content then
+            messages[#messages + 1] = { role = message.role, content = table.concat(message.content) }
+        end
+    end
+
+    -- Start generation. This creates a trace internally and begins streaming.
+    local handle = llm.generate(messages, "anthropic")
+    local new_message_id = uuid.new()
+
+    -- Add the new empty assistant node to the chat state, including the trace
+    -- ID so the UI can link to it.
     chat_state:update(function(value: any): any
         local chat_value = value as Chat
-
-        new_message_id = uuid.new()
-        trace_obj = traces.new()
-
-        -- Add the new empty assistant node as a child of parent_message_id.
         chat_value.messages[new_message_id] = {
             id = new_message_id,
             parent_id = parent_message_id,
             role = "assistant",
             content = {},
-            trace_id = trace_obj.id,
+            trace_id = handle.trace_id,
         }
-
-        -- Build the LLM trace from root → parent_message_id.
-        local path = chat.get_path(chat_value.messages, parent_message_id)
-        for i, message in ipairs(path) do
-            if message.role and message.content then
-                trace_obj[i] = { role = message.role, content = table.concat(message.content) }
-            end
-        end
-
-        generate_handle = trace_obj:generate("anthropic")
-
-        -- TODO: Mark message as generating so it can't be branched off or
-        -- affected while still streaming.
-
         return chat_value
     end)
-
-    -- Narrow the upvalue types: both are guaranteed set by the update callback above.
-    local handle = generate_handle as traces.TraceGenerateHandle
-    local msg_id = new_message_id as string
 
     -- Stream chunks from the LLM into the chat state. Each chunk triggers a
     -- small JSON Patch (array-element add) rather than replacing the whole
     -- content string, keeping per-chunk SSE payloads small.
     local chunk = handle()
     while chunk ~= nil do
-        local c = chunk as traces.TraceGenerateChunk
+        local c = chunk as llm.GenerateChunk
         chat_state:update(function(value: any): any
             local chat_value = value as Chat
-            local message = chat_value.messages[msg_id]
+            local message = chat_value.messages[new_message_id]
 
             if c.type == "message" then
                 message.content[#message.content + 1] = c.delta
