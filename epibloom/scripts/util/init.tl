@@ -15,4 +15,6 @@ function util.errorf(s: string, ...)
     return error(string.format(s, ...))
 end
 
+util.table = table_util
+
 return util
