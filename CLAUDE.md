@@ -35,6 +35,8 @@ State objects are not persisted. Scripts that need to persist data use `require(
 
 Scripts are Lua files run server-side via mlua. They are the glue between the UI, state objects, and LLM generation. A script receives a JSON value as input and returns a JSON value as output.
 
+In this case, we are using the Teal language to write scripts, a typed dialect of Lua. They can be type-checked with `just check-scripts`. They are compiled to Lua alongside the source files by `just copy-scripts`.
+
 Scripts run inside named **contexts**, each of which is a persistent Lua VM — state (loaded modules, globals) is retained across runs on the same context. Requests to the same context are serialised (FIFO queue); different contexts run concurrently.
 
 Scripts are invoked via `POST /api/script/<context>/<path>` with a JSON body, and return a JSON result. The UI calls scripts for user actions (e.g. sending a chat message, triggering generation).
@@ -46,9 +48,9 @@ Built-in Lua modules available to scripts:
 - `epibloom.log` — structured logging (levels: error/warn/info/debug/trace).
 - `epibloom.uuid` — generate UUIDs.
 
-Each built-in Lua module has a Lua Language Server meta/definition file which defines the types and function type information on the Lua side. These are in `epibloom/scripts/meta`.
+Each built-in Lua module has a Teal definition file which defines the types and function type information on the Lua side. These are in `epibloom/scripts/epibloom`.
 
-Script source files live in `epibloom/scripts/` and are deployed to `~/.config/epibloom/scripts/` by `just run`.
+Script source files live in `epibloom/scripts/` and are compiled from Teal to Lua and deployed to `~/.config/epibloom/scripts/` by `just copy-scripts`.
 
 ### How they fit together (example: chat)
 
