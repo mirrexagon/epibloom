@@ -10,9 +10,9 @@ Epibloom has three core primitives that work together: **traces**, **state objec
 
 ### Traces (`epibloom/src/trace.rs`, `epibloom/src/api/trace.rs`)
 
-A trace is an LLM conversation: an ordered list of messages, each with a `role` (`system`/`user`/`assistant`), message `content`, and possible other items like `thinking` for reasoning text. Traces are identified by UUID and persisted as JSON files.
+A trace is a record of a single LLM generation: the input messages (with `role` `system`/`user`/`assistant` and `content`), the assistant response (which may also carry `thinking` text for reasoning models), and metadata (UUID, created/modified timestamps). Traces are identified by UUID and persisted as JSON files.
 
-Generation is initiated from Lua via `trace:generate(backend)`, which returns an iterable handle that yields chunks with things like message content or any error that occurs as they stream in from the LLM backend.
+Traces are **not** directly manipulated from Lua. They are created automatically each time a script calls `llm.generate()` (see Scripts below). Scripts receive back a handle for streaming the response; the trace itself lives entirely in Rust.
 
 The UI subscribes to traces over SSE:
 - `GET /api/trace` — streams metadata for all existing traces, then any newly created ones.
@@ -35,26 +35,41 @@ State objects are not persisted. Scripts that need to persist data use `require(
 
 Scripts are Lua files run server-side via mlua. They are the glue between the UI, state objects, and LLM generation. A script receives a JSON value as input and returns a JSON value as output.
 
-In this case, we are using the Teal language to write scripts, a typed dialect of Lua. They can be type-checked with `just check-scripts`. They are compiled to Lua alongside the source files by `just copy-scripts`.
-
 Scripts run inside named **contexts**, each of which is a persistent Lua VM — state (loaded modules, globals) is retained across runs on the same context. Requests to the same context are serialised (FIFO queue); different contexts run concurrently.
 
 Scripts are invoked via `POST /api/script/<context>/<path>` with a JSON body, and return a JSON result. The UI calls scripts for user actions (e.g. sending a chat message, triggering generation).
 
 Built-in Lua modules available to scripts:
-- `epibloom.trace` — create traces and start LLM generation.
+- `epibloom.llm` — start LLM generation and stream the response.
 - `epibloom.state` — read/write named state objects (broadcasts patches to UI subscribers).
 - `epibloom.filesystem` — sandboxed JSON file I/O (for persistence).
 - `epibloom.log` — structured logging (levels: error/warn/info/debug/trace).
 - `epibloom.uuid` — generate UUIDs.
 
-Each built-in Lua module has a Teal definition file which defines the types and function type information on the Lua side. These are in `epibloom/scripts/epibloom`.
+The `epibloom.llm` module exposes a single function:
+```lua
+local handle = llm.generate(messages, backend, config?)
+```
+`messages` is a list of `{role, content}` tables covering the full conversation. `backend` is `"anthropic"` or `"featherless"`. `config` is an optional backend-specific config table (defaults are used if omitted). The call creates a trace internally, saves it to disk, starts generation, and returns a `GenerateHandle`. The handle has:
+- `handle.trace_id` — UUID string of the newly created trace (useful for storing alongside a chat message so the UI can link to it).
+- `handle()` — callable; returns the next `GenerateChunk` (`{type, delta}` or `{type, message}` for errors), or `nil` when done.
+- `handle:wait()` — blocks until generation finishes, discarding remaining chunks; returns `(success, error_message)`.
 
-Script source files live in `epibloom/scripts/` and are compiled from Teal to Lua and deployed to `~/.config/epibloom/scripts/` by `just copy-scripts`.
+#### Teal source files
+
+Scripts are written in [Teal](https://github.com/teal-language/tl), a typed dialect of Lua. The file naming convention in `epibloom/scripts/` is:
+
+- **`.tl`** — Teal source (edit these).
+- **`.d.tl`** — Teal type-definition stubs for built-in modules (in `epibloom/scripts/epibloom/`). These tell the Teal type checker the types of the Rust-backed built-in functions. The `.d.tl` file for each built-in module is at `epibloom/scripts/epibloom/<module>.d.tl`.
+- **`.lua`** — Generated Lua; produced by `tl gen` and committed alongside source. **Do not edit these directly.**
+
+The Teal compiler lives at `epibloom/deps/tl/tl` and is invoked by the `just` commands.
+
+Script source files live in `epibloom/scripts/` and are compiled from Teal to Lua in-place and then synced to `~/.config/epibloom/scripts/` by `just copy-scripts`.
 
 ### How they fit together (example: chat)
 
-The chat system (`epibloom/scripts/chat.lua`) illustrates the pattern: the UI calls a script action → the script updates a state object (chat messages) → state patches stream to the UI in real time → the script also creates a trace and drives LLM generation → generation chunks are written back into the state object → more patches reach the UI → the final chat is saved to disk via the filesystem module.
+The chat system (`epibloom/scripts/chat.tl`) illustrates the pattern: the UI calls a script action → the script calls `llm.generate(messages, backend)` which creates a trace internally and starts streaming → the script updates a state object (chat messages) so the UI receives the new empty assistant node → the script iterates generation chunks and writes each one back into the state object → more patches reach the UI in real time → the final chat state is saved to disk via the filesystem module.
 
 ## Development Environment
 
@@ -73,8 +88,9 @@ Lua script source in `epibloom/scripts/`.
 ### Commands
 
 - `just check-server` - Ensure the project builds by running `cargo clippy`.
-- `just check-scripts` - Check the Lua scripts using Lua Language Server.
-- `just run` - Copy scripts from `epibloom/scripts/` to `~/.config/epibloom/scripts` and then run the server. Run this in tmux so you can have it running while also testing API endpoints (see below).
+- `just check-scripts` - Type-check all `.tl` and `.lua` files in `epibloom/scripts/` using the bundled Teal compiler (`tl check`). Run this **before** `just copy-scripts` to catch type errors without overwriting deployed files.
+- `just copy-scripts` - Compile every `.tl` file to a `.lua` file alongside it, then rsync the whole `epibloom/scripts/` tree to `~/.config/epibloom/scripts/` (with `--delete` so removed files are cleaned up).
+- `just run` - Runs `just copy-scripts` and then starts the server. Run this in tmux so you can have it running while also testing API endpoints (see below).
 
 ### API Testing
 
