@@ -306,8 +306,11 @@ mod response {
 
     #[derive(Debug, Clone, Deserialize)]
     pub struct Usage {
-        pub input_tokens: Option<u32>,
+        pub input_tokens: u32,
         pub output_tokens: u32,
+        pub cache_creation_input_tokens: u32,
+        pub cache_read_input_tokens: u32,
+        pub inference_geo: Option<String>,
     }
 
     #[derive(Debug, Clone, Deserialize)]

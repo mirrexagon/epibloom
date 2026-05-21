@@ -150,13 +150,26 @@ function chat.generate(chat_id: string, parent_message_id: string)
     local current_value = chat_state:read() as Chat
     local path = chat.get_path(current_value.messages, parent_message_id)
 
-    -- Flatten each node's content chunks into a single string for the LLM.
+    -- Flatten each node's content chunks into a single text block, with a
+    -- cache_control breakpoint so Anthropic will cache the prompt up to each
+    -- message in the conversation history.
     local messages: {anthropic.Message} = {}
     for _, message in ipairs(path) do
         if message.role and message.content then
-            messages[#messages + 1] = { role = message.role, content = table.concat(message.content) }
+            messages[#messages + 1] = {
+                role = message.role,
+                content = {
+                    {
+                        type = "text",
+                        text = table.concat(message.content),
+                    }
+                },
+            }
         end
     end
+
+    -- TODO: Why no work
+    messages[#messages].content.cache_control = { type = "ephemeral" }
 
     -- Start generation. This creates a trace internally and begins streaming.
     local handle = anthropic.generate(messages)
