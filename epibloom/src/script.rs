@@ -23,7 +23,7 @@ use uuid::Uuid;
 
 use crate::state::StateObject;
 use crate::{
-    backend,
+    backend::anthropic::{self, messages::{request, ContentBlock, CacheControl}},
     state::StateStore,
     trace::{Message, Role, TraceEvent, TraceStore},
 };
@@ -198,57 +198,41 @@ impl Context {
             package_loaded.set("epibloom.uuid", uuid_module)?;
         }
 
-        // LLM module.
+        // Anthropic module.
         {
             lua.set_named_registry_value(
-                "epibloom.llm.trace_store",
+                "epibloom.anthropic.trace_store",
                 lua.create_userdata(LuaTraceStore {
                     trace_store: Arc::clone(&trace_store),
                 })?,
             )?;
 
-            let llm_module = lua.create_table()?;
+            let anthropic_module = lua.create_table()?;
 
-            llm_module.set(
+            anthropic_module.set(
                 "generate",
                 lua.create_async_function(
-                    async |lua, (messages_table, backend, config): (mlua::Table, String, Value)| {
-                        let messages: Vec<Message> = messages_table
-                            .sequence_values::<Message>()
+                    async |lua, (messages_table, config): (mlua::Table, Value)| {
+                        let lua_messages: Vec<LuaAnthropicMessage> = messages_table
+                            .sequence_values::<LuaAnthropicMessage>()
                             .collect::<mlua::Result<_>>()?;
 
-                        let store: LuaTraceStore =
-                            lua.named_registry_value("epibloom.llm.trace_store")?;
-
-                        let (trace_id, rx) = match backend.as_str() {
-                            "anthropic" => {
-                                let cfg = match config {
-                                    Value::Nil => backend::anthropic::Config::default(),
-                                    v => lua.from_value_with(v, *DESERIALIZE_OPTIONS)?,
-                                };
-                                store
-                                    .trace_store
-                                    .generate::<backend::anthropic::AnthropicApi>(messages, cfg)
-                                    .await
-                                    .map_err(mlua::Error::external)?
-                            }
-                            "featherless" => {
-                                let cfg = match config {
-                                    Value::Nil => backend::featherless::Config::default(),
-                                    v => lua.from_value_with(v, *DESERIALIZE_OPTIONS)?,
-                                };
-                                store
-                                    .trace_store
-                                    .generate::<backend::featherless::FeatherlessApi>(messages, cfg)
-                                    .await
-                                    .map_err(mlua::Error::external)?
-                            }
-                            _ => {
-                                return Err(mlua::Error::runtime(format!(
-                                    r#"bad argument #2: unknown backend '{backend}'"#
-                                )))
-                            }
+                        let cfg: anthropic::Config = match config {
+                            Value::Nil => anthropic::Config::default(),
+                            v => lua.from_value_with(v, *DESERIALIZE_OPTIONS)?,
                         };
+
+                        let store: LuaTraceStore =
+                            lua.named_registry_value("epibloom.anthropic.trace_store")?;
+
+                        let (trace_messages, system, anthropic_messages) =
+                            lua_messages_to_anthropic_and_trace(lua_messages);
+
+                        let (trace_id, rx) = store
+                            .trace_store
+                            .generate(trace_messages, system, anthropic_messages, cfg)
+                            .await
+                            .map_err(mlua::Error::external)?;
 
                         Ok(LuaLlmGenerateHandle {
                             trace_id: format!("{}", trace_id.hyphenated()),
@@ -259,7 +243,7 @@ impl Context {
             )?;
 
             let package_loaded: Table = globals.get_path("package.loaded")?;
-            package_loaded.set("epibloom.llm", llm_module)?;
+            package_loaded.set("epibloom.anthropic", anthropic_module)?;
         }
 
         // Filesystem module.
@@ -478,37 +462,176 @@ impl FromLua for LuaTraceStore {
     }
 }
 
-impl FromLua for Message {
-    fn from_lua(value: Value, lua: &Lua) -> mlua::Result<Self> {
-        match value {
-            Value::Table(table) => Ok(Message {
-                role: FromLua::from_lua(table.get("role")?, lua)?,
-                content: FromLua::from_lua(table.get("content")?, lua)?,
-                thinking: FromLua::from_lua(table.get("thinking")?, lua)?,
-            }),
-            _ => Err(mlua::Error::runtime("message must be a table")),
-        }
-    }
+/// Lua-facing Anthropic message. `content` may be a plain string or a list
+/// of text content blocks (which may carry `cache_control`).
+struct LuaAnthropicMessage {
+    role: Role,
+    /// Plain string shorthand, or a list of content blocks.
+    content: LuaAnthropicContent,
+    /// Optional thinking text (assistant turns with extended thinking).
+    thinking: Option<String>,
+}
+
+enum LuaAnthropicContent {
+    Plain(String),
+    Blocks(Vec<LuaTextBlock>),
+}
+
+struct LuaTextBlock {
+    text: String,
+    cache_control: Option<LuaCacheControl>,
+}
+
+enum LuaCacheControl {
+    Ephemeral,
 }
 
 impl FromLua for Role {
     fn from_lua(value: Value, _lua: &Lua) -> mlua::Result<Self> {
-        let role = match value.as_string() {
+        match value.as_string() {
             Some(role) => match role.to_string_lossy().as_str() {
-                "system" => Role::System,
-                "user" => Role::User,
-                "assistant" => Role::Assistant,
-                value => return Err(mlua::Error::runtime(format!("unknown role: {value}"))),
+                "system" => Ok(Role::System),
+                "user" => Ok(Role::User),
+                "assistant" => Ok(Role::Assistant),
+                v => Err(mlua::Error::runtime(format!("unknown role: {v}"))),
             },
-            None => {
+            None => Err(mlua::Error::runtime(format!(
+                r#"role must be one of "system", "user", "assistant", got {value:?}"#
+            ))),
+        }
+    }
+}
+
+impl FromLua for LuaAnthropicMessage {
+    fn from_lua(value: Value, lua: &Lua) -> mlua::Result<Self> {
+        let table = match value {
+            Value::Table(t) => t,
+            _ => return Err(mlua::Error::runtime("message must be a table")),
+        };
+
+        let role: Role = FromLua::from_lua(table.get("role")?, lua)?;
+        let thinking: Option<String> = table.get("thinking")?;
+
+        let content_value: Value = table.get("content")?;
+        let content = match content_value {
+            Value::String(s) => LuaAnthropicContent::Plain(s.to_string_lossy().to_owned()),
+            Value::Table(t) => {
+                let blocks: Vec<LuaTextBlock> = t
+                    .sequence_values::<LuaTextBlock>()
+                    .collect::<mlua::Result<_>>()?;
+                LuaAnthropicContent::Blocks(blocks)
+            }
+            Value::Nil => LuaAnthropicContent::Plain(String::new()),
+            other => {
                 return Err(mlua::Error::runtime(format!(
-                    r#"role must be one of "system", "user", "assistant", got {value:?}"#
+                    "message content must be a string or table of content blocks, got {other:?}"
                 )))
             }
         };
 
-        Ok(role)
+        Ok(LuaAnthropicMessage { role, content, thinking })
     }
+}
+
+impl FromLua for LuaTextBlock {
+    fn from_lua(value: Value, _lua: &Lua) -> mlua::Result<Self> {
+        let table = match value {
+            Value::Table(t) => t,
+            _ => return Err(mlua::Error::runtime("text block must be a table")),
+        };
+
+        let text: String = table.get("text")?;
+        let cache_control: Option<LuaCacheControl> = match table.get("cache_control")? {
+            Value::Nil => None,
+            Value::Table(cc) => {
+                let cc_type: String = cc.get("type")?;
+                match cc_type.as_str() {
+                    "ephemeral" => Some(LuaCacheControl::Ephemeral),
+                    other => return Err(mlua::Error::runtime(format!(
+                        "unknown cache_control type: {other}"
+                    ))),
+                }
+            }
+            other => return Err(mlua::Error::runtime(format!(
+                "cache_control must be a table, got {other:?}"
+            ))),
+        };
+
+        Ok(LuaTextBlock { text, cache_control })
+    }
+}
+
+/// Convert Lua Anthropic messages into:
+/// 1. `Vec<Message>` — simplified trace messages (plain text, for storage/display).
+/// 2. `Option<String>` — system prompt extracted from any system-role messages.
+/// 3. `Vec<request::Message>` — full Anthropic API messages with content blocks.
+fn lua_messages_to_anthropic_and_trace(
+    lua_messages: Vec<LuaAnthropicMessage>,
+) -> (Vec<Message>, Option<String>, Vec<request::Message>) {
+    let mut trace_messages: Vec<Message> = Vec::new();
+    let mut system_parts: Vec<String> = Vec::new();
+    let mut anthropic_messages: Vec<request::Message> = Vec::new();
+
+    for msg in lua_messages {
+        // Flatten content blocks to plain text for trace storage.
+        let plain_text = match &msg.content {
+            LuaAnthropicContent::Plain(s) => s.clone(),
+            LuaAnthropicContent::Blocks(blocks) => {
+                blocks.iter().map(|b| b.text.as_str()).collect::<Vec<_>>().join("")
+            }
+        };
+
+        if msg.role == Role::System {
+            system_parts.push(plain_text);
+            // System messages are not added to anthropic_messages — they become
+            // the top-level `system` field in the request.
+            continue;
+        }
+
+        // Build the Anthropic content block list.
+        let anthropic_content: Vec<ContentBlock> = match msg.content {
+            LuaAnthropicContent::Plain(text) => vec![ContentBlock::Text {
+                text,
+                citations: None,
+                cache_control: None,
+            }],
+            LuaAnthropicContent::Blocks(blocks) => blocks
+                .into_iter()
+                .map(|b| ContentBlock::Text {
+                    text: b.text,
+                    citations: None,
+                    cache_control: b.cache_control.map(|cc| match cc {
+                        LuaCacheControl::Ephemeral => CacheControl::Ephemeral,
+                    }),
+                })
+                .collect(),
+        };
+
+        let anthropic_role = match msg.role {
+            Role::User => crate::backend::anthropic::messages::Role::User,
+            Role::Assistant => crate::backend::anthropic::messages::Role::Assistant,
+            Role::System => unreachable!("system messages already handled above"),
+        };
+
+        trace_messages.push(Message {
+            role: msg.role,
+            content: plain_text,
+            thinking: msg.thinking,
+        });
+
+        anthropic_messages.push(request::Message {
+            role: anthropic_role,
+            content: anthropic_content,
+        });
+    }
+
+    let system = if system_parts.is_empty() {
+        None
+    } else {
+        Some(system_parts.join("\n\n"))
+    };
+
+    (trace_messages, system, anthropic_messages)
 }
 
 /// Handle returned by `llm.generate()`. Supports chunk-by-chunk iteration

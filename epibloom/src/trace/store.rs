@@ -5,11 +5,10 @@ use async_stream::stream;
 use futures::Stream;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, Mutex, RwLock};
-use typemap_rev::TypeMapKey;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::backend::{Backend, Backends};
+use crate::backend::anthropic::{self, messages::request, AnthropicApi};
 
 use super::conversation::{Message, Role, Trace, TraceMetadata};
 use super::session::TraceEvent;
@@ -24,7 +23,7 @@ pub enum TraceStoreEvent {
 
 pub struct TraceStore {
     sessions: RwLock<HashMap<Uuid, Arc<RwLock<Session>>>>,
-    backends: Mutex<Backends>,
+    anthropic: Mutex<Option<Arc<AnthropicApi>>>,
     event_broadcast: broadcast::Sender<TraceStoreEvent>,
 }
 
@@ -34,7 +33,7 @@ impl TraceStore {
 
         Self {
             sessions: RwLock::new(HashMap::new()),
-            backends: Mutex::new(Backends::new()),
+            anthropic: Mutex::new(None),
             event_broadcast,
         }
     }
@@ -141,32 +140,35 @@ impl TraceStore {
     }
 
     /// Create a trace from the given messages, persist it, and immediately
-    /// start LLM generation. Returns the new trace's ID and a receiver for
-    /// streaming generation events.
-    pub async fn generate<B: Backend + TypeMapKey<Value = Arc<B>> + Send + Sync>(
+    /// start Anthropic generation. Returns the new trace's ID and a receiver
+    /// for streaming generation events.
+    pub async fn generate(
         &self,
-        messages: Vec<Message>,
-        backend_config: B::Config,
-    ) -> Result<(Uuid, broadcast::Receiver<TraceEvent>), Error>
-    where
-        <B as Backend>::Config: Send + Sync + 'static,
-        <B as Backend>::Error: Send + Sync + 'static,
-    {
+        trace_messages: Vec<Message>,
+        system: Option<String>,
+        anthropic_messages: Vec<request::Message>,
+        config: anthropic::Config,
+    ) -> Result<(Uuid, broadcast::Receiver<TraceEvent>), Error> {
         let trace = Trace {
             metadata: TraceMetadata::new(None),
-            messages,
+            messages: trace_messages,
         };
         let trace_id = trace.metadata.id;
 
         super::persistence::save_to_directory(&trace).await?;
         self.add_trace(trace).await?;
 
-        let backend = self
-            .backends
-            .lock()
-            .await
-            .get::<B>()
-            .map_err(|err| Error::Backend(err.to_string()))?;
+        // Lazily initialise the Anthropic client.
+        let backend = {
+            let mut guard = self.anthropic.lock().await;
+            if guard.is_none() {
+                log::info!("Initialising Anthropic backend");
+                let api = AnthropicApi::new_from_env()
+                    .map_err(|err| Error::Backend(err.to_string()))?;
+                *guard = Some(Arc::new(api));
+            }
+            Arc::clone(guard.as_ref().unwrap())
+        };
 
         let session_arc = self.get_session(trace_id).await?;
 
@@ -176,7 +178,7 @@ impl TraceStore {
         };
 
         let message_position = trace_snapshot.messages.len();
-        let stream = backend.generate(&backend_config, &trace_snapshot);
+        let stream = backend.generate(&config, system, anthropic_messages);
 
         tokio::spawn(async move {
             {

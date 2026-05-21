@@ -1,4 +1,4 @@
-mod messages;
+pub mod messages;
 mod models;
 
 use std::env;
@@ -7,8 +7,6 @@ use std::pin::Pin;
 use futures::Stream;
 use schemars::JsonSchema;
 use serde::Deserialize;
-
-use crate::backend;
 
 // https://docs.anthropic.com/en/api/versioning
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
@@ -69,11 +67,8 @@ impl AnthropicApi {
     }
 }
 
-impl super::Backend for AnthropicApi {
-    type Config = Config;
-    type Error = Error;
-
-    fn new_with_key_from_env() -> Result<Self, Error> {
+impl AnthropicApi {
+    pub fn new_from_env() -> Result<Self, Error> {
         use reqwest::{
             header::{self, HeaderMap, HeaderValue},
             Client,
@@ -101,15 +96,17 @@ impl super::Backend for AnthropicApi {
         Ok(AnthropicApi { client })
     }
 
-    fn generate(
+    pub fn generate(
         &self,
-        config: &Self::Config,
-        trace: &backend::Trace,
-    ) -> Pin<Box<dyn Stream<Item = Result<backend::GenerateChunk, Self::Error>> + Send>> {
+        config: &Config,
+        system: Option<String>,
+        messages: Vec<messages::request::Message>,
+    ) -> Pin<Box<dyn Stream<Item = Result<messages::GenerateChunk, Error>> + Send>> {
         Box::pin(messages::generate(
             self.clone().client,
             config.clone(),
-            trace.clone(),
+            system,
+            messages,
         ))
     }
 }

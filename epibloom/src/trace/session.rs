@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use utoipa::ToSchema;
 
-use crate::backend::GenerateChunk;
+use crate::backend::anthropic::messages::GenerateChunk;
 
 use super::conversation::{Message, Role, Trace};
 

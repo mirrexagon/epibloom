@@ -8,32 +8,27 @@ use serde::{Deserialize, Serialize};
 use sse_stream::SseStream;
 
 use super::ANTHROPIC_API_URL_BASE;
-use crate::backend;
-use crate::trace;
+
+#[derive(Debug, Clone)]
+pub enum GenerateChunk {
+    ThinkingDelta(String),
+    MessageDelta(String),
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
-enum Role {
+pub enum Role {
     #[serde(rename = "assistant")]
     Assistant,
     #[serde(rename = "user")]
     User,
 }
 
-impl From<trace::Role> for Role {
-    fn from(value: trace::Role) -> Self {
-        match value {
-            trace::Role::Assistant => Role::Assistant,
-            trace::Role::User => Role::User,
 
-            trace::Role::System => panic!("trace converted to Claude format had system messages - this should be prevented by a pre-processing step"),
-        }
-    }
-}
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
-enum ContentBlock {
+pub enum ContentBlock {
     Text {
         text: String,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -81,13 +76,13 @@ enum ContentBlock {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
-enum CacheControl {
+pub enum CacheControl {
     Ephemeral,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
-enum Citations {
+pub enum Citations {
     CharLocation {
         cited_text: String,
         document_index: u32,
@@ -108,7 +103,7 @@ enum Citations {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
-enum ImageSource {
+pub enum ImageSource {
     Base64 {
         media_type: ImageSourceMediaType,
         data: String,
@@ -119,7 +114,7 @@ enum ImageSource {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-enum ImageSourceMediaType {
+pub enum ImageSourceMediaType {
     #[serde(rename = "image/jpeg")]
     Jpeg,
     #[serde(rename = "image/png")]
@@ -132,7 +127,7 @@ enum ImageSourceMediaType {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
-enum DocumentSource {
+pub enum DocumentSource {
     Base64 {
         media_type: Base64DocumentMediaType,
         data: String,
@@ -151,27 +146,25 @@ enum DocumentSource {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-enum Base64DocumentMediaType {
+pub enum Base64DocumentMediaType {
     #[serde(rename = "application/pdf")]
     Pdf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-enum TextDocumentMediaType {
+pub enum TextDocumentMediaType {
     #[serde(rename = "text/plain")]
     Text,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct DocumentCitations {
+pub struct DocumentCitations {
     pub enabled: bool,
 }
 
 #[allow(dead_code)]
-mod request {
+pub mod request {
     use serde::Serialize;
-
-    use crate::trace;
 
     #[derive(Debug, Clone, Serialize)]
     pub struct Request {
@@ -203,10 +196,10 @@ mod request {
     }
 
     impl Request {
-        pub fn new(config: &super::super::Config, trace: &trace::Trace) -> Self {
+        pub fn new(config: &super::super::Config, system: Option<String>, messages: Vec<Message>) -> Self {
             Self {
                 max_tokens: config.max_tokens,
-                messages: trace.messages.iter().map(From::from).collect(),
+                messages,
                 model: config.model.to_owned(),
 
                 metadata: None,
@@ -216,7 +209,7 @@ mod request {
                     None
                 },
                 stream: true,
-                system: None,
+                system,
                 temperature: None,
                 thinking: config.thinking_budget.map(|num_tokens| Thinking::Enabled {
                     budget_tokens: num_tokens,
@@ -233,19 +226,6 @@ mod request {
     pub struct Message {
         pub role: super::Role,
         pub content: Vec<super::ContentBlock>,
-    }
-
-    impl From<&trace::Message> for Message {
-        fn from(message: &trace::Message) -> Self {
-            Message {
-                role: From::from(message.role),
-                content: vec![super::ContentBlock::Text {
-                    text: message.content.clone(),
-                    citations: None,
-                    cache_control: None,
-                }],
-            }
-        }
     }
 
     impl Default for Message {
@@ -373,33 +353,16 @@ mod response {
     }
 }
 
-fn extract_system_prompt_from_trace(trace: &mut trace::Trace) -> Option<String> {
-    let system_messages: Vec<_> = trace
-        .messages
-        .extract_if(.., |m| m.role == trace::Role::System)
-        .map(|m| m.content)
-        .collect();
-
-    let system_prompt = system_messages.join("\n\n");
-
-    if system_prompt.is_empty() {
-        None
-    } else {
-        Some(system_prompt)
-    }
-}
-
 pub fn generate(
     client: reqwest::Client,
     config: super::Config,
-    mut trace: trace::Trace,
-) -> impl Stream<Item = Result<backend::GenerateChunk, super::Error>> {
+    system: Option<String>,
+    messages: Vec<request::Message>,
+) -> impl Stream<Item = Result<GenerateChunk, super::Error>> {
     try_stream! {
         let url = format!("{ANTHROPIC_API_URL_BASE}/messages");
 
-        let system_prompt = extract_system_prompt_from_trace(&mut trace);
-        let mut body = request::Request::new(&config, &trace);
-        body.system = system_prompt;
+        let body = request::Request::new(&config, system, messages);
         let request_json = serde_json::to_string_pretty(&body)?;
         debug!("Anthropic messages request: {}", request_json);
 
@@ -429,19 +392,19 @@ pub fn generate(
                 response::StreamingEvent::MessageStart { message } => {
                     for content_block in message.content {
                         if let ContentBlock::Text { text, .. } = content_block {
-                            yield backend::GenerateChunk::MessageDelta(text);
+                            yield GenerateChunk::MessageDelta(text);
                         }
                     }
                 }
 
                 response::StreamingEvent::ContentBlockStart { content_block: ContentBlock::Text { text, .. }, .. } => {
-                    yield backend::GenerateChunk::MessageDelta(text)
+                    yield GenerateChunk::MessageDelta(text)
                 }
 
                 response::StreamingEvent::ContentBlockDelta { delta, .. } => {
                     match delta {
-                        response::ContentBlockDelta::ThinkingDelta { thinking, .. } => yield backend::GenerateChunk::ThinkingDelta(thinking),
-                        response::ContentBlockDelta::TextDelta { text, .. } => yield backend::GenerateChunk::MessageDelta(text),
+                        response::ContentBlockDelta::ThinkingDelta { thinking, .. } => yield GenerateChunk::ThinkingDelta(thinking),
+                        response::ContentBlockDelta::TextDelta { text, .. } => yield GenerateChunk::MessageDelta(text),
 
                         _ => {}
                     }
