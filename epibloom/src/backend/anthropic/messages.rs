@@ -23,8 +23,6 @@ pub enum Role {
     User,
 }
 
-
-
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
@@ -196,7 +194,11 @@ pub mod request {
     }
 
     impl Request {
-        pub fn new(config: &super::super::Config, system: Option<String>, messages: Vec<Message>) -> Self {
+        pub fn new(
+            config: &super::super::Config,
+            system: Option<String>,
+            messages: Vec<Message>,
+        ) -> Self {
             Self {
                 max_tokens: config.max_tokens,
                 messages,
@@ -387,6 +389,7 @@ pub fn generate(
             let json_string = sse.data.ok_or(super::Error::StreamingEventHasNoData)?;
 
             let event: response::StreamingEvent = serde_json::from_str(&json_string)?;
+            debug!("Anthropic streaming event: {:?}", event);
 
             match event {
                 response::StreamingEvent::MessageStart { message } => {
