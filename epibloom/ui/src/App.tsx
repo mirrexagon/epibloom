@@ -1,25 +1,19 @@
 import { useState } from "react";
 import { DebugDrawer } from "./components/DebugDrawer";
 import { ChatView } from "./components/ChatView";
-import { TraceMetadata } from "./types/api";
+import { LlmTraceIndexEntry } from "./types/api";
 
 function App() {
     const [debugDrawerOpen, setDebugDrawerOpen] = useState(true);
     const [debugDrawerHeight, setDebugDrawerHeight] = useState(400);
-    const [selectedTrace, setSelectedTrace] = useState<TraceMetadata | null>(
-        null,
-    );
+    const [selectedTrace, setSelectedTrace] =
+        useState<LlmTraceIndexEntry | null>(null);
     const [debugTab, setDebugTab] = useState<"traces" | "state">("traces");
     const [requestedStateObject, setRequestedStateObject] = useState<string | null>(null);
 
     const handleSelectTraceFromChat = (traceId: string) => {
-        // Create a minimal TraceMetadata object - the full data will be loaded by TraceView
-        setSelectedTrace({
-            id: traceId,
-            name: traceId,
-            created: "",
-            modified: "",
-        });
+        // Create a minimal entry — the full data is loaded by TraceView via state object.
+        setSelectedTrace({ id: traceId, name: traceId, created: "" });
         setDebugTab("traces");
         setDebugDrawerOpen(true);
     };

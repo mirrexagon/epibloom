@@ -18,14 +18,14 @@ use lazy_static::lazy_static;
 use mlua::{FromLua, IntoLua, Lua, LuaSerdeExt, ObjectLike, Table, UserData, Value};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{mpsc, Mutex};
 use uuid::Uuid;
 
 use crate::state::StateObject;
 use crate::{
     backend::anthropic::{self, messages::{request, ContentBlock, CacheControl}},
+    llm::{LlmChunk, LlmStore, TraceMessage},
     state::StateStore,
-    trace::{Message, Role, TraceEvent, TraceStore},
 };
 
 lazy_static! {
@@ -40,18 +40,18 @@ lazy_static! {
 pub struct ContextStore {
     contexts: Mutex<HashMap<String, Arc<Context>>>,
 
-    /// For scripts to interact with traces.
-    trace_store: Arc<TraceStore>,
+    /// For scripts to call LLM generation.
+    llm_store: Arc<LlmStore>,
 
     /// For scripts to interact with state objects.
     state_store: Arc<StateStore>,
 }
 
 impl ContextStore {
-    pub fn new(trace_store: Arc<TraceStore>, state_store: Arc<StateStore>) -> Self {
+    pub fn new(llm_store: Arc<LlmStore>, state_store: Arc<StateStore>) -> Self {
         Self {
             contexts: Mutex::new(HashMap::new()),
-            trace_store,
+            llm_store,
             state_store,
         }
     }
@@ -66,7 +66,7 @@ impl ContextStore {
             None => {
                 let new_context = Arc::new(Context::new(
                     name,
-                    Arc::clone(&self.trace_store),
+                    Arc::clone(&self.llm_store),
                     Arc::clone(&self.state_store),
                 )?);
                 contexts.insert(key, Arc::clone(&new_context));
@@ -89,7 +89,7 @@ pub struct Context {
 impl Context {
     pub fn new(
         name: &str,
-        trace_store: Arc<TraceStore>,
+        llm_store: Arc<LlmStore>,
         state_store: Arc<StateStore>,
     ) -> Result<Self, Error> {
         let lua = Lua::new();
@@ -198,23 +198,29 @@ impl Context {
             package_loaded.set("epibloom.uuid", uuid_module)?;
         }
 
-        // Anthropic module.
+        // LLM module.
         {
             lua.set_named_registry_value(
-                "epibloom.anthropic.trace_store",
-                lua.create_userdata(LuaTraceStore {
-                    trace_store: Arc::clone(&trace_store),
+                "epibloom.llm.store",
+                lua.create_userdata(LuaLlmStore {
+                    llm_store: Arc::clone(&llm_store),
                 })?,
             )?;
 
-            let anthropic_module = lua.create_table()?;
+            let llm_module = lua.create_table()?;
 
-            anthropic_module.set(
+            llm_module.set(
                 "generate",
                 lua.create_async_function(
-                    async |lua, (messages_table, config): (mlua::Table, Value)| {
-                        let lua_messages: Vec<LuaAnthropicMessage> = messages_table
-                            .sequence_values::<LuaAnthropicMessage>()
+                    async |lua, (messages_table, backend, config): (mlua::Table, String, Value)| {
+                        if backend != "anthropic" {
+                            return Err(mlua::Error::runtime(format!(
+                                "unsupported backend '{backend}'; only 'anthropic' is supported"
+                            )));
+                        }
+
+                        let lua_messages: Vec<LuaLlmMessage> = messages_table
+                            .sequence_values::<LuaLlmMessage>()
                             .collect::<mlua::Result<_>>()?;
 
                         let cfg: anthropic::Config = match config {
@@ -222,20 +228,20 @@ impl Context {
                             v => lua.from_value_with(v, *DESERIALIZE_OPTIONS)?,
                         };
 
-                        let store: LuaTraceStore =
-                            lua.named_registry_value("epibloom.anthropic.trace_store")?;
+                        let store: LuaLlmStore =
+                            lua.named_registry_value("epibloom.llm.store")?;
 
                         let (trace_messages, system, anthropic_messages) =
-                            lua_messages_to_anthropic_and_trace(lua_messages);
+                            lua_messages_to_llm_input(lua_messages);
 
                         let (trace_id, rx) = store
-                            .trace_store
+                            .llm_store
                             .generate(trace_messages, system, anthropic_messages, cfg)
                             .await
                             .map_err(mlua::Error::external)?;
 
                         Ok(LuaLlmGenerateHandle {
-                            trace_id: format!("{}", trace_id.hyphenated()),
+                            trace_id,
                             receiver: Some(rx),
                         })
                     },
@@ -243,7 +249,7 @@ impl Context {
             )?;
 
             let package_loaded: Table = globals.get_path("package.loaded")?;
-            package_loaded.set("epibloom.anthropic", anthropic_module)?;
+            package_loaded.set("epibloom.llm", llm_module)?;
         }
 
         // Filesystem module.
@@ -440,18 +446,22 @@ impl Context {
     }
 }
 
-struct LuaTraceStore {
-    trace_store: Arc<TraceStore>,
+// ---------------------------------------------------------------------------
+// LLM Lua bindings
+// ---------------------------------------------------------------------------
+
+struct LuaLlmStore {
+    llm_store: Arc<LlmStore>,
 }
 
-impl UserData for LuaTraceStore {}
+impl UserData for LuaLlmStore {}
 
-impl FromLua for LuaTraceStore {
+impl FromLua for LuaLlmStore {
     fn from_lua(value: Value, _lua: &Lua) -> mlua::Result<Self> {
         match value {
-            Value::UserData(ud) => match ud.borrow::<LuaTraceStore>() {
-                Ok(store) => Ok(LuaTraceStore {
-                    trace_store: Arc::clone(&store.trace_store),
+            Value::UserData(ud) => match ud.borrow::<LuaLlmStore>() {
+                Ok(store) => Ok(LuaLlmStore {
+                    llm_store: Arc::clone(&store.llm_store),
                 }),
                 Err(err) => Err(err),
             },
@@ -462,28 +472,12 @@ impl FromLua for LuaTraceStore {
     }
 }
 
-/// Lua-facing Anthropic message. `content` may be a plain string or a list
-/// of text content blocks (which may carry `cache_control`).
-struct LuaAnthropicMessage {
-    role: Role,
-    /// Plain string shorthand, or a list of content blocks.
-    content: LuaAnthropicContent,
-    /// Optional thinking text (assistant turns with extended thinking).
-    thinking: Option<String>,
-}
-
-enum LuaAnthropicContent {
-    Plain(String),
-    Blocks(Vec<LuaTextBlock>),
-}
-
-struct LuaTextBlock {
-    text: String,
-    cache_control: Option<LuaCacheControl>,
-}
-
-enum LuaCacheControl {
-    Ephemeral,
+/// Role of a message author (for Lua message parsing).
+#[derive(Debug, PartialEq, Clone, Copy)]
+enum Role {
+    System,
+    User,
+    Assistant,
 }
 
 impl FromLua for Role {
@@ -502,7 +496,31 @@ impl FromLua for Role {
     }
 }
 
-impl FromLua for LuaAnthropicMessage {
+/// Lua-facing LLM message. `content` may be a plain string or a list
+/// of text content blocks (which may carry `cache_control`).
+struct LuaLlmMessage {
+    role: Role,
+    /// Plain string shorthand, or a list of text content blocks.
+    content: LuaLlmContent,
+    /// Optional thinking text (assistant turns with extended thinking).
+    thinking: Option<String>,
+}
+
+enum LuaLlmContent {
+    Plain(String),
+    Blocks(Vec<LuaTextBlock>),
+}
+
+struct LuaTextBlock {
+    text: String,
+    cache_control: Option<LuaCacheControl>,
+}
+
+enum LuaCacheControl {
+    Ephemeral,
+}
+
+impl FromLua for LuaLlmMessage {
     fn from_lua(value: Value, lua: &Lua) -> mlua::Result<Self> {
         let table = match value {
             Value::Table(t) => t,
@@ -514,14 +532,14 @@ impl FromLua for LuaAnthropicMessage {
 
         let content_value: Value = table.get("content")?;
         let content = match content_value {
-            Value::String(s) => LuaAnthropicContent::Plain(s.to_string_lossy().to_owned()),
+            Value::String(s) => LuaLlmContent::Plain(s.to_string_lossy().to_owned()),
             Value::Table(t) => {
                 let blocks: Vec<LuaTextBlock> = t
                     .sequence_values::<LuaTextBlock>()
                     .collect::<mlua::Result<_>>()?;
-                LuaAnthropicContent::Blocks(blocks)
+                LuaLlmContent::Blocks(blocks)
             }
-            Value::Nil => LuaAnthropicContent::Plain(String::new()),
+            Value::Nil => LuaLlmContent::Plain(String::new()),
             other => {
                 return Err(mlua::Error::runtime(format!(
                     "message content must be a string or table of content blocks, got {other:?}"
@@ -529,7 +547,7 @@ impl FromLua for LuaAnthropicMessage {
             }
         };
 
-        Ok(LuaAnthropicMessage { role, content, thinking })
+        Ok(LuaLlmMessage { role, content, thinking })
     }
 }
 
@@ -561,41 +579,46 @@ impl FromLua for LuaTextBlock {
     }
 }
 
-/// Convert Lua Anthropic messages into:
-/// 1. `Vec<Message>` — simplified trace messages (plain text, for storage/display).
+/// Convert Lua LLM messages into:
+/// 1. `Vec<TraceMessage>` — plain-text messages stored in the trace state object.
 /// 2. `Option<String>` — system prompt extracted from any system-role messages.
 /// 3. `Vec<request::Message>` — full Anthropic API messages with content blocks.
-fn lua_messages_to_anthropic_and_trace(
-    lua_messages: Vec<LuaAnthropicMessage>,
-) -> (Vec<Message>, Option<String>, Vec<request::Message>) {
-    let mut trace_messages: Vec<Message> = Vec::new();
+fn lua_messages_to_llm_input(
+    lua_messages: Vec<LuaLlmMessage>,
+) -> (Vec<TraceMessage>, Option<String>, Vec<request::Message>) {
+    let mut trace_messages: Vec<TraceMessage> = Vec::new();
     let mut system_parts: Vec<String> = Vec::new();
     let mut anthropic_messages: Vec<request::Message> = Vec::new();
 
     for msg in lua_messages {
         // Flatten content blocks to plain text for trace storage.
         let plain_text = match &msg.content {
-            LuaAnthropicContent::Plain(s) => s.clone(),
-            LuaAnthropicContent::Blocks(blocks) => {
+            LuaLlmContent::Plain(s) => s.clone(),
+            LuaLlmContent::Blocks(blocks) => {
                 blocks.iter().map(|b| b.text.as_str()).collect::<Vec<_>>().join("")
             }
         };
 
         if msg.role == Role::System {
+            // System messages are stored in the trace for visibility but go
+            // into the top-level `system` field for the Anthropic API.
+            trace_messages.push(TraceMessage {
+                role: "system".to_owned(),
+                content: plain_text.clone(),
+                thinking: None,
+            });
             system_parts.push(plain_text);
-            // System messages are not added to anthropic_messages — they become
-            // the top-level `system` field in the request.
             continue;
         }
 
         // Build the Anthropic content block list.
         let anthropic_content: Vec<ContentBlock> = match msg.content {
-            LuaAnthropicContent::Plain(text) => vec![ContentBlock::Text {
+            LuaLlmContent::Plain(text) => vec![ContentBlock::Text {
                 text,
                 citations: None,
                 cache_control: None,
             }],
-            LuaAnthropicContent::Blocks(blocks) => blocks
+            LuaLlmContent::Blocks(blocks) => blocks
                 .into_iter()
                 .map(|b| ContentBlock::Text {
                     text: b.text,
@@ -613,8 +636,12 @@ fn lua_messages_to_anthropic_and_trace(
             Role::System => unreachable!("system messages already handled above"),
         };
 
-        trace_messages.push(Message {
-            role: msg.role,
+        trace_messages.push(TraceMessage {
+            role: match msg.role {
+                Role::User => "user".to_owned(),
+                Role::Assistant => "assistant".to_owned(),
+                Role::System => unreachable!(),
+            },
             content: plain_text,
             thinking: msg.thinking,
         });
@@ -638,7 +665,7 @@ fn lua_messages_to_anthropic_and_trace(
 /// (via `__call`) and blocking until complete (via `wait()`).
 struct LuaLlmGenerateHandle {
     trace_id: String,
-    receiver: Option<broadcast::Receiver<TraceEvent>>,
+    receiver: Option<mpsc::Receiver<LlmChunk>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -664,63 +691,56 @@ impl UserData for LuaLlmGenerateHandle {
         // __call: return the next chunk, or nil when generation is complete.
         methods.add_async_meta_method_mut(
             "__call",
-            async |_lua, mut handle, _args: mlua::MultiValue| match handle.receiver {
-                None => Ok(None),
-                Some(ref mut rx) => loop {
-                    match rx.recv().await {
-                        Ok(event) => match event {
-                            TraceEvent::ThinkingDelta { delta } => {
-                                break Ok(Some(LuaLlmGenerateChunk::Thinking { delta }));
-                            }
-                            TraceEvent::ContentDelta { delta } => {
-                                break Ok(Some(LuaLlmGenerateChunk::Message { delta }));
-                            }
-                            TraceEvent::MessageEnd { .. } => {
-                                handle.receiver.take();
-                                break Ok(None);
-                            }
-                            TraceEvent::Error { message } => {
-                                handle.receiver.take();
-                                break Ok(Some(LuaLlmGenerateChunk::Error { message }));
-                            }
-                            _ => {}
-                        },
-                        Err(err) => {
-                            handle.receiver.take();
-                            break Ok(Some(LuaLlmGenerateChunk::Error {
-                                message: err.to_string(),
-                            }));
-                        }
+            async |_lua, mut handle, _args: mlua::MultiValue| {
+                // Receive one chunk. The borrow of `handle.receiver` via
+                // `ref mut rx` ends before we call `.take()` below.
+                let chunk = match handle.receiver {
+                    None => return Ok(None),
+                    Some(ref mut rx) => rx.recv().await,
+                };
+                match chunk {
+                    Some(LlmChunk::Thinking { delta }) => {
+                        Ok(Some(LuaLlmGenerateChunk::Thinking { delta }))
                     }
-                },
+                    Some(LlmChunk::Message { delta }) => {
+                        Ok(Some(LuaLlmGenerateChunk::Message { delta }))
+                    }
+                    Some(LlmChunk::Error { message }) => {
+                        handle.receiver.take();
+                        Ok(Some(LuaLlmGenerateChunk::Error { message }))
+                    }
+                    None => {
+                        handle.receiver.take();
+                        Ok(None)
+                    }
+                }
             },
         );
 
         // wait(): drain remaining chunks, returning (success, error_message).
-        methods.add_async_method_mut("wait", async |_lua, mut handle, ()| match handle.receiver {
-            None => Ok((true, None)),
-            Some(ref mut rx) => loop {
-                match rx.recv().await {
-                    Ok(event) => match event {
-                        TraceEvent::MessageEnd { .. } => {
-                            handle.receiver.take();
-                            break Ok((true, None));
-                        }
-                        TraceEvent::Error { message } => {
-                            handle.receiver.take();
-                            break Ok((false, Some(message)));
-                        }
-                        _ => {}
-                    },
-                    Err(err) => {
-                        handle.receiver.take();
-                        break Ok((false, Some(err.to_string())));
-                    }
+        methods.add_async_method_mut("wait", async |_lua, mut handle, ()| loop {
+            let chunk = match handle.receiver {
+                None => return Ok((true, None)),
+                Some(ref mut rx) => rx.recv().await,
+            };
+            match chunk {
+                None => {
+                    handle.receiver.take();
+                    return Ok((true, None));
                 }
-            },
+                Some(LlmChunk::Error { message }) => {
+                    handle.receiver.take();
+                    return Ok((false, Some(message)));
+                }
+                Some(_) => {} // discard thinking/message chunks
+            }
         });
     }
 }
+
+// ---------------------------------------------------------------------------
+// State object Lua bindings
+// ---------------------------------------------------------------------------
 
 struct LuaStateStore {
     state_store: Arc<StateStore>,

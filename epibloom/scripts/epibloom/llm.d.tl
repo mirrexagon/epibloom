@@ -1,5 +1,5 @@
---- Anthropic (Claude) LLM built-in module.
-local record anthropic
+--- LLM built-in module.
+local record llm
     --- The role of a message author.
     enum Role
         "system"
@@ -25,7 +25,7 @@ local record anthropic
         cache_control: CacheControl | nil
     end
 
-    --- A message in the conversation sent to Claude.
+    --- A message in the conversation sent to the LLM.
     --- `content` may be a plain string (shorthand for a single text block with
     --- no cache_control) or an explicit list of TextBlocks.
     record Message
@@ -63,7 +63,8 @@ local record anthropic
     ---   local chunk = handle()
     ---   while chunk ~= nil do ... chunk = handle() end
     record GenerateHandle
-        --- UUID of the trace created for this generation.
+        --- UUID of the llm-trace state object created for this generation.
+        --- The full state object name is "llm-trace:<trace_id>".
         trace_id: string
         metamethod __call: function(GenerateHandle): GenerateChunk | nil
         --- Block until generation completes, discarding remaining chunks.
@@ -72,8 +73,9 @@ local record anthropic
     end
 
     --- Start generation with the given messages.
+    --- `backend` must be "anthropic".
     --- `config` is optional; server-side defaults are used if omitted.
-    generate: function(messages: {Message}, config?: Config): GenerateHandle
+    generate: function(messages: {Message}, backend: string, config?: Config): GenerateHandle
 end
 
-return anthropic
+return llm

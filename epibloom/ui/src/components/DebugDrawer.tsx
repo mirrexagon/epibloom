@@ -3,9 +3,9 @@ import { TraceList } from "./TraceList";
 import { TraceView } from "./TraceView";
 import { StateObjectList } from "./StateObjectList";
 import { StateObjectView } from "./StateObjectView";
-import { TraceMetadata } from "../types/api";
+import { LlmTraceIndexEntry } from "../types/api";
 import { useStateObjects } from "../hooks/useStateObjects";
-import { useTraceList } from "../hooks/useTraceList";
+import { useTraceList } from "../hooks/useTrace";
 
 type TabType = "traces" | "state";
 
@@ -14,8 +14,8 @@ interface DebugDrawerProps {
     onToggle: () => void;
     height: number;
     onHeightChange: (height: number) => void;
-    selectedTrace: TraceMetadata | null;
-    onSelectTrace: (trace: TraceMetadata) => void;
+    selectedTrace: LlmTraceIndexEntry | null;
+    onSelectTrace: (trace: LlmTraceIndexEntry) => void;
     activeTab: TabType;
     onTabChange: (tab: TabType) => void;
     /** When set, the drawer adds this state object to the watch list and selects it. */
@@ -40,9 +40,14 @@ export function DebugDrawer({
         latestTrace,
     } = useTraceList();
 
-    // Auto-select newly added traces
+    // Auto-select the most recently created trace.
+    const prevLatestRef = useRef<LlmTraceIndexEntry | null>(null);
     useEffect(() => {
-        if (latestTrace) {
+        if (
+            latestTrace &&
+            latestTrace.id !== prevLatestRef.current?.id
+        ) {
+            prevLatestRef.current = latestTrace;
             onSelectTrace(latestTrace);
         }
     }, [latestTrace, onSelectTrace]);
@@ -216,11 +221,7 @@ export function DebugDrawer({
                         <div className="flex-1">
                             <TraceView
                                 traceId={selectedTrace?.id || null}
-                                traceName={
-                                    selectedTrace
-                                        ? (traces.find(t => t.id === selectedTrace.id)?.name ?? selectedTrace.name)
-                                        : null
-                                }
+                                traceName={selectedTrace?.name ?? null}
                             />
                         </div>
                     </>

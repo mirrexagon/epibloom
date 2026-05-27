@@ -1,31 +1,33 @@
 // Types matching the OpenAPI schema
 
-export interface TraceMetadata {
+export type Role = "system" | "assistant" | "user";
+
+// ---- LLM trace (stored as state objects named "llm-trace:<uuid>") ----------
+
+export interface LlmTraceMessage {
+    role: Role;
+    /** Content chunks — join to get the full text. */
+    content: string[];
+    /** Thinking chunks — join to get the full text. Present for assistant turns. */
+    thinking?: string[];
+    /** True while the assistant response is still being streamed. */
+    generating?: boolean;
+    /** Error message if generation failed. */
+    error?: string;
+}
+
+export interface LlmTrace {
     id: string;
     name: string;
     created: string;
-    modified: string;
+    messages: LlmTraceMessage[];
 }
 
-export type TraceStoreEvent = {
-    type: "added";
-    trace: TraceMetadata;
-};
-
-export type TraceEvent =
-    | { type: "message_start"; position: number; role: Role }
-    | { type: "thinking_delta"; delta: string }
-    | { type: "content_delta"; delta: string }
-    | { type: "message_end"; position: number }
-    | { type: "error"; message: string };
-
-export type Role = "system" | "assistant" | "user";
-
-export interface Message {
-    role: Role;
-    content: string;
-    thinking?: string;
-    position: number; // Track position for building from deltas
+/** Entry in the "llm-trace-index" state object array. */
+export interface LlmTraceIndexEntry {
+    id: string;
+    name: string;
+    created: string;
 }
 
 // State objects types

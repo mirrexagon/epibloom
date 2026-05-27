@@ -1,11 +1,11 @@
-import { TraceMetadata } from "../types/api";
+import { LlmTraceIndexEntry } from "../types/api";
 
 interface TraceListProps {
-    traces: TraceMetadata[];
+    traces: LlmTraceIndexEntry[];
     error: string | null;
     connected: boolean;
     selectedTraceId: string | null;
-    onSelectTrace: (trace: TraceMetadata) => void;
+    onSelectTrace: (trace: LlmTraceIndexEntry) => void;
 }
 
 export function TraceList({ traces, error, connected, selectedTraceId, onSelectTrace }: TraceListProps) {

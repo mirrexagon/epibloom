@@ -5,9 +5,9 @@ extern crate rocket;
 
 mod api;
 mod backend;
+mod llm;
 mod script;
 mod state;
-mod trace;
 
 use std::fs;
 use std::path::PathBuf;
@@ -18,7 +18,6 @@ use rocket::fairing::AdHoc;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-static TRACES_DIR: OnceLock<PathBuf> = OnceLock::new();
 static SCRIPTS_DIR: OnceLock<PathBuf> = OnceLock::new();
 static SCRIPT_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
@@ -42,28 +41,24 @@ fn rocket() -> _ {
     let _state_dir = strategy.state_dir();
     let _runtime_dir = strategy.runtime_dir();
 
-    TRACES_DIR.set(data_dir.join("traces")).unwrap();
     SCRIPTS_DIR.set(config_dir.join("scripts")).unwrap();
     SCRIPT_DATA_DIR.set(data_dir.join("data")).unwrap();
 
-    fs::create_dir_all(TRACES_DIR.get().unwrap()).unwrap();
     fs::create_dir_all(SCRIPTS_DIR.get().unwrap()).unwrap();
     fs::create_dir_all(SCRIPT_DATA_DIR.get().unwrap()).unwrap();
 
-    let trace_store = Arc::new(trace::TraceStore::new());
     let state_store = Arc::new(state::StateStore::new());
+    let llm_store = Arc::new(llm::LlmStore::new(Arc::clone(&state_store)));
     let script_context_store =
-        script::ContextStore::new(Arc::clone(&trace_store), Arc::clone(&state_store));
+        script::ContextStore::new(Arc::clone(&llm_store), Arc::clone(&state_store));
 
     #[derive(OpenApi)]
     #[openapi(
         nest(
-            (path = "/api/trace", api = api::trace::TraceApiDoc),
             (path = "/api/state", api = api::state::StateApiDoc),
             (path = "/api/script", api = api::script::ScriptApiDoc),
         ),
         tags(
-            (name = "api::trace", description = "Streaming LLM traces, created and manipulated by scripts."),
             (name = "api::state", description = "Streaming state objects, created and manipulated by scripts."),
             (name = "api::script", description = "Running Lua scripts to perform actions and update state."),
         )
@@ -71,29 +66,9 @@ fn rocket() -> _ {
     struct ApiDoc;
 
     rocket::build()
-        .manage(trace_store)
         .manage(state_store)
+        .manage(llm_store)
         .manage(script_context_store)
-        .attach(AdHoc::try_on_ignite("Load traces from files", |rocket| {
-            Box::pin(async move {
-                let trace_store: &Arc<trace::TraceStore> = match rocket.state() {
-                    Some(trace_store) => trace_store,
-                    None => return Err(rocket),
-                };
-
-                match trace_store.load_traces_from_directory().await {
-                    Ok(_) => {}
-                    Err(err) => {
-                        log::error!("Couldn't load traces: {}", err);
-                        return Err(rocket);
-                    }
-                }
-
-                log::info!("Loaded traces succesfully");
-
-                Ok(rocket)
-            })
-        }))
         .attach(AdHoc::on_liftoff("Log location of API docs", |rocket| {
             Box::pin(async move {
                 let config = rocket.config();
@@ -108,13 +83,6 @@ fn rocket() -> _ {
         .mount(
             "/",
             SwaggerUi::new("/swagger-ui/<_..>").url("/api-docs/openapi.json", ApiDoc::openapi()),
-        )
-        .mount(
-            "/api/trace",
-            routes![
-                api::trace::stream_trace_store_events,
-                api::trace::stream_trace_by_id,
-            ],
         )
         .mount("/api/state", routes![api::state::stream_state_objects,])
         .mount("/api/script", routes![api::script::run_script,])

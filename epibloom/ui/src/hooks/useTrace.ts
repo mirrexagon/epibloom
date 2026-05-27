@@ -1,107 +1,66 @@
-import { useEffect, useState } from "react";
-import { Message, TraceEvent } from "../types/api";
+import { useMemo } from "react";
+import { LlmTrace, LlmTraceIndexEntry } from "../types/api";
+import { useStateObjects } from "./useStateObjects";
+
+// ---------------------------------------------------------------------------
+// useTrace — subscribe to a single llm-trace:<uuid> state object
+// ---------------------------------------------------------------------------
 
 interface UseTraceResult {
-    messages: Message[];
+    trace: LlmTrace | null;
     error: string | null;
     connected: boolean;
 }
 
+const EMPTY_NAMES: string[] = [];
+
 export function useTrace(traceId: string | null): UseTraceResult {
-    const [messages, setMessages] = useState<Message[]>([]);
-    const [error, setError] = useState<string | null>(null);
-    const [connected, setConnected] = useState(false);
+    const objectNames = useMemo(
+        () => (traceId ? [`llm-trace:${traceId}`] : EMPTY_NAMES),
+        [traceId],
+    );
 
-    useEffect(() => {
-        if (!traceId) {
-            setMessages([]);
-            setError(null);
-            setConnected(false);
-            return;
-        }
+    const { objects, error, connected } = useStateObjects(objectNames);
 
-        const eventSource = new EventSource(`/api/trace/${traceId}`);
+    const trace = useMemo(() => {
+        if (!traceId) return null;
+        const obj = objects.find((o) => o.name === `llm-trace:${traceId}`);
+        if (!obj || obj.value === null) return null;
+        return obj.value as LlmTrace;
+    }, [objects, traceId]);
 
-        eventSource.onopen = () => {
-            setConnected(true);
-            setError(null);
-        };
+    return { trace, error, connected };
+}
 
-        eventSource.onmessage = (event) => {
-            try {
-                const traceEvent: TraceEvent = JSON.parse(event.data);
+// ---------------------------------------------------------------------------
+// useTraceList — subscribe to the llm-trace-index state object
+// ---------------------------------------------------------------------------
 
-                setMessages((prev) => {
-                    const newMessages = [...prev];
+interface UseTraceListResult {
+    traces: LlmTraceIndexEntry[];
+    error: string | null;
+    connected: boolean;
+    latestTrace: LlmTraceIndexEntry | null;
+}
 
-                    switch (traceEvent.type) {
-                        case "message_start":
-                            newMessages[traceEvent.position] = {
-                                role: traceEvent.role,
-                                content: "",
-                                thinking:
-                                    traceEvent.role === "assistant"
-                                        ? ""
-                                        : undefined,
-                                position: traceEvent.position,
-                            };
-                            break;
+const INDEX_NAMES = ["llm-trace-index"];
 
-                        case "thinking_delta":
-                            if (newMessages.length > 0) {
-                                const lastIdx = newMessages.length - 1;
-                                newMessages[lastIdx] = {
-                                    ...newMessages[lastIdx],
-                                    thinking:
-                                        (newMessages[lastIdx].thinking || "") +
-                                        traceEvent.delta,
-                                };
-                            }
-                            break;
+export function useTraceList(): UseTraceListResult {
+    const { objects, error, connected } = useStateObjects(INDEX_NAMES);
 
-                        case "content_delta":
-                            if (newMessages.length > 0) {
-                                const lastIdx = newMessages.length - 1;
-                                newMessages[lastIdx] = {
-                                    ...newMessages[lastIdx],
-                                    content:
-                                        newMessages[lastIdx].content +
-                                        traceEvent.delta,
-                                };
-                            }
-                            break;
+    const traces = useMemo(() => {
+        const obj = objects.find((o) => o.name === "llm-trace-index");
+        if (!obj || !Array.isArray(obj.value)) return [];
+        const entries = obj.value as LlmTraceIndexEntry[];
+        // Sort newest-first by created timestamp.
+        return [...entries].sort(
+            (a, b) =>
+                new Date(b.created).getTime() - new Date(a.created).getTime(),
+        );
+    }, [objects]);
 
-                        case "message_end":
-                            // Message is complete, nothing special to do
-                            break;
+    // The latest trace is the one with the most recent created timestamp.
+    const latestTrace = traces.length > 0 ? traces[0] : null;
 
-                        case "error":
-                            setError(traceEvent.message);
-                            console.error(
-                                `Trace stream reported error: ${traceEvent.message}`,
-                            );
-                            break;
-                    }
-
-                    return newMessages;
-                });
-            } catch (err) {
-                console.error("Error parsing trace event:", err);
-                setError(err instanceof Error ? err.message : "Unknown error");
-            }
-        };
-
-        eventSource.onerror = () => {
-            setConnected(false);
-            console.error("Trace stream connection error");
-            setError("Connection to trace lost. Retrying...");
-        };
-
-        return () => {
-            eventSource.close();
-            setMessages([]);
-        };
-    }, [traceId]);
-
-    return { messages, error, connected };
+    return { traces, error, connected, latestTrace };
 }

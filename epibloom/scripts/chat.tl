@@ -1,7 +1,7 @@
 local fs = require("epibloom.filesystem")
 local log = require("epibloom.log")
 local state = require("epibloom.state")
-local anthropic = require("epibloom.anthropic")
+local llm = require("epibloom.llm")
 local uuid = require("epibloom.uuid")
 local util = require("util")
 
@@ -15,7 +15,7 @@ local record ChatMessage
     --- Parent message ID; nil only for root nodes.
     parent_id: string | nil
     --- Who authored this message.
-    role: anthropic.Role
+    role: llm.Role
     --- Thinking text as a list of string chunks, if present.
     thinking: {string} | nil
     --- Message content as a list of string chunks.
@@ -40,7 +40,7 @@ local record ChatModule
     get: function(chat_id: string, create_if_not_found?: boolean): Chat
     poke: function(chat_id: string)
     list_chats: function(): {string}
-    add_message: function(chat_id: string, parent_id: string | nil, role: anthropic.Role, content: string | {string} | nil): string
+    add_message: function(chat_id: string, parent_id: string | nil, role: llm.Role, content: string | {string} | nil): string
     get_path: function(messages: {string: ChatMessage}, node_id: string): {ChatMessage}
     generate: function(chat_id: string, parent_message_id: string)
     get_state: function(chat_id: string, create_if_not_found?: boolean): state.StateObject
@@ -89,7 +89,7 @@ function chat.list_chats(): {string}
 end
 
 --- Add a new message node to the chat tree and return its ID.
-function chat.add_message(chat_id: string, parent_id: string | nil, role: anthropic.Role, content: string | {string} | nil): string
+function chat.add_message(chat_id: string, parent_id: string | nil, role: llm.Role, content: string | {string} | nil): string
     local chat_state = chat.get_state(chat_id)
 
     -- NOTE: UUIDv7 is time-orderable, which lets us record the order of
@@ -153,7 +153,7 @@ function chat.generate(chat_id: string, parent_message_id: string)
     -- Flatten each node's content chunks into a single text block, with a
     -- cache_control breakpoint so Anthropic will cache the prompt up to each
     -- message in the conversation history.
-    local messages: {anthropic.Message} = {}
+    local messages: {llm.Message} = {}
     for _, message in ipairs(path) do
         if message.role and message.content then
             messages[#messages + 1] = {
@@ -168,11 +168,10 @@ function chat.generate(chat_id: string, parent_message_id: string)
         end
     end
 
-    -- TODO: Why no work
-    messages[#messages].content.cache_control = { type = "ephemeral" }
+    -- TODO: Set cache_control on the last content block for prompt caching.
 
-    -- Start generation. This creates a trace internally and begins streaming.
-    local handle = anthropic.generate(messages)
+    -- Start generation. Creates an llm-trace state object and begins streaming.
+    local handle = llm.generate(messages, "anthropic")
     local new_message_id = uuid.new()
 
     -- Add the new empty assistant node to the chat state, including the trace
@@ -194,7 +193,7 @@ function chat.generate(chat_id: string, parent_message_id: string)
     -- content string, keeping per-chunk SSE payloads small.
     local chunk = handle()
     while chunk ~= nil do
-        local c = chunk as anthropic.GenerateChunk
+        local c = chunk as llm.GenerateChunk
         chat_state:update(function(value: any): any
             local chat_value = value as Chat
             local message = chat_value.messages[new_message_id]
