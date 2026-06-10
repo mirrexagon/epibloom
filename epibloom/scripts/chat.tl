@@ -1,4 +1,3 @@
-local fs = require("epibloom.filesystem")
 local log = require("epibloom.log")
 local state = require("epibloom.state")
 local llm = require("epibloom.llm")
@@ -78,14 +77,8 @@ end
 function chat.list_chats(): {string}
     local list: {string} = {}
 
-    for _, file in ipairs(fs.files("chats/*.json")) do
-        local id = file:match("chats/([0-9a-f%-]+).json")
-        if id then
-            list[#list + 1] = id
-        end
-    end
-
-    return list
+    local chat_list_object = chat._get_chat_list_object()
+    return chat_list_object.get()
 end
 
 --- Add a new message node to the chat tree and return its ID.
@@ -265,6 +258,20 @@ end
 function chat.save(chat_state_contents: Chat)
     assert(chat_state_contents.id, "Tried to save chat content that has no id")
     fs.save_json(string.format("chats/%s.json", chat_state_contents.id), chat_state_contents)
+end
+
+function chat._get_chat_list_object()
+    local o = state.get("persist:chats")
+
+    o:update(function(value: any): any
+        if value == nil then
+            return {}
+        end
+
+        return value
+    end)
+
+    return o
 end
 
 return chat
