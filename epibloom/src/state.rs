@@ -9,6 +9,10 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, RwLock};
 use utoipa::ToSchema;
 
+use crate::util::debounce::Debounce;
+
+const PERSIST_PREFIX: &'static str = "persist:";
+
 /// Manages all state objects in the system.
 pub struct StateStore {
     objects: RwLock<HashMap<String, Arc<StateObject>>>,
@@ -39,6 +43,11 @@ impl StateStore {
 pub struct StateObject {
     name: String,
 
+    /// Whether to persist this object automatically.
+    persist: bool,
+
+    persist_debounce: Debounce,
+
     /// The JSON value.
     value: RwLock<serde_json::Value>,
 
@@ -52,13 +61,15 @@ impl StateObject {
 
         Self {
             name: name.to_string(),
+            persist: name.starts_with(PERSIST_PREFIX),
+            persist_debounce: Debounce::new(tokio::time::Duration::from_secs(1)),
             value: RwLock::new(serde_json::Value::Null),
             event_broadcast: broadcast,
         }
     }
 
-    /// Read the current value.
-    pub async fn read(&self) -> serde_json::Value {
+    /// Get the current value.
+    pub async fn get(&self) -> serde_json::Value {
         self.value.read().await.clone()
     }
 
@@ -87,6 +98,38 @@ impl StateObject {
         // Broadcast the event.
         let _ = self.event_broadcast.send(event);
 
+        if self.persist {
+            let name = self.name.strip_prefix(PERSIST_PREFIX).unwrap().to_owned();
+
+            // Queue debounced save to disk.
+            self.persist_debounce
+                .debounce(async move || {
+                    let mut file_path = crate::STATE_PERSIST_DIR.get().unwrap().clone();
+                    file_path.push(name);
+                    file_path.set_extension("json");
+
+                    let contents = match serde_json::to_string_pretty(&new_value) {
+                        Ok(value) => value,
+                        Err(err) => {
+                            log::error!(
+                                "StateObject persistence: failed to serialize state object: {}",
+                                err
+                            );
+                            return;
+                        }
+                    };
+
+                    if let Err(err) = tokio::fs::write(&file_path, contents).await {
+                        log::error!(
+                            "StateObject persistence: failed to save file '{}': {}",
+                            file_path.display(),
+                            err
+                        );
+                    }
+                })
+                .await;
+        }
+
         Ok(())
     }
 
@@ -94,9 +137,13 @@ impl StateObject {
     pub async fn subscribe(&self) -> impl futures::Stream<Item = StateEvent> {
         use async_stream::stream;
 
-        let current_value = self.read().await;
         let name = self.name.clone();
-        let mut rx = self.event_broadcast.subscribe();
+        let (current_value, mut rx) = {
+            let value_guard = self.value.read().await;
+            let current_value = value_guard.clone();
+            let rx = self.event_broadcast.subscribe();
+            (current_value, rx)
+        };
 
         stream! {
             use tokio::sync::broadcast::error::RecvError;
@@ -119,6 +166,8 @@ impl StateObject {
             }
         }
     }
+
+    async fn queue_persist(&self) {}
 }
 
 /// Event sent to subscribers when state changes.

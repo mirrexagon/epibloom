@@ -23,7 +23,10 @@ use uuid::Uuid;
 
 use crate::state::StateObject;
 use crate::{
-    backend::anthropic::{self, messages::{request, ContentBlock, CacheControl}},
+    backend::anthropic::{
+        self,
+        messages::{request, CacheControl, ContentBlock},
+    },
     llm::{LlmChunk, LlmStore, TraceMessage},
     state::StateStore,
 };
@@ -228,8 +231,7 @@ impl Context {
                             v => lua.from_value_with(v, *DESERIALIZE_OPTIONS)?,
                         };
 
-                        let store: LuaLlmStore =
-                            lua.named_registry_value("epibloom.llm.store")?;
+                        let store: LuaLlmStore = lua.named_registry_value("epibloom.llm.store")?;
 
                         let (trace_messages, system, anthropic_messages) =
                             lua_messages_to_llm_input(lua_messages);
@@ -547,7 +549,11 @@ impl FromLua for LuaLlmMessage {
             }
         };
 
-        Ok(LuaLlmMessage { role, content, thinking })
+        Ok(LuaLlmMessage {
+            role,
+            content,
+            thinking,
+        })
     }
 }
 
@@ -565,17 +571,24 @@ impl FromLua for LuaTextBlock {
                 let cc_type: String = cc.get("type")?;
                 match cc_type.as_str() {
                     "ephemeral" => Some(LuaCacheControl::Ephemeral),
-                    other => return Err(mlua::Error::runtime(format!(
-                        "unknown cache_control type: {other}"
-                    ))),
+                    other => {
+                        return Err(mlua::Error::runtime(format!(
+                            "unknown cache_control type: {other}"
+                        )))
+                    }
                 }
             }
-            other => return Err(mlua::Error::runtime(format!(
-                "cache_control must be a table, got {other:?}"
-            ))),
+            other => {
+                return Err(mlua::Error::runtime(format!(
+                    "cache_control must be a table, got {other:?}"
+                )))
+            }
         };
 
-        Ok(LuaTextBlock { text, cache_control })
+        Ok(LuaTextBlock {
+            text,
+            cache_control,
+        })
     }
 }
 
@@ -594,9 +607,11 @@ fn lua_messages_to_llm_input(
         // Flatten content blocks to plain text for trace storage.
         let plain_text = match &msg.content {
             LuaLlmContent::Plain(s) => s.clone(),
-            LuaLlmContent::Blocks(blocks) => {
-                blocks.iter().map(|b| b.text.as_str()).collect::<Vec<_>>().join("")
-            }
+            LuaLlmContent::Blocks(blocks) => blocks
+                .iter()
+                .map(|b| b.text.as_str())
+                .collect::<Vec<_>>()
+                .join(""),
         };
 
         if msg.role == Role::System {
@@ -776,8 +791,8 @@ impl UserData for LuaStateObject {
 
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         // Read current value
-        methods.add_async_method("read", |lua, obj, ()| async move {
-            let value = obj.state_object.read().await;
+        methods.add_async_method("get", |lua, obj, ()| async move {
+            let value = obj.state_object.get().await;
             let lua_value = lua.to_value_with(&value, *SERIALIZE_OPTIONS)?;
             Ok(lua_value)
         });

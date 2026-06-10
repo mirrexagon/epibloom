@@ -8,6 +8,7 @@ mod backend;
 mod llm;
 mod script;
 mod state;
+mod util;
 
 use std::fs;
 use std::path::PathBuf;
@@ -19,6 +20,7 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 static SCRIPTS_DIR: OnceLock<PathBuf> = OnceLock::new();
+static STATE_PERSIST_DIR: OnceLock<PathBuf> = OnceLock::new();
 static SCRIPT_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 #[launch]
@@ -42,9 +44,11 @@ fn rocket() -> _ {
     let _runtime_dir = strategy.runtime_dir();
 
     SCRIPTS_DIR.set(config_dir.join("scripts")).unwrap();
+    STATE_PERSIST_DIR.set(data_dir.join("state")).unwrap();
     SCRIPT_DATA_DIR.set(data_dir.join("data")).unwrap();
 
     fs::create_dir_all(SCRIPTS_DIR.get().unwrap()).unwrap();
+    fs::create_dir_all(STATE_PERSIST_DIR.get().unwrap()).unwrap();
     fs::create_dir_all(SCRIPT_DATA_DIR.get().unwrap()).unwrap();
 
     let state_store = Arc::new(state::StateStore::new());
@@ -59,7 +63,7 @@ fn rocket() -> _ {
             (path = "/api/script", api = api::script::ScriptApiDoc),
         ),
         tags(
-            (name = "api::state", description = "Streaming state objects, created and manipulated by scripts."),
+            (name = "api::state", description = "Streaming and persistable state objects, created and manipulated by scripts."),
             (name = "api::script", description = "Running Lua scripts to perform actions and update state."),
         )
     )]

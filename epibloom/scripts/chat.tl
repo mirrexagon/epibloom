@@ -66,7 +66,7 @@ end
 --- If create_if_not_found is false (default) and the chat does not exist, an error is raised.
 function chat.get(chat_id: string, create_if_not_found?: boolean): Chat
     local chat_state = chat.get_state(chat_id, create_if_not_found)
-    return chat_state:read() as Chat
+    return chat_state:get() as Chat
 end
 
 --- Ensure a chat is loaded into the state object system (without returning it).
@@ -147,7 +147,7 @@ function chat.generate(chat_id: string, parent_message_id: string)
     local chat_state = chat.get_state(chat_id)
 
     -- Read the current state to build the message path.
-    local current_value = chat_state:read() as Chat
+    local current_value = chat_state:get() as Chat
     local path = chat.get_path(current_value.messages, parent_message_id)
 
     -- Flatten each node's content chunks into a single text block, with a
@@ -217,7 +217,7 @@ function chat.generate(chat_id: string, parent_message_id: string)
     end
 
     -- Persist to disk once, after the full response has been received.
-    local final_value = chat_state:read()
+    local final_value = chat_state:get()
     if final_value then
         chat.save(final_value as Chat)
     end

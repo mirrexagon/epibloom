@@ -3,7 +3,7 @@ local record state
     --- A wrapper for a JSON value that sends updates to connected clients when modified.
     record StateObject
         --- Get a copy of the current value.
-        read: function(StateObject): any
+        get: function(StateObject): any
 
         --- Update the held value, updating any connected clients when the update is complete.
         --- `update_function` is a function that takes a copy of the current
