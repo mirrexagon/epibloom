@@ -23,7 +23,11 @@ pub fn setup(lua: &Lua, state_store: Arc<StateStore>) -> mlua::Result<()> {
                 let state_store: LuaStateStore =
                     lua.named_registry_value("epibloom.store.state")?;
 
-                let state_obj = state_store.state_store.get_or_create(&name).await;
+                let state_obj = state_store
+                    .state_store
+                    .get_or_create(&name)
+                    .await
+                    .map_err(mlua::Error::external)?;
 
                 Ok(LuaStateObject {
                     name: name.clone(),

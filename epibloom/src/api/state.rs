@@ -46,7 +46,9 @@ pub async fn stream_state_objects(
     // Get or create all requested state objects and subscribe.
     let mut streams = Vec::new();
     for name in &object_names {
-        let obj = store.get_or_create(name).await;
+        let obj = store.get_or_create(name).await.map_err(|err| {
+            ApiErrorResponse::InternalServerError(format!("Couldn't get state object: {err}"))
+        })?;
         let stream = obj.subscribe().await;
         streams.push(Box::pin(stream));
     }

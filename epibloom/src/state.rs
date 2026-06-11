@@ -2,6 +2,7 @@
 //! subscribed clients, in the form of JSON Patch blobs.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use json_patch::Patch;
@@ -26,15 +27,15 @@ impl StateStore {
     }
 
     /// Get or create a state object by name.
-    pub async fn get_or_create(&self, name: &str) -> Arc<StateObject> {
+    pub async fn get_or_create(&self, name: &str) -> Result<Arc<StateObject>, Error> {
         let mut objects = self.objects.write().await;
 
         if let Some(obj) = objects.get(name) {
-            Arc::clone(obj)
+            Ok(Arc::clone(obj))
         } else {
-            let new_obj = Arc::new(StateObject::new(name));
+            let new_obj = Arc::new(StateObject::new(name).await?);
             objects.insert(name.to_string(), Arc::clone(&new_obj));
-            new_obj
+            Ok(new_obj)
         }
     }
 }
@@ -47,6 +48,7 @@ pub struct StateObject {
     persist: bool,
 
     persist_debounce: Debounce,
+    persist_file_path: PathBuf,
 
     /// The JSON value.
     value: RwLock<serde_json::Value>,
@@ -56,16 +58,36 @@ pub struct StateObject {
 }
 
 impl StateObject {
-    fn new(name: &str) -> Self {
+    async fn new(name: &str) -> Result<Self, Error> {
         let (broadcast, _) = broadcast::channel(128);
 
-        Self {
-            name: name.to_string(),
-            persist: name.starts_with(PERSIST_PREFIX),
-            persist_debounce: Debounce::new(tokio::time::Duration::from_secs(1)),
-            value: RwLock::new(serde_json::Value::Null),
-            event_broadcast: broadcast,
+        let persist = name.starts_with(PERSIST_PREFIX);
+        let mut persist_file_path = PathBuf::new();
+        let mut value = serde_json::Value::Null;
+
+        if persist {
+            let name = name.strip_prefix(PERSIST_PREFIX).unwrap().to_owned();
+            persist_file_path = crate::STATE_PERSIST_DIR.get().unwrap().clone();
+            persist_file_path.push(name);
+            persist_file_path.set_extension("json");
+
+            // Try to load existing value from the filesystem, defaulting to
+            // null if the file doesn't exist.
+            value = match tokio::fs::read_to_string(&persist_file_path).await {
+                Ok(contents) => serde_json::from_str(&contents)?,
+                Err(err) if err.kind() == tokio::io::ErrorKind::NotFound => serde_json::Value::Null,
+                Err(err) => return Err(err.into()),
+            };
         }
+
+        Ok(Self {
+            name: name.to_string(),
+            persist,
+            persist_debounce: Debounce::new(tokio::time::Duration::from_secs(1)),
+            persist_file_path,
+            value: RwLock::new(value),
+            event_broadcast: broadcast,
+        })
     }
 
     /// Get the current value.
@@ -99,15 +121,11 @@ impl StateObject {
         let _ = self.event_broadcast.send(event);
 
         if self.persist {
-            let name = self.name.strip_prefix(PERSIST_PREFIX).unwrap().to_owned();
+            let file_path = self.persist_file_path.clone();
 
             // Queue debounced save to disk.
             self.persist_debounce
                 .debounce(async move || {
-                    let mut file_path = crate::STATE_PERSIST_DIR.get().unwrap().clone();
-                    file_path.push(name);
-                    file_path.set_extension("json");
-
                     let contents = match serde_json::to_string_pretty(&new_value) {
                         Ok(value) => value,
                         Err(err) => {
@@ -185,4 +203,12 @@ pub enum StateEvent {
         #[schema(value_type = Vec<Object>)]
         patch: Patch,
     },
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("I/O error: {0}")]
+    Io(#[from] tokio::io::Error),
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
 }
