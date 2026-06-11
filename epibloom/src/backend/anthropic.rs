@@ -14,27 +14,6 @@ const ANTHROPIC_API_URL_BASE: &str = "https://api.anthropic.com/v1";
 
 static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
-#[derive(Debug, Deserialize, JsonSchema, Clone)]
-pub struct Config {
-    pub max_tokens: u32,
-    pub model: String,
-
-    pub stop_sequences: Vec<String>,
-    pub thinking_budget: Option<u32>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            max_tokens: 512,
-            model: "claude-haiku-4-5-20251001".to_string(),
-
-            stop_sequences: Vec::new(),
-            thinking_budget: None,
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct AnthropicClient {
     client: reqwest::Client,

@@ -15,8 +15,7 @@ local record llm
     end
 
     --- Start generation with the given messages.
-    --- `config` is optional; server-side defaults are used if omitted.
-    generate: function(request: table): GenerateHandle
+    generate_anthropic: function(request: table): GenerateHandle
 end
 
 return llm

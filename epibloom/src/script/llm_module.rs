@@ -79,7 +79,17 @@ impl UserData for LuaGenerateAnthropicHandle {
                 };
 
                 match event {
-                    Some(event) => Ok(Some(lua.to_value_with(&event, *super::SERIALIZE_OPTIONS)?)),
+                    Some(event) => match event {
+                        llm::AnthropicMessagesEvent::StreamingEvent(event) => {
+                            Ok(Some(lua.to_value_with(&event, *super::SERIALIZE_OPTIONS)?))
+                        }
+                        llm::AnthropicMessagesEvent::Error(message) => {
+                            let mut result = lua.create_table()?;
+                            result.set("type", "error")?;
+                            result.set("message", message)?;
+                            Ok(Some(Value::Table(result)))
+                        }
+                    },
                     None => {
                         handle.receiver.take();
                         Ok(None)

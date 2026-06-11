@@ -168,6 +168,7 @@ pub mod request {
         pub metadata: Option<Metadata>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub stop_sequences: Option<Vec<String>>,
+        #[serde(default = "default_stream")]
         pub stream: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub system: Option<String>,
@@ -187,48 +188,28 @@ pub mod request {
         // Abstract the ability to put in structured outputs? XML vs. JSON, etc. How to bind this to Lua nicely?
     }
 
-    impl Request {
-        pub fn new(
-            config: &super::super::Config,
-            system: Option<String>,
-            messages: Vec<Message>,
-        ) -> Self {
-            Self {
-                max_tokens: config.max_tokens,
-                messages,
-                model: config.model.to_owned(),
-
-                metadata: None,
-                stop_sequences: if !config.stop_sequences.is_empty() {
-                    Some(config.stop_sequences.clone())
-                } else {
-                    None
-                },
-                stream: true,
-                system,
-                temperature: None,
-                thinking: config.thinking_budget.map(|num_tokens| Thinking::Enabled {
-                    budget_tokens: num_tokens,
-                }),
-                tool_choice: None,
-                tools: None,
-                top_k: None,
-                top_p: None,
-            }
-        }
+    fn default_stream() -> bool {
+        true
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct Message {
         pub role: super::Role,
-        pub content: Vec<super::ContentBlock>,
+        pub content: MessageContent,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(untagged)]
+    pub enum MessageContent {
+        String(String),
+        ContentBlocks(Vec<super::ContentBlock>),
     }
 
     impl Default for Message {
         fn default() -> Self {
             Self {
-                role: super::Role::Assistant,
-                content: Vec::new(),
+                role: super::Role::User,
+                content: MessageContent::ContentBlocks(Vec::new()),
             }
         }
     }
@@ -383,6 +364,8 @@ pub fn generate(
                     .to_owned(),
             })?;
         }
+
+        // TODO: Handle stream being true or false, return events or whole response.
 
         let mut sse_body = SseStream::from_byte_stream(response.bytes_stream());
 

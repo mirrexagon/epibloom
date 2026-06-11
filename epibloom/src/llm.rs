@@ -37,6 +37,8 @@ impl LlmStore {
         }
     }
 
+    // TODO: List Anthropic models
+
     /// Start an LLM generation.
     ///
     /// TODO: Creates the `llm-trace:<uuid>` object and creates or updates the

@@ -1,7 +1,39 @@
 local state = require("epibloom.state")
+local llm = require("epibloom.llm")
 
 local o = state.get("persist:absolutetest")
 
-o:update(function(_: any): string
-    return "test"
+print(o:get())
+
+o:update(function(_: any): any
+    return math.random()
 end)
+
+local request = {
+    max_tokens = 1024,
+    model = "claude-haiku-4-5",
+    messages = {
+        { role = "user", content = "Hello! This is a test message. Say hi!" }
+    }
+}
+
+local function print_table(t, indent)
+    indent = indent or 0
+
+    local indent_string = string.rep("  ", indent)
+
+    for k, v in pairs(t) do
+        if type(v) == "table" then
+            print(string.format("%s%s = {", indent_string, k))
+            print_table(v, indent + 1)
+            print(string.format("%s}", indent_string))
+        else
+            print(string.format("%s%s = %s", indent_string, k, v))
+        end
+    end
+end
+
+for event in llm.generate_anthropic(request) do
+    print("NEW EVENT")
+    print_table(event)
+end
