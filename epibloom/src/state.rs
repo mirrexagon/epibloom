@@ -19,6 +19,8 @@ pub struct StateStore {
     objects: RwLock<HashMap<String, Arc<StateObject>>>,
 }
 
+// TODO: Have a state object with name empty string that lists all state objects we know about.
+
 impl StateStore {
     pub fn new() -> Self {
         Self {
