@@ -21,7 +21,6 @@ use utoipa_swagger_ui::SwaggerUi;
 
 static SCRIPTS_DIR: OnceLock<PathBuf> = OnceLock::new();
 static STATE_PERSIST_DIR: OnceLock<PathBuf> = OnceLock::new();
-static SCRIPT_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 #[launch]
 fn rocket() -> _ {
@@ -45,11 +44,9 @@ fn rocket() -> _ {
 
     SCRIPTS_DIR.set(config_dir.join("scripts")).unwrap();
     STATE_PERSIST_DIR.set(data_dir.join("state")).unwrap();
-    SCRIPT_DATA_DIR.set(data_dir.join("data")).unwrap();
 
     fs::create_dir_all(SCRIPTS_DIR.get().unwrap()).unwrap();
     fs::create_dir_all(STATE_PERSIST_DIR.get().unwrap()).unwrap();
-    fs::create_dir_all(SCRIPT_DATA_DIR.get().unwrap()).unwrap();
 
     let state_store = Arc::new(state::StateStore::new());
     let llm_store = Arc::new(llm::LlmStore::new(Arc::clone(&state_store)));
