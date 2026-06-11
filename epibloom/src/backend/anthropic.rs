@@ -1,12 +1,12 @@
-pub mod messages;
-mod models;
-
 use std::env;
 use std::pin::Pin;
 
 use futures::Stream;
 use schemars::JsonSchema;
 use serde::Deserialize;
+
+pub mod messages;
+mod models;
 
 // https://docs.anthropic.com/en/api/versioning
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
@@ -36,7 +36,7 @@ impl Default for Config {
 }
 
 #[derive(Clone)]
-pub struct AnthropicApi {
+pub struct AnthropicClient {
     client: reqwest::Client,
 }
 
@@ -61,13 +61,7 @@ pub enum Error {
     EnvVar(#[from] std::env::VarError),
 }
 
-impl AnthropicApi {
-    pub async fn list_models(&self) -> Result<Vec<models::ModelInfo>, Error> {
-        models::list_models(&self.client).await
-    }
-}
-
-impl AnthropicApi {
+impl AnthropicClient {
     pub fn new_from_env() -> Result<Self, Error> {
         use reqwest::{
             header::{self, HeaderMap, HeaderValue},
@@ -93,20 +87,17 @@ impl AnthropicApi {
             .default_headers(default_headers)
             .build()?;
 
-        Ok(AnthropicApi { client })
+        Ok(AnthropicClient { client })
+    }
+
+    pub async fn list_models(&self) -> Result<Vec<models::ModelInfo>, Error> {
+        models::list_models(&self.client).await
     }
 
     pub fn generate(
         &self,
-        config: &Config,
-        system: Option<String>,
-        messages: Vec<messages::request::Message>,
-    ) -> Pin<Box<dyn Stream<Item = Result<messages::GenerateChunk, Error>> + Send>> {
-        Box::pin(messages::generate(
-            self.clone().client,
-            config.clone(),
-            system,
-            messages,
-        ))
+        request: messages::request::Request,
+    ) -> Pin<Box<dyn Stream<Item = Result<messages::response::StreamingEvent, Error>> + Send>> {
+        Box::pin(messages::generate(self.client.clone(), request))
     }
 }

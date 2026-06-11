@@ -11,7 +11,7 @@ use utoipa::ToSchema;
 
 use crate::util::debounce::Debounce;
 
-const PERSIST_PREFIX: &'static str = "persist:";
+const PERSIST_PREFIX: &str = "persist:";
 
 /// Manages all state objects in the system.
 pub struct StateStore {
@@ -166,8 +166,6 @@ impl StateObject {
             }
         }
     }
-
-    async fn queue_persist(&self) {}
 }
 
 /// Event sent to subscribers when state changes.

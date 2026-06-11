@@ -9,12 +9,6 @@ use sse_stream::SseStream;
 
 use super::ANTHROPIC_API_URL_BASE;
 
-#[derive(Debug, Clone)]
-pub enum GenerateChunk {
-    ThinkingDelta(String),
-    MessageDelta(String),
-}
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub enum Role {
     #[serde(rename = "assistant")]
@@ -162,9 +156,9 @@ pub struct DocumentCitations {
 
 #[allow(dead_code)]
 pub mod request {
-    use serde::Serialize;
+    use serde::{Deserialize, Serialize};
 
-    #[derive(Debug, Clone, Serialize)]
+    #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct Request {
         pub max_tokens: u32,
         pub messages: Vec<Message>,
@@ -224,7 +218,7 @@ pub mod request {
         }
     }
 
-    #[derive(Debug, Clone, Serialize)]
+    #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct Message {
         pub role: super::Role,
         pub content: Vec<super::ContentBlock>,
@@ -239,13 +233,13 @@ pub mod request {
         }
     }
 
-    #[derive(Debug, Clone, Serialize)]
+    #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct Metadata {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub user_id: Option<String>,
     }
 
-    #[derive(Debug, Clone, Serialize)]
+    #[derive(Debug, Clone, Serialize, Deserialize)]
     #[serde(rename_all = "snake_case", tag = "type")]
     pub enum Thinking {
         Disabled,
@@ -253,7 +247,7 @@ pub mod request {
         // TODO: Support adaptive and https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking#adaptive-thinking-with-the-effort-parameter
     }
 
-    #[derive(Debug, Clone, Serialize)]
+    #[derive(Debug, Clone, Serialize, Deserialize)]
     #[serde(rename_all = "snake_case", tag = "type")]
     pub enum ToolChoice {
         Auto {
@@ -269,7 +263,7 @@ pub mod request {
         None,
     }
 
-    #[derive(Debug, Clone, Serialize)]
+    #[derive(Debug, Clone, Serialize, Deserialize)]
     #[serde(rename_all = "snake_case", tag = "type")]
     pub enum Tool {
         Custom {
@@ -281,58 +275,19 @@ pub mod request {
 }
 
 #[allow(dead_code)]
-mod response {
-    use serde::Deserialize;
+pub mod response {
+    use serde::{Deserialize, Serialize};
 
-    #[derive(Debug, Clone, Deserialize)]
-    pub struct Message {
-        pub role: super::Role,
-        pub content: Vec<super::ContentBlock>,
-
-        pub id: String,
-        pub model: String,
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct Response {
+        // TODO: Have a function that takes a streaming event and updates the
+        // response such that the final response given all streaming events in
+        // order matches what you would've gotten without streaming.
+        // Have a test in the parent module to attempt to test this, or at least
+        // run streaming and non-streaming side by side and check the responses.
     }
 
-    #[derive(Debug, Clone, Deserialize)]
-    #[serde(rename_all = "snake_case")]
-    pub enum StopReason {
-        EndTurn,
-        MaxTokens,
-        StopSequence,
-        ToolUse,
-        PauseTurn,
-        Refusal,
-    }
-
-    #[derive(Debug, Clone, Deserialize)]
-    pub struct Usage {
-        pub input_tokens: u32,
-        pub output_tokens: u32,
-        pub cache_creation_input_tokens: u32,
-        pub cache_read_input_tokens: u32,
-        pub inference_geo: Option<String>,
-    }
-
-    #[derive(Debug, Clone, Deserialize)]
-    pub struct MessageDelta {
-        stop_reason: Option<StopReason>,
-        stop_sequence: Option<String>,
-    }
-
-    // TODO: Handle all the types here: https://docs.claude.com/en/docs/build-with-claude/streaming#content-block-delta-types
-    // We need these variants to have these specific names. So we disable this
-    // warning that complains about the common suffix.
-    #[allow(clippy::enum_variant_names)]
-    #[derive(Debug, Clone, Deserialize)]
-    #[serde(rename_all = "snake_case", tag = "type")]
-    pub enum ContentBlockDelta {
-        TextDelta { text: String },
-        InputJsonDelta { partial_json: String },
-        ThinkingDelta { thinking: String },
-        SignatureDelta { signature: String },
-    }
-
-    #[derive(Debug, Clone, Deserialize)]
+    #[derive(Debug, Clone, Serialize, Deserialize)]
     #[serde(rename_all = "snake_case", tag = "type")]
     pub enum StreamingEvent {
         MessageStart {
@@ -356,22 +311,67 @@ mod response {
         },
         MessageStop,
     }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct Message {
+        pub role: super::Role,
+        pub content: Vec<super::ContentBlock>,
+
+        pub id: String,
+        pub model: String,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum StopReason {
+        EndTurn,
+        MaxTokens,
+        StopSequence,
+        ToolUse,
+        PauseTurn,
+        Refusal,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct Usage {
+        pub input_tokens: u32,
+        pub output_tokens: u32,
+        pub cache_creation_input_tokens: u32,
+        pub cache_read_input_tokens: u32,
+        pub inference_geo: Option<String>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct MessageDelta {
+        stop_reason: Option<StopReason>,
+        stop_sequence: Option<String>,
+    }
+
+    // TODO: Handle all the types here: https://docs.claude.com/en/docs/build-with-claude/streaming#content-block-delta-types
+    // We need these variants to have these specific names. So we disable this
+    // warning that complains about the common suffix.
+    #[allow(clippy::enum_variant_names)]
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case", tag = "type")]
+    pub enum ContentBlockDelta {
+        TextDelta { text: String },
+        InputJsonDelta { partial_json: String },
+        ThinkingDelta { thinking: String },
+        SignatureDelta { signature: String },
+    }
 }
 
 pub fn generate(
     client: reqwest::Client,
-    config: super::Config,
-    system: Option<String>,
-    messages: Vec<request::Message>,
-) -> impl Stream<Item = Result<GenerateChunk, super::Error>> {
+    request: request::Request,
+) -> impl Stream<Item = Result<response::StreamingEvent, super::Error>> {
     try_stream! {
         let url = format!("{ANTHROPIC_API_URL_BASE}/messages");
 
-        let body = request::Request::new(&config, system, messages);
-        let request_json = serde_json::to_string_pretty(&body)?;
+        let request_json = serde_json::to_string_pretty(&request)?;
         debug!("Anthropic messages request: {}", request_json);
 
-        let response = client.post(url).json(&body).send().await?;
+        let response = client.post(url).json(&request).send().await?;
 
         if response.status() != StatusCode::OK {
             let error_object: serde_json::Value = response.json().await?;
@@ -394,30 +394,7 @@ pub fn generate(
             let event: response::StreamingEvent = serde_json::from_str(&json_string)?;
             debug!("Anthropic streaming event: {:?}", event);
 
-            match event {
-                response::StreamingEvent::MessageStart { message } => {
-                    for content_block in message.content {
-                        if let ContentBlock::Text { text, .. } = content_block {
-                            yield GenerateChunk::MessageDelta(text);
-                        }
-                    }
-                }
-
-                response::StreamingEvent::ContentBlockStart { content_block: ContentBlock::Text { text, .. }, .. } => {
-                    yield GenerateChunk::MessageDelta(text)
-                }
-
-                response::StreamingEvent::ContentBlockDelta { delta, .. } => {
-                    match delta {
-                        response::ContentBlockDelta::ThinkingDelta { thinking, .. } => yield GenerateChunk::ThinkingDelta(thinking),
-                        response::ContentBlockDelta::TextDelta { text, .. } => yield GenerateChunk::MessageDelta(text),
-
-                        _ => {}
-                    }
-                }
-
-                _ => {}
-            }
+            yield event;
         }
     }
 }
