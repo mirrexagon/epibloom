@@ -12,8 +12,6 @@ mod models;
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 const ANTHROPIC_API_URL_BASE: &str = "https://api.anthropic.com/v1";
 
-static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
-
 #[derive(Clone)]
 pub struct AnthropicClient {
     client: reqwest::Client,
@@ -62,7 +60,7 @@ impl AnthropicClient {
         );
 
         let client = Client::builder()
-            .user_agent(APP_USER_AGENT)
+            .user_agent(crate::APP_USER_AGENT)
             .default_headers(default_headers)
             .build()?;
 

@@ -63,6 +63,7 @@ impl FromLua for LuaLlmStore {
 /// (via `__call`) and blocking until complete (via `wait()`).
 struct LuaGenerateAnthropicHandle {
     receiver: Option<mpsc::Receiver<llm::AnthropicMessagesEvent>>,
+    // TODO: Save the response/build it up from the streaming events and expose to it Lua as a property on this.
 }
 
 impl UserData for LuaGenerateAnthropicHandle {

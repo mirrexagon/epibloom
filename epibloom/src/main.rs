@@ -19,6 +19,8 @@ use rocket::fairing::AdHoc;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
+static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
+
 static SCRIPTS_DIR: OnceLock<PathBuf> = OnceLock::new();
 static STATE_PERSIST_DIR: OnceLock<PathBuf> = OnceLock::new();
 

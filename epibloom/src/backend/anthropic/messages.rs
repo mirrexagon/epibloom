@@ -366,6 +366,7 @@ pub fn generate(
         }
 
         // TODO: Handle stream being true or false, return events or whole response.
+        // Probably have separate functions that just override the `stream` request field.
 
         let mut sse_body = SseStream::from_byte_stream(response.bytes_stream());
 
