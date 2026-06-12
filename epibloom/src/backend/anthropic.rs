@@ -2,8 +2,6 @@ use std::env;
 use std::pin::Pin;
 
 use futures::Stream;
-use schemars::JsonSchema;
-use serde::Deserialize;
 
 pub mod messages;
 mod models;
@@ -73,8 +71,15 @@ impl AnthropicClient {
 
     pub fn generate(
         &self,
-        request: messages::request::Request,
+        request: messages::request::MessagesRequest,
     ) -> Pin<Box<dyn Stream<Item = Result<messages::response::StreamingEvent, Error>> + Send>> {
         Box::pin(messages::generate(self.client.clone(), request))
+    }
+
+    pub async fn count_tokens(
+        &self,
+        request: messages::request::CountTokensRequest,
+    ) -> Result<messages::response::MessageTokensCount, Error> {
+        messages::count_tokens(self.client.clone(), request).await
     }
 }

@@ -9,16 +9,13 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use crate::{
-    backend::anthropic::{
-        messages::{request, response},
-        AnthropicClient,
-    },
+    backend::anthropic::{self, messages, AnthropicClient},
     state::StateStore,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum AnthropicMessagesEvent {
-    StreamingEvent(response::StreamingEvent),
+    StreamingEvent(messages::response::StreamingEvent),
     Error(String),
 }
 
@@ -49,9 +46,9 @@ impl LlmStore {
     /// TODO: Should this just return a stream that wraps the request stream,
     /// modifying the trace state object before passing on the event? Might mean
     /// it can be cancelled by dropping.
-    pub async fn generate_anthropic(
+    pub async fn anthropic_generate(
         &self,
-        request: request::Request,
+        request: messages::request::MessagesRequest,
     ) -> mpsc::Receiver<AnthropicMessagesEvent> {
         let backend = Arc::clone(&self.anthropic_client);
         let (tx, rx) = mpsc::channel(1024);
@@ -83,5 +80,12 @@ impl LlmStore {
         });
 
         rx
+    }
+
+    pub async fn anthropic_count_tokens(
+        &self,
+        request: messages::request::CountTokensRequest,
+    ) -> Result<messages::response::MessageTokensCount, anthropic::Error> {
+        self.anthropic_client.count_tokens(request).await
     }
 }

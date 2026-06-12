@@ -14,8 +14,15 @@ local record llm
         wait: function(GenerateHandle): (boolean, string | nil)
     end
 
+    record MessageTokensCount
+        input_tokens: number
+    end
+
     --- Start generation with the given messages.
-    generate_anthropic: function(request: table): GenerateHandle
+    anthropic_generate: function(request: table): GenerateHandle
+
+    --- Get a count of input tokens in a generate request.
+    anthropic_count_tokens: function(request: table): MessageTokensCount | nil, string | nil
 end
 
 return llm

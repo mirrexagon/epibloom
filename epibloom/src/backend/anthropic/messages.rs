@@ -5,6 +5,7 @@ use futures::Stream;
 use futures::StreamExt;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use serde_with::skip_serializing_none;
 use sse_stream::SseStream;
 
 use super::ANTHROPIC_API_URL_BASE;
@@ -157,32 +158,27 @@ pub struct DocumentCitations {
 #[allow(dead_code)]
 pub mod request {
     use serde::{Deserialize, Serialize};
+    use serde_with::skip_serializing_none;
 
+    use crate::backend::anthropic::messages::CacheControl;
+
+    #[skip_serializing_none]
     #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct Request {
+    pub struct MessagesRequest {
         pub max_tokens: u32,
         pub messages: Vec<Message>,
         pub model: String,
 
-        #[serde(skip_serializing_if = "Option::is_none")]
         pub metadata: Option<Metadata>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         pub stop_sequences: Option<Vec<String>>,
         #[serde(default = "default_stream")]
         pub stream: bool,
-        #[serde(skip_serializing_if = "Option::is_none")]
         pub system: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         pub temperature: Option<f32>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pub thinking: Option<Thinking>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        pub thinking: Option<ThinkingConfig>,
         pub tool_choice: Option<ToolChoice>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         pub tools: Option<Vec<Tool>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         pub top_k: Option<u32>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         pub top_p: Option<f32>,
         // TODO: https://platform.claude.com/docs/en/build-with-claude/structured-outputs
         // Abstract the ability to put in structured outputs? XML vs. JSON, etc. How to bind this to Lua nicely?
@@ -190,6 +186,18 @@ pub mod request {
 
     fn default_stream() -> bool {
         true
+    }
+
+    #[skip_serializing_none]
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct CountTokensRequest {
+        pub messages: Vec<Message>,
+        pub model: String,
+        pub cache_control: Option<CacheControl>,
+        pub system: Option<String>,
+        pub thinking: Option<ThinkingConfig>,
+        pub tool_choice: Option<ToolChoice>,
+        pub tools: Option<Vec<Tool>>,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -222,7 +230,7 @@ pub mod request {
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     #[serde(rename_all = "snake_case", tag = "type")]
-    pub enum Thinking {
+    pub enum ThinkingConfig {
         Disabled,
         Enabled { budget_tokens: u32 },
         // TODO: Support adaptive and https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking#adaptive-thinking-with-the-effort-parameter
@@ -340,20 +348,26 @@ pub mod response {
         ThinkingDelta { thinking: String },
         SignatureDelta { signature: String },
     }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct MessageTokensCount {
+        pub input_tokens: u32,
+    }
 }
 
 pub fn generate(
     client: reqwest::Client,
-    request: request::Request,
+    request: request::MessagesRequest,
 ) -> impl Stream<Item = Result<response::StreamingEvent, super::Error>> {
     try_stream! {
         let url = format!("{ANTHROPIC_API_URL_BASE}/messages");
 
         let request_json = serde_json::to_string_pretty(&request)?;
-        debug!("Anthropic messages request: {}", request_json);
+        log::debug!("Anthropic messages request: {}", request_json);
 
         let response = client.post(url).json(&request).send().await?;
 
+        // TODO: Deserialize error into struct, the Api error variant should contain an error struct
         if response.status() != StatusCode::OK {
             let error_object: serde_json::Value = response.json().await?;
             return Err(super::Error::Api {
@@ -376,9 +390,36 @@ pub fn generate(
             let json_string = sse.data.ok_or(super::Error::StreamingEventHasNoData)?;
 
             let event: response::StreamingEvent = serde_json::from_str(&json_string)?;
-            debug!("Anthropic streaming event: {:?}", event);
+            log::debug!("Anthropic streaming event: {:?}", event);
 
             yield event;
         }
     }
+}
+
+pub async fn count_tokens(
+    client: reqwest::Client,
+    request: request::CountTokensRequest,
+) -> Result<response::MessageTokensCount, super::Error> {
+    let url = format!("{ANTHROPIC_API_URL_BASE}/messages/count_tokens");
+
+    let request_json = serde_json::to_string_pretty(&request)?;
+    log::debug!("Anthropic messages token count request: {}", request_json);
+
+    let response = client.post(url).json(&request).send().await?;
+
+    if response.status() != StatusCode::OK {
+        let error_object: serde_json::Value = response.json().await?;
+        return Err(super::Error::Api {
+            r#type: error_object["error"]["type"].as_str().unwrap().to_owned(),
+            message: error_object["error"]["message"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        })?;
+    }
+
+    let result = response.json().await?;
+    log::debug!("Token count response: {result:?}");
+    Ok(result)
 }

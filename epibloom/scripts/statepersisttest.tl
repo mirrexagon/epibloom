@@ -10,7 +10,6 @@ o:update(function(_: any): any
 end)
 
 local request = {
-    max_tokens = 1024,
     model = "claude-haiku-4-5",
     messages = {
         { role = "user", content = "Hello! This is a test message. Say hi!" }
@@ -33,7 +32,11 @@ local function print_table(t, indent)
     end
 end
 
-for event in llm.generate_anthropic(request) do
+print_table(assert(llm.anthropic_count_tokens(request)))
+
+request.max_tokens = 1024
+
+for event in llm.anthropic_generate(request) do
     print("NEW EVENT")
     print_table(event)
 end
