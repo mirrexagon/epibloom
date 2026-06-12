@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use crate::{
-    backend::anthropic::{self, messages, AnthropicClient},
+    backend::anthropic::{self, messages, models, AnthropicClient},
     state::StateStore,
 };
 
@@ -20,7 +20,7 @@ pub enum AnthropicMessagesEvent {
 }
 
 pub struct LlmStore {
-    anthropic_client: Arc<AnthropicClient>,
+    pub anthropic_client: Arc<AnthropicClient>,
     state_store: Arc<StateStore>,
 }
 
@@ -33,8 +33,6 @@ impl LlmStore {
             state_store,
         }
     }
-
-    // TODO: List Anthropic models
 
     /// Start an LLM generation.
     ///
@@ -80,12 +78,5 @@ impl LlmStore {
         });
 
         rx
-    }
-
-    pub async fn anthropic_count_tokens(
-        &self,
-        request: messages::request::CountTokensRequest,
-    ) -> Result<messages::response::MessageTokensCount, anthropic::Error> {
-        self.anthropic_client.count_tokens(request).await
     }
 }

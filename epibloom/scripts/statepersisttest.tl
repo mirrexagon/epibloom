@@ -22,21 +22,24 @@ local function print_table(t, indent)
     local indent_string = string.rep("  ", indent)
 
     for k, v in pairs(t) do
+        local indent = indent + 1
         if type(v) == "table" then
             print(string.format("%s%s = {", indent_string, k))
-            print_table(v, indent + 1)
-            print(string.format("%s}", indent_string))
+            print_table(v, indent)
         else
             print(string.format("%s%s = %s", indent_string, k, v))
         end
     end
+
+    print(indent_string .. "}")
 end
 
+print_table(assert(llm.anthropic_list_models()))
 print_table(assert(llm.anthropic_count_tokens(request)))
 
 request.max_tokens = 1024
 
-for event in llm.anthropic_generate(request) do
-    print("NEW EVENT")
-    print_table(event)
-end
+--for event in llm.anthropic_generate(request) do
+--    print("NEW EVENT")
+--    print_table(event)
+--end

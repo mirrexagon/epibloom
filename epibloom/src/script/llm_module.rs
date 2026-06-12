@@ -18,6 +18,22 @@ pub fn setup(lua: &Lua, llm_store: Arc<LlmStore>) -> mlua::Result<()> {
     let llm_module = lua.create_table()?;
 
     llm_module.set(
+        "anthropic_list_models",
+        lua.create_async_function(async |lua, _: ()| {
+            let store: LuaLlmStore = lua.named_registry_value("epibloom.llm.store")?;
+            let anthropic_client = Arc::clone(&store.llm_store.anthropic_client);
+
+            match anthropic_client.list_models().await {
+                Ok(response) => Ok((
+                    Some(lua.to_value_with(&response, *super::SERIALIZE_OPTIONS)?),
+                    None,
+                )),
+                Err(err) => Ok((None, Some(err.to_string()))),
+            }
+        })?,
+    )?;
+
+    llm_module.set(
         "anthropic_generate",
         lua.create_async_function(async |lua, request: Value| {
             let request: anthropic::messages::request::MessagesRequest =
@@ -37,8 +53,9 @@ pub fn setup(lua: &Lua, llm_store: Arc<LlmStore>) -> mlua::Result<()> {
                 lua.from_value_with(request, *super::DESERIALIZE_OPTIONS)?;
 
             let store: LuaLlmStore = lua.named_registry_value("epibloom.llm.store")?;
+            let anthropic_client = Arc::clone(&store.llm_store.anthropic_client);
 
-            match store.llm_store.anthropic_count_tokens(request).await {
+            match anthropic_client.count_tokens(request).await {
                 Ok(response) => Ok((
                     Some(lua.to_value_with(&response, *super::SERIALIZE_OPTIONS)?),
                     None,

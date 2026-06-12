@@ -4,7 +4,7 @@ use std::pin::Pin;
 use futures::Stream;
 
 pub mod messages;
-mod models;
+pub mod models;
 
 // https://docs.anthropic.com/en/api/versioning
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
