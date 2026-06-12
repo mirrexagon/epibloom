@@ -3,12 +3,11 @@
 use async_stream::try_stream;
 use futures::Stream;
 use futures::StreamExt;
-use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 use sse_stream::SseStream;
 
-use super::ANTHROPIC_API_URL_BASE;
+use super::AnthropicReqwestClient;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub enum Role {
@@ -360,24 +359,10 @@ pub fn generate(
     request: request::MessagesRequest,
 ) -> impl Stream<Item = Result<response::StreamingEvent, super::Error>> {
     try_stream! {
-        let url = format!("{ANTHROPIC_API_URL_BASE}/messages");
-
         let request_json = serde_json::to_string_pretty(&request)?;
         log::debug!("Anthropic messages request: {}", request_json);
 
-        let response = client.post(url).json(&request).send().await?;
-
-        // TODO: Deserialize error into struct, the Api error variant should contain an error struct
-        if response.status() != StatusCode::OK {
-            let error_object: serde_json::Value = response.json().await?;
-            return Err(super::Error::Api {
-                r#type: error_object["error"]["type"].as_str().unwrap().to_owned(),
-                message: error_object["error"]["message"]
-                    .as_str()
-                    .unwrap()
-                    .to_owned(),
-            })?;
-        }
+        let response = client.anthropic_post("messages", &request).await?;
 
         // TODO: Handle stream being true or false, return events or whole response.
         // Probably have separate functions that just override the `stream` request field.
@@ -401,25 +386,14 @@ pub async fn count_tokens(
     client: reqwest::Client,
     request: request::CountTokensRequest,
 ) -> Result<response::MessageTokensCount, super::Error> {
-    let url = format!("{ANTHROPIC_API_URL_BASE}/messages/count_tokens");
-
     let request_json = serde_json::to_string_pretty(&request)?;
     log::debug!("Anthropic messages token count request: {}", request_json);
 
-    let response = client.post(url).json(&request).send().await?;
-
-    if response.status() != StatusCode::OK {
-        let error_object: serde_json::Value = response.json().await?;
-        return Err(super::Error::Api {
-            r#type: error_object["error"]["type"].as_str().unwrap().to_owned(),
-            message: error_object["error"]["message"]
-                .as_str()
-                .unwrap()
-                .to_owned(),
-        })?;
-    }
-
+    let response = client
+        .anthropic_post("messages/count_tokens", &request)
+        .await?;
     let result = response.json().await?;
     log::debug!("Token count response: {result:?}");
+
     Ok(result)
 }

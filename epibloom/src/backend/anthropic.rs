@@ -3,6 +3,9 @@ use std::pin::Pin;
 
 use futures::Stream;
 
+use reqwest::StatusCode;
+use serde::{Deserialize, Serialize};
+
 pub mod messages;
 pub mod models;
 
@@ -17,8 +20,8 @@ pub struct AnthropicClient {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Anthropic API returned error '{type}': {message}")]
-    Api { r#type: String, message: String },
+    #[error("Anthropic API returned error: {0:?}")]
+    Api(ApiErrorObject),
 
     #[error("streaming event has no data")]
     StreamingEventHasNoData,
@@ -34,6 +37,67 @@ pub enum Error {
 
     #[error("Environment variable error: {0}")]
     EnvVar(#[from] std::env::VarError),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiErrorObject {
+    error: ApiError,
+    request_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiError {
+    r#type: ApiErrorType,
+    message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ApiErrorType {
+    /// HTTP response code 400 - There was an issue with the format or content
+    /// of your request. This error type may also be used for other 4XX status
+    /// codes not listed here.
+    #[serde(rename = "invalid_request_error")]
+    InvalidRequest,
+
+    /// HTTP response code 401 - There's an issue with your API key.
+    #[serde(rename = "authentication_error")]
+    Authentication,
+
+    /// HTTP response code 402 - There's an issue with your billing or payment
+    /// information. Check your payment details in the Claude Console.
+    #[serde(rename = "billing_error")]
+    Billing,
+
+    /// HTTP response code 403 - Your API key does not have permission to use
+    /// the specified resource.
+    #[serde(rename = "permission_error")]
+    Permission,
+
+    /// HTTP response code 404 - The requested resource was not found.
+    #[serde(rename = "not_found_error")]
+    NotFound,
+
+    /// 413 - Request exceeds the maximum allowed number of bytes.
+    #[serde(rename = "request_too_large")]
+    RequestTooLarge,
+
+    /// HTTP response code 429 - Your account has hit a rate limit.
+    #[serde(rename = "rate_limit_error")]
+    RateLimit,
+
+    /// HTTP response code 500 - An unexpected error has occurred internal to
+    /// Anthropic's systems.
+    #[serde(rename = "api_error")]
+    Api,
+
+    /// HTTP response code 504 - The request timed out while processing.
+    /// Consider using streaming for long-running requests.
+    #[serde(rename = "timeout_error")]
+    Timeout,
+
+    /// HTTP response code 529 - The API is temporarily overloaded.
+    #[serde(rename = "overloaded_error")]
+    Overloaded,
 }
 
 impl AnthropicClient {
@@ -81,5 +145,37 @@ impl AnthropicClient {
         request: messages::request::CountTokensRequest,
     ) -> Result<messages::response::MessageTokensCount, Error> {
         messages::count_tokens(self.client.clone(), request).await
+    }
+}
+
+trait AnthropicReqwestClient {
+    async fn anthropic_get(&self, path: &str) -> Result<reqwest::Response, Error>;
+    async fn anthropic_post<T>(&self, path: &str, body: &T) -> Result<reqwest::Response, Error>
+    where
+        T: Serialize + ?Sized;
+}
+
+impl AnthropicReqwestClient for reqwest::Client {
+    async fn anthropic_get(&self, path: &str) -> Result<reqwest::Response, Error> {
+        let url = format!("{ANTHROPIC_API_URL_BASE}/{path}");
+        let response = self.get(url).send().await?;
+        if response.status() == StatusCode::OK {
+            Ok(response)
+        } else {
+            Err(Error::Api(response.json().await?))
+        }
+    }
+
+    async fn anthropic_post<T>(&self, path: &str, body: &T) -> Result<reqwest::Response, Error>
+    where
+        T: Serialize + ?Sized,
+    {
+        let url = format!("{ANTHROPIC_API_URL_BASE}/{path}");
+        let response = self.post(url).json(body).send().await?;
+        if response.status() == StatusCode::OK {
+            Ok(response)
+        } else {
+            Err(Error::Api(response.json().await?))
+        }
     }
 }

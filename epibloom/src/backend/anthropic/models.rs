@@ -1,9 +1,10 @@
 //! Types and functions for the /models endpoint.
 
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-use super::ANTHROPIC_API_URL_BASE;
+use super::AnthropicReqwestClient;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ModelInfoPage {
@@ -76,18 +77,13 @@ pub async fn list_models(client: &reqwest::Client) -> Result<Vec<ModelInfo>, sup
     let mut model_list = Vec::new();
 
     // Get first page.
-    let url = format!("{ANTHROPIC_API_URL_BASE}/models");
-    let response = client.get(url).send().await?;
+    let response = client.anthropic_get("models").await?;
     let mut model_info_page: ModelInfoPage = response.json().await?;
     model_list.append(&mut model_info_page.data);
 
     while model_info_page.has_more {
-        let url = format!(
-            "{ANTHROPIC_API_URL_BASE}/models?after_id={}",
-            model_info_page.last_id
-        );
-
-        let response = client.get(url).send().await?;
+        let path = format!("models?after_id={}", model_info_page.last_id);
+        let response = client.anthropic_get(&path).await?;
         model_info_page = response.json().await?;
         model_list.append(&mut model_info_page.data);
     }
