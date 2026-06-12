@@ -15,7 +15,7 @@ use crate::{
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum AnthropicMessagesEvent {
-    StreamingEvent(messages::response::StreamingEvent),
+    MessageStreamEvent(messages::response::MessageStreamEvent),
     Error(String),
 }
 
@@ -47,10 +47,17 @@ impl LlmStore {
     pub async fn anthropic_generate(
         &self,
         request: messages::request::MessagesRequest,
+    ) -> Result<messages::response::Message, anthropic::Error> {
+        self.anthropic_client.generate(request).await
+    }
+
+    pub async fn anthropic_generate_streaming(
+        &self,
+        request: messages::request::MessagesRequest,
     ) -> mpsc::Receiver<AnthropicMessagesEvent> {
         let backend = Arc::clone(&self.anthropic_client);
         let (tx, rx) = mpsc::channel(1024);
-        let stream = backend.generate(request);
+        let stream = backend.generate_streaming(request);
 
         tokio::spawn(async move {
             futures::pin_mut!(stream);
@@ -58,16 +65,17 @@ impl LlmStore {
             while let Some(result) = stream.next().await {
                 match result {
                     Ok(event) => {
-                        if let Err(err) =
-                            tx.send(AnthropicMessagesEvent::StreamingEvent(event)).await
+                        if let Err(err) = tx
+                            .send(AnthropicMessagesEvent::MessageStreamEvent(event))
+                            .await
                         {
-                            log::error!("Failed to send StreamingEvent into channel: {err}");
+                            log::error!("Failed to send StreamingEvent into channel: {err:?}");
                             return;
                         }
                     }
 
                     Err(err) => {
-                        log::error!("Error in LLM generation stream: {err}");
+                        log::error!("Error in LLM generation stream: {err:?}");
                         let _ = tx
                             .send(AnthropicMessagesEvent::Error(err.to_string()))
                             .await;

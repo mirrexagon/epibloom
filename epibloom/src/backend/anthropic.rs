@@ -133,11 +133,19 @@ impl AnthropicClient {
         models::list_models(&self.client).await
     }
 
-    pub fn generate(
+    pub async fn generate(
         &self,
         request: messages::request::MessagesRequest,
-    ) -> Pin<Box<dyn Stream<Item = Result<messages::response::StreamingEvent, Error>> + Send>> {
-        Box::pin(messages::generate(self.client.clone(), request))
+    ) -> Result<messages::response::Message, Error> {
+        messages::generate(self.client.clone(), request).await
+    }
+
+    pub fn generate_streaming(
+        &self,
+        request: messages::request::MessagesRequest,
+    ) -> Pin<Box<dyn Stream<Item = Result<messages::response::MessageStreamEvent, Error>> + Send>>
+    {
+        Box::pin(messages::generate_streaming(self.client.clone(), request))
     }
 
     pub async fn count_tokens(
@@ -170,6 +178,11 @@ impl AnthropicReqwestClient for reqwest::Client {
     where
         T: Serialize + ?Sized,
     {
+        log::debug!(
+            "POST to {path} body: {}",
+            serde_json::to_string_pretty(body)?
+        );
+
         let url = format!("{ANTHROPIC_API_URL_BASE}/{path}");
         let response = self.post(url).json(body).send().await?;
         if response.status() == StatusCode::OK {

@@ -40,7 +40,24 @@ pub fn setup(lua: &Lua, llm_store: Arc<LlmStore>) -> mlua::Result<()> {
                 lua.from_value_with(request, *super::DESERIALIZE_OPTIONS)?;
 
             let store: LuaLlmStore = lua.named_registry_value("epibloom.llm.store")?;
-            let rx = store.llm_store.anthropic_generate(request).await;
+            match store.llm_store.anthropic_generate(request).await {
+                Ok(response_message) => Ok((
+                    Some(lua.to_value_with(&response_message, *super::SERIALIZE_OPTIONS)?),
+                    None,
+                )),
+                Err(err) => Ok((None, Some(err.to_string()))),
+            }
+        })?,
+    )?;
+
+    llm_module.set(
+        "anthropic_generate_streaming",
+        lua.create_async_function(async |lua, request: Value| {
+            let request: anthropic::messages::request::MessagesRequest =
+                lua.from_value_with(request, *super::DESERIALIZE_OPTIONS)?;
+
+            let store: LuaLlmStore = lua.named_registry_value("epibloom.llm.store")?;
+            let rx = store.llm_store.anthropic_generate_streaming(request).await;
 
             Ok(LuaGenerateAnthropicHandle { receiver: Some(rx) })
         })?,
@@ -115,7 +132,7 @@ impl UserData for LuaGenerateAnthropicHandle {
 
                 match event {
                     Some(event) => match event {
-                        llm::AnthropicMessagesEvent::StreamingEvent(event) => {
+                        llm::AnthropicMessagesEvent::MessageStreamEvent(event) => {
                             Ok(Some(lua.to_value_with(&event, *super::SERIALIZE_OPTIONS)?))
                         }
                         llm::AnthropicMessagesEvent::Error(message) => {
