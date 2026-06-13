@@ -1,9 +1,11 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useStateObjects } from "../hooks/useStateObjects";
 import { AnthropicTraceStateObject, AnthropicMessage } from "../types/api";
 
 export function AnthropicTracesTab() {
     const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
+    const [autoSelectNew, setAutoSelectNew] = useState(true);
+    const prevTraceIdsRef = useRef<string[]>([]);
 
     // Subscribe to the index to get all state object names
     const indexObjectNames = useMemo(() => [""], []);
@@ -50,6 +52,26 @@ export function AnthropicTracesTab() {
         });
     }, [traces]);
 
+    // Auto-select new traces if enabled
+    useEffect(() => {
+        if (!autoSelectNew) return;
+
+        const currentTraceIds = sortedTraces.map((t) => t.id);
+        const prevTraceIds = prevTraceIdsRef.current;
+
+        // Find newly added trace IDs
+        const newTraceIds = currentTraceIds.filter(
+            (id) => !prevTraceIds.includes(id)
+        );
+
+        if (newTraceIds.length > 0 && sortedTraces.length > 0) {
+            // Select the newest trace (first in sorted list)
+            setSelectedTraceId(sortedTraces[0].id);
+        }
+
+        prevTraceIdsRef.current = currentTraceIds;
+    }, [sortedTraces, autoSelectNew]);
+
     const selectedTrace = sortedTraces.find((t) => t.id === selectedTraceId);
 
     return (
@@ -69,6 +91,17 @@ export function AnthropicTracesTab() {
                     {error && (
                         <div className="text-sm text-red-400 mt-1">{error}</div>
                     )}
+                    <div className="mt-3">
+                        <label className="flex items-center cursor-pointer text-sm">
+                            <input
+                                type="checkbox"
+                                checked={autoSelectNew}
+                                onChange={(e) => setAutoSelectNew(e.target.checked)}
+                                className="mr-2 cursor-pointer"
+                            />
+                            <span className="text-gray-300">Auto-select new traces</span>
+                        </label>
+                    </div>
                 </div>
                 <div className="flex-1 overflow-y-auto">
                     {sortedTraces.map((trace) => (
