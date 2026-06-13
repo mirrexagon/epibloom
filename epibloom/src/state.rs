@@ -93,7 +93,7 @@ impl StateObject {
     }
 
     /// Get the current value.
-    pub async fn get(&self) -> serde_json::Value {
+    pub async fn read(&self) -> serde_json::Value {
         self.value.read().await.clone()
     }
 

@@ -72,8 +72,6 @@
 - If some features need support from the backend (eg. token probabilities, how sampler chose tokens), make a new backend based on llama.cpp called Epicalyx (see Epibloom README for why)
 - How to support swipes and general transforms before sending the chat? Do the transforms in scripts, replace the entire content of a chat with the result, and send that? Or have a chat be assignable a transform script that makes any changes before it gets sent to the backend?
 
-Teal, try to make the scripting nicer to easily use and write scripts for
-
 Move debug to top level tab instead of drawer. Then there is RP/chat tab and game tab
 
 Dedicated guy making own story/RP interface with anti slop https://reddit.com/comments/1sh9tz7/comment/ofb7mhp?context=3

@@ -1,4 +1,4 @@
-syntax = "LuaJIT"
+syntax = "Lua54"
 indent_type = "Spaces"
 call_parentheses = "NoSingleTable"
 

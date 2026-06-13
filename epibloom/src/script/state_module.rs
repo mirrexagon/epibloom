@@ -77,8 +77,8 @@ impl UserData for LuaStateObject {
 
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         // Read current value
-        methods.add_async_method("get", |lua, obj, ()| async move {
-            let value = obj.state_object.get().await;
+        methods.add_async_method("read", |lua, obj, ()| async move {
+            let value = obj.state_object.read().await;
             let lua_value = lua.to_value_with(&value, *super::SERIALIZE_OPTIONS)?;
             Ok(lua_value)
         });

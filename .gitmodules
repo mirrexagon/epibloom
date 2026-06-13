@@ -1,3 +1,0 @@
-[submodule "epibloom/deps/tl"]
-	path = epibloom/deps/tl
-	url = https://github.com/teal-language/tl.git

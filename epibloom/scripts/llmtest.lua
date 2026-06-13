@@ -1,19 +1,19 @@
-local state = require("epibloom.state")
 local llm = require("epibloom.llm")
+local state = require("epibloom.state")
 
 local o = state.get("persist:absolutetest")
 
 print(o:get())
 
-o:update(function(_: any): any
+o:update(function(_)
     return math.random()
 end)
 
 local request = {
     model = "claude-haiku-4-5",
     messages = {
-        { role = "user", content = "Hello! This is a test message. Say hi, and talk for a while about oranges!" }
-    }
+        { role = "user", content = "Hello! This is a test message. Say hi, and talk for a while about oranges!" },
+    },
 }
 
 local function print_table(t, indent)
