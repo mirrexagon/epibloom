@@ -3,7 +3,7 @@ local state = require("epibloom.state")
 
 local o = state.get("persist:absolutetest")
 
-print(o:get())
+print(o:read())
 
 o:update(function(_)
     return math.random()
@@ -37,7 +37,7 @@ end
 --print_table(assert(llm.anthropic_list_models()))
 --print_table(assert(llm.anthropic_count_tokens(request)))
 
-request.max_tokens = 1024
+request.max_tokens = 256
 
 --print_table(assert(llm.anthropic_generate(request)))
 

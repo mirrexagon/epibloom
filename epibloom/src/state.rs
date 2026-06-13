@@ -30,7 +30,9 @@ impl StateStore {
 
         let index = Arc::new(StateObject::new_plain(
             INDEX_OBJECT_NAME,
-            serde_json::json!([INDEX_OBJECT_NAME]),
+            serde_json::Value::Array(vec![serde_json::Value::String(
+                INDEX_OBJECT_NAME.to_owned(),
+            )]),
             false,
             PathBuf::new(),
         ));
@@ -45,7 +47,7 @@ impl StateStore {
 
     pub async fn populate_index(&self) -> Result<(), Error> {
         // Get a list of all persisted state objects we have saved.
-        // We let their contents actually be loaded lazily when requested.
+        // We let their actual contents be loaded lazily when requested.
         let mut state_objects = Vec::new();
         let mut dir = tokio::fs::read_dir(crate::STATE_PERSIST_DIR.get().unwrap()).await?;
         while let Some(entry) = dir.next_entry().await? {
@@ -67,10 +69,8 @@ impl StateStore {
             }
         }
 
-        let index_object = self.get_or_create(INDEX_OBJECT_NAME).await?;
-
-        index_object
-            .update(async |_| serde_json::to_value(state_objects))
+        self.index
+            .update_internal(async |_| serde_json::to_value(state_objects))
             .await?;
 
         Ok(())
@@ -88,9 +88,17 @@ impl StateStore {
             objects.insert(name.to_string(), Arc::clone(&new_obj));
 
             self.index
-                .update(async |mut value| -> Result<_, serde_json::Error> {
+                .update_internal(async |mut value| -> Result<_, serde_json::Error> {
                     if let serde_json::Value::Array(ref mut index_list) = value {
-                        index_list.push(serde_json::Value::String(name.to_owned()));
+                        if !index_list.iter().any(|v| {
+                            if let serde_json::Value::String(s) = v {
+                                s == name
+                            } else {
+                                false
+                            }
+                        }) {
+                            index_list.push(serde_json::Value::String(name.to_owned()));
+                        }
                     } else {
                         panic!("index state objects was not an array");
                     }
@@ -173,14 +181,25 @@ impl StateObject {
         self.value.read().await.clone()
     }
 
-    /// Write a new value and broadcast it to subscribers.
     pub async fn update<F, E>(&self, update: F) -> Result<(), E>
     where
         F: AsyncFnOnce(serde_json::Value) -> Result<serde_json::Value, E>,
         E: std::error::Error + Send + Sync,
     {
-        // TODO: Only allow this module to modify the index object.
+        if self.name == INDEX_OBJECT_NAME {
+            log::warn!("Tried to update the index state object but that is not allowed");
+            return Ok(());
+        };
 
+        self.update_internal(update).await
+    }
+
+    /// Write a new value and broadcast it to subscribers.
+    async fn update_internal<F, E>(&self, update: F) -> Result<(), E>
+    where
+        F: AsyncFnOnce(serde_json::Value) -> Result<serde_json::Value, E>,
+        E: std::error::Error + Send + Sync,
+    {
         let mut value_guard = self.value.write().await;
 
         let old_value = value_guard.clone();
@@ -189,43 +208,44 @@ impl StateObject {
         *value_guard = new_value.clone();
 
         // Compute JSON Patch diff.
-        // TODO: If the values are the same, don't do any of the rest of this.
         let patch = json_patch::diff(&old_value, &new_value);
 
-        let event = StateEvent::Patch {
-            object: self.name.clone(),
-            patch,
-        };
+        if !patch.is_empty() {
+            let event = StateEvent::Patch {
+                object: self.name.clone(),
+                patch,
+            };
 
-        // Broadcast the event.
-        let _ = self.event_broadcast.send(event);
+            // Broadcast the event.
+            let _ = self.event_broadcast.send(event);
 
-        if self.persist {
-            let file_path = self.persist_file_path.clone();
+            if self.persist {
+                let file_path = self.persist_file_path.clone();
 
-            // Queue debounced save to disk.
-            self.persist_debounce
-                .debounce(async move || {
-                    let contents = match serde_json::to_string_pretty(&new_value) {
-                        Ok(value) => value,
-                        Err(err) => {
+                // Queue debounced save to disk.
+                self.persist_debounce
+                    .debounce(async move || {
+                        let contents = match serde_json::to_string_pretty(&new_value) {
+                            Ok(value) => value,
+                            Err(err) => {
+                                log::error!(
+                                    "StateObject persistence: failed to serialize state object: {}",
+                                    err
+                                );
+                                return;
+                            }
+                        };
+
+                        if let Err(err) = tokio::fs::write(&file_path, contents).await {
                             log::error!(
-                                "StateObject persistence: failed to serialize state object: {}",
+                                "StateObject persistence: failed to save file '{}': {}",
+                                file_path.display(),
                                 err
                             );
-                            return;
                         }
-                    };
-
-                    if let Err(err) = tokio::fs::write(&file_path, contents).await {
-                        log::error!(
-                            "StateObject persistence: failed to save file '{}': {}",
-                            file_path.display(),
-                            err
-                        );
-                    }
-                })
-                .await;
+                    })
+                    .await;
+            }
         }
 
         Ok(())
