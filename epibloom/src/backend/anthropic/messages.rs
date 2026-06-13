@@ -79,6 +79,9 @@ pub enum CacheControlTtl {
     OneHour,
 }
 
+// We need these variants to have these specific names. So we disable this
+// warning that complains about the common suffix.
+#[allow(clippy::enum_variant_names)]
 #[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
@@ -448,7 +451,7 @@ pub mod response {
     }
 
     impl Message {
-        pub fn apply_event(&mut self, event: MessageStreamEvent) {
+        pub fn apply_event(&mut self, _event: MessageStreamEvent) {
             // TODO: Implement and bind to Lua
             unimplemented!();
         }

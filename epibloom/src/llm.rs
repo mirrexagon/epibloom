@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use crate::{
-    backend::anthropic::{self, messages, models, AnthropicClient},
+    backend::anthropic::{self, messages, AnthropicClient},
     state::StateStore,
 };
 

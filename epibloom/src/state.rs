@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::{collections::HashMap, ffi::OsStr};
+use std::collections::HashMap;
 
 use json_patch::Patch;
 use serde::{Deserialize, Serialize};

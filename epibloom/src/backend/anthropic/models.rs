@@ -1,6 +1,5 @@
 //! Types and functions for the /models endpoint.
 
-use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 

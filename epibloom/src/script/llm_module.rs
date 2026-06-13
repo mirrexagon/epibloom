@@ -136,7 +136,7 @@ impl UserData for LuaGenerateAnthropicHandle {
                             Ok(Some(lua.to_value_with(&event, *super::SERIALIZE_OPTIONS)?))
                         }
                         llm::AnthropicMessagesEvent::Error(message) => {
-                            let mut result = lua.create_table()?;
+                            let result = lua.create_table()?;
                             result.set("type", "error")?;
                             result.set("message", message)?;
                             Ok(Some(Value::Table(result)))
