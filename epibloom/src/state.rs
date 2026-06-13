@@ -1,9 +1,9 @@
 //! State objects that are named JSON values that broadcast changes to
 //! subscribed clients, in the form of JSON Patch blobs.
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::{collections::HashMap, ffi::OsStr};
 
 use json_patch::Patch;
 use serde::{Deserialize, Serialize};
@@ -13,19 +13,67 @@ use utoipa::ToSchema;
 use crate::util::debounce::Debounce;
 
 const PERSIST_PREFIX: &str = "persist:";
+const INDEX_OBJECT_NAME: &str = "";
 
 /// Manages all state objects in the system.
 pub struct StateStore {
     objects: RwLock<HashMap<String, Arc<StateObject>>>,
-}
 
-// TODO: Have a state object with name empty string that lists all state objects we know about.
+    /// A state object with name empty string, which is an array of all
+    /// created state object names, always in alphabetical order.
+    index: Arc<StateObject>,
+}
 
 impl StateStore {
     pub fn new() -> Self {
+        let mut objects = HashMap::new();
+
+        let index = Arc::new(StateObject::new_plain(
+            INDEX_OBJECT_NAME,
+            serde_json::json!([INDEX_OBJECT_NAME]),
+            false,
+            PathBuf::new(),
+        ));
+
+        objects.insert(INDEX_OBJECT_NAME.to_owned(), Arc::clone(&index));
+
         Self {
-            objects: RwLock::new(HashMap::new()),
+            objects: RwLock::new(objects),
+            index,
         }
+    }
+
+    pub async fn populate_index(&self) -> Result<(), Error> {
+        // Get a list of all persisted state objects we have saved.
+        // We let their contents actually be loaded lazily when requested.
+        let mut state_objects = Vec::new();
+        let mut dir = tokio::fs::read_dir(crate::STATE_PERSIST_DIR.get().unwrap()).await?;
+        while let Some(entry) = dir.next_entry().await? {
+            let path = entry.path();
+            let file_type = entry.file_type().await?;
+
+            if let Some(extension) = path.extension() {
+                if file_type.is_file() && extension == "json" {
+                    let mut state_object_name = path
+                        .file_stem()
+                        .unwrap()
+                        .to_str()
+                        .expect("state object filename is not valid UTF-8")
+                        .to_owned();
+
+                    state_object_name.insert_str(0, PERSIST_PREFIX);
+                    state_objects.push(state_object_name);
+                }
+            }
+        }
+
+        let index_object = self.get_or_create(INDEX_OBJECT_NAME).await?;
+
+        index_object
+            .update(async |_| serde_json::to_value(state_objects))
+            .await?;
+
+        Ok(())
     }
 
     /// Get or create a state object by name.
@@ -36,7 +84,21 @@ impl StateStore {
             Ok(Arc::clone(obj))
         } else {
             let new_obj = Arc::new(StateObject::new(name).await?);
+
             objects.insert(name.to_string(), Arc::clone(&new_obj));
+
+            self.index
+                .update(async |mut value| -> Result<_, serde_json::Error> {
+                    if let serde_json::Value::Array(ref mut index_list) = value {
+                        index_list.push(serde_json::Value::String(name.to_owned()));
+                    } else {
+                        panic!("index state objects was not an array");
+                    }
+
+                    Ok(value)
+                })
+                .await?;
+
             Ok(new_obj)
         }
     }
@@ -61,8 +123,6 @@ pub struct StateObject {
 
 impl StateObject {
     async fn new(name: &str) -> Result<Self, Error> {
-        let (broadcast, _) = broadcast::channel(128);
-
         let persist = name.starts_with(PERSIST_PREFIX);
         let mut persist_file_path = PathBuf::new();
         let mut value = serde_json::Value::Null;
@@ -82,14 +142,30 @@ impl StateObject {
             };
         }
 
-        Ok(Self {
+        Ok(StateObject::new_plain(
+            name,
+            value,
+            persist,
+            persist_file_path,
+        ))
+    }
+
+    fn new_plain(
+        name: &str,
+        value: serde_json::Value,
+        persist: bool,
+        persist_file_path: PathBuf,
+    ) -> Self {
+        let (broadcast, _) = broadcast::channel(128);
+
+        Self {
             name: name.to_string(),
             persist,
-            persist_debounce: Debounce::new(tokio::time::Duration::from_secs(1)),
+            persist_debounce: Debounce::new(tokio::time::Duration::from_millis(500)),
             persist_file_path,
             value: RwLock::new(value),
             event_broadcast: broadcast,
-        })
+        }
     }
 
     /// Get the current value.
@@ -103,6 +179,8 @@ impl StateObject {
         F: AsyncFnOnce(serde_json::Value) -> Result<serde_json::Value, E>,
         E: std::error::Error + Send + Sync,
     {
+        // TODO: Only allow this module to modify the index object.
+
         let mut value_guard = self.value.write().await;
 
         let old_value = value_guard.clone();

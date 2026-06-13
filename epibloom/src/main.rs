@@ -72,6 +72,12 @@ fn rocket() -> _ {
         .manage(state_store)
         .manage(llm_store)
         .manage(script_context_store)
+        .attach(AdHoc::on_liftoff("Setup state store", |rocket| {
+            Box::pin(async move {
+                let state_store: Arc<state::StateStore> = Arc::clone(rocket.state().unwrap());
+                state_store.populate_index().await.expect("failed to populate index state object");
+            })
+        }))
         .attach(AdHoc::on_liftoff("Log location of API docs", |rocket| {
             Box::pin(async move {
                 let config = rocket.config();
