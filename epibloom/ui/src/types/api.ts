@@ -1,36 +1,9 @@
-// Types matching the OpenAPI schema
+// Types matching the OpenAPI schema and backend data structures
 
-export type Role = "system" | "assistant" | "user";
+import { Operation } from "fast-json-patch";
 
-// ---- LLM trace (stored as state objects named "llm-trace:<uuid>") ----------
+// ---- State Objects API ----------
 
-export interface LlmTraceMessage {
-    role: Role;
-    /** Content chunks — join to get the full text. */
-    content: string[];
-    /** Thinking chunks — join to get the full text. Present for assistant turns. */
-    thinking?: string[];
-    /** True while the assistant response is still being streamed. */
-    generating?: boolean;
-    /** Error message if generation failed. */
-    error?: string;
-}
-
-export interface LlmTrace {
-    id: string;
-    name: string;
-    created: string;
-    messages: LlmTraceMessage[];
-}
-
-/** Entry in the "llm-trace-index" state object array. */
-export interface LlmTraceIndexEntry {
-    id: string;
-    name: string;
-    created: string;
-}
-
-// State objects types
 export type StateEvent =
     | {
           type: "value";
@@ -40,11 +13,7 @@ export type StateEvent =
     | {
           type: "patch";
           object: string;
-          patch: Array<{
-              op: string;
-              path: string;
-              value?: unknown;
-          }>;
+          patch: Operation[];
       };
 
 export interface StateObjectData {
@@ -52,22 +21,49 @@ export interface StateObjectData {
     value: unknown;
 }
 
-// Chat types
-export interface ChatMessage {
-    id: string;
-    parent_id: string | null;
-    role: Role;
-    // Content is stored as a list of string chunks for efficient streaming via
-    // JSON Patch array-append operations. Join them to get the full text.
-    content: string[];
-    // Thinking text as a list of string chunks, if present. Join them to get the full text.
-    thinking?: string[];
-    trace_id?: string;
-    // If an error occurred generating the message, this will have the error message.
-    error?: string;
+// ---- Anthropic LLM Traces ----------
+
+export interface AnthropicTraceStateObject {
+    start_time: string; // RFC3339 datetime
+    end_time: string | null; // RFC3339 datetime or null if still running
+    trace: AnthropicTrace;
 }
 
-export interface Chat {
-    id: string;
-    messages: Record<string, ChatMessage>;
+export interface AnthropicTrace {
+    model: string;
+    max_tokens: number;
+    system?: string; // Optional system prompt
+    messages: AnthropicMessage[];
+}
+
+export interface AnthropicMessage {
+    role: "user" | "assistant" | "system";
+    content: string | AnthropicContentBlock[];
+    id?: string; // Present on assistant messages
+    model?: string; // Present on assistant messages
+    stop_reason?: string; // Present on assistant messages
+    usage?: AnthropicUsage; // Present on assistant messages
+}
+
+export type AnthropicContentBlock =
+    | {
+          type: "text";
+          text: string;
+      }
+    | {
+          type: "thinking";
+          thinking: string;
+      };
+
+export interface AnthropicUsage {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation?: {
+        ephemeral_5m_input_tokens: number;
+        ephemeral_1h_input_tokens: number;
+    };
+    service_tier?: string;
+    inference_geo?: string;
 }

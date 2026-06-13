@@ -3,6 +3,7 @@ local state = require("epibloom.state")
 
 local request = {
     model = "claude-haiku-4-5",
+    system = "You are a helpful assistant catgirl! Nyaa!~",
     messages = {
         {
             role = "user",
@@ -32,7 +33,7 @@ end
 --print_table(assert(llm.anthropic_list_models()))
 --print_table(assert(llm.anthropic_count_tokens(request)))
 
-request.max_tokens = 32
+request.max_tokens = 1024
 
 print_table(assert(llm.anthropic_generate(request)))
 

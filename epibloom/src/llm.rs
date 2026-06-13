@@ -47,11 +47,15 @@ impl LlmStore {
         log::info!("Starting generation: {}", &trace_object.name);
 
         let response = self.anthropic_client.generate(request).await?;
+        let end_time = OffsetDateTime::now_utc();
 
+        // TODO: Handle prefill, if the last message is an assistant message,
+        // stick the response on the end of that.
         trace_object
             .update(async |value| {
                 let mut trace: AnthropicLlmTrace = serde_json::from_value(value)?;
                 trace.trace.messages.push(response.clone());
+                trace.end_time = Some(end_time);
                 serde_json::to_value(trace)
             })
             .await?;
@@ -109,7 +113,7 @@ impl LlmStore {
     ) -> Result<Arc<StateObject>, state::Error> {
         let trace = AnthropicLlmTrace::from(request.clone());
 
-        let name = format!("llm-trace-anthropic:{}", Uuid::now_v7());
+        let name = format!("llm-trace-anthropic:{}:persist", Uuid::now_v7());
         let state_object = self.state_store.get_or_create(&name).await?;
 
         state_object
