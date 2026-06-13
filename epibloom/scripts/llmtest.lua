@@ -1,7 +1,7 @@
 local llm = require("epibloom.llm")
 local state = require("epibloom.state")
 
-local o = state.get("persist:absolutetest")
+local o = state.get("absolutetest:persist")
 
 print(o:read())
 

@@ -1,9 +1,9 @@
 //! State objects that are named JSON values that broadcast changes to
 //! subscribed clients, in the form of JSON Patch blobs.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::collections::HashMap;
 
 use json_patch::Patch;
 use serde::{Deserialize, Serialize};
@@ -12,7 +12,7 @@ use utoipa::ToSchema;
 
 use crate::util::debounce::Debounce;
 
-const PERSIST_PREFIX: &str = "persist:";
+const PERSIST_SUFFIX: &str = ":persist";
 const INDEX_OBJECT_NAME: &str = "";
 
 /// Manages all state objects in the system.
@@ -63,7 +63,7 @@ impl StateStore {
                         .expect("state object filename is not valid UTF-8")
                         .to_owned();
 
-                    state_object_name.insert_str(0, PERSIST_PREFIX);
+                    state_object_name.push_str(PERSIST_SUFFIX);
                     state_objects.push(state_object_name);
                 }
             }
@@ -131,12 +131,12 @@ pub struct StateObject {
 
 impl StateObject {
     async fn new(name: &str) -> Result<Self, Error> {
-        let persist = name.starts_with(PERSIST_PREFIX);
+        let persist = name.ends_with(PERSIST_SUFFIX);
         let mut persist_file_path = PathBuf::new();
         let mut value = serde_json::Value::Null;
 
         if persist {
-            let name = name.strip_prefix(PERSIST_PREFIX).unwrap().to_owned();
+            let name = name.strip_suffix(PERSIST_SUFFIX).unwrap().to_owned();
             persist_file_path = crate::STATE_PERSIST_DIR.get().unwrap().clone();
             persist_file_path.push(name);
             persist_file_path.set_extension("json");
