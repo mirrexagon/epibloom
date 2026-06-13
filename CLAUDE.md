@@ -78,7 +78,7 @@ In `epibloom/ui/`, React + TypeScript + Vite + Tailwind CSS.
 ### Commands
 
 - `just check-ui` - Runs `npm run lint` to run ESLint.
-- `just serve` - Runs `npm run dev` to start development server (proxies `/api/*` to backend at `:8000`) - the user will already have this running in most cases.
+- `just serve-ui` - Runs `npm run dev` to start development server (proxies `/api/*` to backend at `:8000`) - the user will already have this running in most cases.
 
 ## Gotchas
 
