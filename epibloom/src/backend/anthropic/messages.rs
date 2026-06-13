@@ -31,6 +31,13 @@ pub enum ContentBlock {
         source: ImageSource,
         cache_control: Option<CacheControl>,
     },
+    Document {
+        source: DocumentSource,
+        citations: DocumentCitations,
+        context: Option<String>,
+        title: Option<String>,
+        cache_control: Option<CacheControl>,
+    },
     ToolUse {
         id: String,
         input: serde_json::Value,
@@ -41,13 +48,6 @@ pub enum ContentBlock {
         tool_use_id: String,
         content: String,
         is_error: bool,
-        cache_control: Option<CacheControl>,
-    },
-    Document {
-        source: DocumentSource,
-        citations: DocumentCitations,
-        context: Option<String>,
-        title: Option<String>,
         cache_control: Option<CacheControl>,
     },
     Thinking {
@@ -86,16 +86,49 @@ pub enum Citations {
     CharLocation {
         cited_text: String,
         document_index: u32,
-        document_title: Option<String>,
-        end_char_index: i32,
+        document_title: String,
         start_char_index: u32,
+        end_char_index: u32,
     },
     PageLocation {
         cited_text: String,
         document_index: u32,
-        document_title: Option<String>,
-        end_page_number: i32,
+        document_title: String,
         start_page_number: u32,
+        end_page_number: u32,
+    },
+    ContentBlockLocation {
+        cited_text: String,
+        document_index: u32,
+        document_title: String,
+        /// 0-based index of the first cited block in the source's content
+        /// array.
+        start_block_index: u32,
+        /// Exclusive 0-based end index of the cited block range in the source's
+        /// content array.
+        end_block_index: u32,
+    },
+    WebSearchResultLocation {
+        cited_text: String,
+        encrypted_index: String,
+        title: String,
+        url: String,
+    },
+    SearchResultLocation {
+        /// The full text of the cited block range, concatenated.
+        cited_text: String,
+        title: String,
+        source: String,
+        /// 0-based index of the cited search result among all search_result
+        /// content blocks in the request, in the order they appear across
+        /// messages and tool results.
+        search_result_index: u32,
+        /// 0-based index of the first cited block in the source's content
+        /// array.
+        start_block_index: u32,
+        /// Exclusive 0-based end index of the cited block range in the source's
+        /// content array.
+        end_block_index: u32,
     },
 }
 
@@ -138,9 +171,8 @@ pub enum DocumentSource {
         /// Only accepts Text or Image.
         content: Vec<ContentBlock>,
     },
-    Url {
-        url: String,
-    },
+    /// Meant for PDFs only.
+    Url { url: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -423,31 +455,6 @@ pub mod response {
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
-    #[serde(rename_all = "snake_case", tag = "type")]
-    pub enum MessageStreamEvent {
-        MessageStart {
-            message: Message,
-        },
-        Ping,
-        ContentBlockStart {
-            index: u32,
-            content_block: super::ContentBlock,
-        },
-        ContentBlockDelta {
-            index: u32,
-            delta: ContentBlockDelta,
-        },
-        ContentBlockStop {
-            index: u32,
-        },
-        MessageDelta {
-            delta: MessageDelta,
-            usage: Usage,
-        },
-        MessageStop,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct Container {
         id: String,
         expires_at: String,
@@ -493,19 +500,19 @@ pub mod response {
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct CacheCreationUsageBreakdown {
-        ephemeral_5m_input_tokens: u32,
-        ephemeral_1h_input_tokens: u32,
+        pub ephemeral_5m_input_tokens: u32,
+        pub ephemeral_1h_input_tokens: u32,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct OutputTokensDetails {
-        thinking_tokens: u32,
+        pub thinking_tokens: u32,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct ServerToolUsage {
-        web_fetch_requests: u32,
-        web_search_requests: u32,
+        pub web_fetch_requests: u32,
+        pub web_search_requests: u32,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -516,11 +523,39 @@ pub mod response {
         Batch,
     }
 
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case", tag = "type")]
+    pub enum MessageStreamEvent {
+        MessageStart {
+            message: Message,
+        },
+        Ping,
+        ContentBlockStart {
+            index: u32,
+            content_block: super::ContentBlock,
+        },
+        ContentBlockDelta {
+            index: u32,
+            delta: ContentBlockDelta,
+        },
+        ContentBlockStop {
+            index: u32,
+        },
+        MessageDelta {
+            delta: MessageDelta,
+            usage: Usage,
+        },
+        MessageStop,
+    }
+
     #[skip_serializing_none]
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct MessageDelta {
-        stop_reason: Option<StopReason>,
-        stop_sequence: Option<String>,
+        pub stop_reason: Option<StopReason>,
+        pub stop_details: Option<StopDetails>,
+        pub stop_sequence: Option<String>,
+        pub container: Option<Container>,
+        pub usage: Option<Usage>,
     }
 
     // TODO: Handle all the types here: https://docs.claude.com/en/docs/build-with-claude/streaming#content-block-delta-types
