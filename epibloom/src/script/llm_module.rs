@@ -57,7 +57,11 @@ pub fn setup(lua: &Lua, llm_store: Arc<LlmStore>) -> mlua::Result<()> {
                 lua.from_value_with(request, *super::DESERIALIZE_OPTIONS)?;
 
             let store: LuaLlmStore = lua.named_registry_value("epibloom.llm.store")?;
-            let rx = store.llm_store.anthropic_generate_streaming(request).await;
+            let rx = store
+                .llm_store
+                .anthropic_generate_streaming(request)
+                .await
+                .map_err(mlua::Error::external)?;
 
             Ok(LuaGenerateAnthropicHandle { receiver: Some(rx) })
         })?,

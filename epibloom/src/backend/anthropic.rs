@@ -136,7 +136,7 @@ impl AnthropicClient {
     pub async fn generate(
         &self,
         request: messages::request::MessagesRequest,
-    ) -> Result<messages::response::Message, Error> {
+    ) -> Result<messages::Message, Error> {
         messages::generate(self.client.clone(), request).await
     }
 

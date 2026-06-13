@@ -6,11 +6,13 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 use tokio::sync::mpsc;
+use uuid::Uuid;
 
 use crate::{
     backend::anthropic::{self, messages, AnthropicClient},
-    state::StateStore,
+    state::{self, StateObject, StateStore},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -34,29 +36,42 @@ impl LlmStore {
         }
     }
 
-    /// Start an LLM generation.
-    ///
-    /// TODO: Creates the `llm-trace:<uuid>` object and creates or updates the
-    /// `llm-trace-index` state object, spawns a task that streams chunks into
-    /// the trace state object, and returns the trace UUID string plus an
-    /// [`mpsc::Receiver`] that delivers the same chunks to the caller.
-    ///
-    /// TODO: Should this just return a stream that wraps the request stream,
-    /// modifying the trace state object before passing on the event? Might mean
-    /// it can be cancelled by dropping.
     pub async fn anthropic_generate(
         &self,
         request: messages::request::MessagesRequest,
-    ) -> Result<messages::response::Message, anthropic::Error> {
-        self.anthropic_client.generate(request).await
+    ) -> Result<messages::Message, Error> {
+        log::info!("Starting generation");
+
+        let trace_object = self.new_anthropic_llm_trace_state_object(&request).await?;
+
+        log::info!("Starting generation: {}", &trace_object.name);
+
+        let response = self.anthropic_client.generate(request).await?;
+
+        trace_object
+            .update(async |value| {
+                let mut trace: AnthropicLlmTrace = serde_json::from_value(value)?;
+                trace.trace.messages.push(response.clone());
+                serde_json::to_value(trace)
+            })
+            .await?;
+
+        Ok(response)
     }
 
+    // TODO: Should this just return a stream that wraps the request stream,
+    // modifying the trace state object before passing on the event? Might mean
+    // it can be cancelled by dropping. As long as we can buffer events for Lua
+    // to get at its own pace, the channel currently works as the queue.
     pub async fn anthropic_generate_streaming(
         &self,
         request: messages::request::MessagesRequest,
-    ) -> mpsc::Receiver<AnthropicMessagesEvent> {
+    ) -> Result<mpsc::Receiver<AnthropicMessagesEvent>, Error> {
         let backend = Arc::clone(&self.anthropic_client);
         let (tx, rx) = mpsc::channel(1024);
+
+        let trace_object = self.new_anthropic_llm_trace_state_object(&request).await?;
+
         let stream = backend.generate_streaming(request);
 
         tokio::spawn(async move {
@@ -85,6 +100,54 @@ impl LlmStore {
             }
         });
 
-        rx
+        Ok(rx)
     }
+
+    async fn new_anthropic_llm_trace_state_object(
+        &self,
+        request: &messages::request::MessagesRequest,
+    ) -> Result<Arc<StateObject>, state::Error> {
+        let trace = AnthropicLlmTrace::from(request.clone());
+
+        let name = format!("llm-trace-anthropic:{}", Uuid::now_v7());
+        let state_object = self.state_store.get_or_create(&name).await?;
+
+        state_object
+            .update(async |_| serde_json::to_value(trace))
+            .await?;
+
+        Ok(state_object)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AnthropicLlmTrace {
+    #[serde(with = "time::serde::rfc3339")]
+    start_time: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339::option")]
+    end_time: Option<OffsetDateTime>,
+
+    trace: messages::request::MessagesRequest,
+}
+
+impl From<messages::request::MessagesRequest> for AnthropicLlmTrace {
+    fn from(request: messages::request::MessagesRequest) -> Self {
+        Self {
+            start_time: OffsetDateTime::now_utc(),
+            end_time: None,
+            trace: request,
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("I/O error: {0}")]
+    Io(#[from] tokio::io::Error),
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("Anthropic error: {0}")]
+    Anthropic(#[from] anthropic::Error),
+    #[error("State object error: {0}")]
+    StateObject(#[from] state::Error),
 }

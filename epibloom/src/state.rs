@@ -71,12 +71,14 @@ impl StateStore {
                         .to_owned();
 
                     state_object_name.push_str(PERSIST_SUFFIX);
-                    objects.index.push(state_object_name);
+
+                    if let Err(pos) = objects.index.binary_search(&state_object_name) {
+                        objects.index.insert(pos, state_object_name);
+                    }
                 }
             }
         }
 
-        objects.index.sort_unstable();
         self.set_index_to(&objects.index).await?;
 
         Ok(())
@@ -116,7 +118,7 @@ impl StateStore {
 
 /// A single state object with a JSON value.
 pub struct StateObject {
-    name: String,
+    pub name: String,
 
     /// Whether to persist this object automatically.
     persist: bool,

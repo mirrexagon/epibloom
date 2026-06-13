@@ -9,12 +9,49 @@ use sse_stream::SseStream;
 
 use super::AnthropicReqwestClient;
 
+// TODO: Have a function that takes a streaming event and updates the
+// response such that the final response given all streaming events in
+// order matches what you would've gotten without streaming.
+// Have a test in the parent module to attempt to test this, or at least
+// run streaming and non-streaming side by side and check the responses.
+#[skip_serializing_none]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Message {
+    pub role: Role,
+    pub content: MessageContent,
+
+    pub id: Option<String>,
+    pub model: Option<String>,
+
+    pub stop_reason: Option<response::StopReason>,
+    pub stop_details: Option<response::StopDetails>,
+    pub stop_sequence: Option<String>,
+
+    pub usage: Option<response::Usage>,
+
+    pub container: Option<response::Container>,
+}
+
+impl Message {
+    pub fn apply_event(&mut self, _event: response::MessageStreamEvent) {
+        // TODO: Implement and bind to Lua
+        unimplemented!();
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub enum Role {
     #[serde(rename = "assistant")]
     Assistant,
     #[serde(rename = "user")]
     User,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum MessageContent {
+    String(String),
+    ContentBlocks(Vec<ContentBlock>),
 }
 
 #[allow(dead_code)]
@@ -209,7 +246,7 @@ pub mod request {
         pub max_tokens: u32,
 
         /// Input messages.
-        pub messages: Vec<Message>,
+        pub messages: Vec<super::Message>,
 
         /// The model that will complete your prompt.
         pub model: String,
@@ -289,35 +326,13 @@ pub mod request {
     #[skip_serializing_none]
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct CountTokensRequest {
-        pub messages: Vec<Message>,
+        pub messages: Vec<super::Message>,
         pub model: String,
         pub cache_control: Option<CacheControl>,
         pub system: Option<String>,
         pub thinking: Option<ThinkingConfig>,
         pub tool_choice: Option<ToolChoice>,
         pub tools: Option<Vec<Tool>>,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct Message {
-        pub role: super::Role,
-        pub content: MessageContent,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    #[serde(untagged)]
-    pub enum MessageContent {
-        String(String),
-        ContentBlocks(Vec<super::ContentBlock>),
-    }
-
-    impl Default for Message {
-        fn default() -> Self {
-            Self {
-                role: super::Role::User,
-                content: MessageContent::ContentBlocks(Vec::new()),
-            }
-        }
     }
 
     #[skip_serializing_none]
@@ -428,35 +443,6 @@ pub mod response {
     use serde::{Deserialize, Serialize};
     use serde_with::skip_serializing_none;
 
-    // TODO: Have a function that takes a streaming event and updates the
-    // response such that the final response given all streaming events in
-    // order matches what you would've gotten without streaming.
-    // Have a test in the parent module to attempt to test this, or at least
-    // run streaming and non-streaming side by side and check the responses.
-    #[skip_serializing_none]
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct Message {
-        pub id: String,
-        pub model: String,
-        pub role: super::Role,
-        pub content: Vec<super::ContentBlock>,
-
-        pub stop_reason: Option<StopReason>,
-        pub stop_details: Option<StopDetails>,
-        pub stop_sequence: Option<String>,
-
-        pub usage: Usage,
-
-        pub container: Option<Container>,
-    }
-
-    impl Message {
-        pub fn apply_event(&mut self, _event: MessageStreamEvent) {
-            // TODO: Implement and bind to Lua
-            unimplemented!();
-        }
-    }
-
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct Container {
         id: String,
@@ -530,7 +516,7 @@ pub mod response {
     #[serde(rename_all = "snake_case", tag = "type")]
     pub enum MessageStreamEvent {
         MessageStart {
-            message: Message,
+            message: super::Message,
         },
         Ping,
         ContentBlockStart {
@@ -561,7 +547,6 @@ pub mod response {
         pub usage: Option<Usage>,
     }
 
-    // TODO: Handle all the types here: https://docs.claude.com/en/docs/build-with-claude/streaming#content-block-delta-types
     // We need these variants to have these specific names. So we disable this
     // warning that complains about the common suffix.
     #[allow(clippy::enum_variant_names)]
@@ -583,7 +568,7 @@ pub mod response {
 pub async fn generate(
     client: reqwest::Client,
     mut request: request::MessagesRequest,
-) -> Result<response::Message, super::Error> {
+) -> Result<Message, super::Error> {
     request.stream = Some(false);
 
     let request_json = serde_json::to_string_pretty(&request)?;

@@ -10,9 +10,9 @@
 // functions that call back into the state. But I also want to be able to run
 // multiple generations at once.
 
+use std::collections::HashMap;
 use std::path::{self, Path};
 use std::sync::Arc;
-use std::collections::HashMap;
 
 use lazy_static::lazy_static;
 use mlua::{Lua, LuaSerdeExt, ObjectLike, Table};
@@ -20,10 +20,7 @@ use tokio::fs;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::{
-    llm::LlmStore,
-    state::StateStore,
-};
+use crate::{llm::LlmStore, state::StateStore};
 
 mod llm_module;
 mod log_module;
@@ -131,7 +128,7 @@ impl Context {
             let uuid_module = lua.create_table()?;
 
             uuid_module.set(
-                "new",
+                "now_v7",
                 lua.create_function(|_lua, _: ()| {
                     let new_uuid = Uuid::now_v7();
                     Ok(format!("{}", new_uuid.hyphenated()))
