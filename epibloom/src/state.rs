@@ -17,18 +17,23 @@ const INDEX_OBJECT_NAME: &str = "";
 
 /// Manages all state objects in the system.
 pub struct StateStore {
-    objects: RwLock<HashMap<String, Arc<StateObject>>>,
+    objects: RwLock<StateObjectsContainer>,
 
     /// A state object with name empty string, which is an array of all
     /// created state object names, always in alphabetical order.
-    index: Arc<StateObject>,
+    index_object: Arc<StateObject>,
+}
+
+struct StateObjectsContainer {
+    pub map: HashMap<String, Arc<StateObject>>,
+    pub index: Vec<String>,
 }
 
 impl StateStore {
     pub fn new() -> Self {
-        let mut objects = HashMap::new();
+        let mut map = HashMap::new();
 
-        let index = Arc::new(StateObject::new_plain(
+        let index_object = Arc::new(StateObject::new_plain(
             INDEX_OBJECT_NAME,
             serde_json::Value::Array(vec![serde_json::Value::String(
                 INDEX_OBJECT_NAME.to_owned(),
@@ -37,18 +42,20 @@ impl StateStore {
             PathBuf::new(),
         ));
 
-        objects.insert(INDEX_OBJECT_NAME.to_owned(), Arc::clone(&index));
+        map.insert(INDEX_OBJECT_NAME.to_owned(), Arc::clone(&index_object));
+        let index = vec![INDEX_OBJECT_NAME.to_owned()];
 
         Self {
-            objects: RwLock::new(objects),
-            index,
+            objects: RwLock::new(StateObjectsContainer { map, index }),
+            index_object,
         }
     }
 
-    pub async fn populate_index(&self) -> Result<(), Error> {
+    pub async fn populate_index_with_persisted_objects(&self) -> Result<(), Error> {
+        let mut objects = self.objects.write().await;
+
         // Get a list of all persisted state objects we have saved.
         // We let their actual contents be loaded lazily when requested.
-        let mut state_objects = Vec::new();
         let mut dir = tokio::fs::read_dir(crate::STATE_PERSIST_DIR.get().unwrap()).await?;
         while let Some(entry) = dir.next_entry().await? {
             let path = entry.path();
@@ -64,13 +71,20 @@ impl StateStore {
                         .to_owned();
 
                     state_object_name.push_str(PERSIST_SUFFIX);
-                    state_objects.push(state_object_name);
+                    objects.index.push(state_object_name);
                 }
             }
         }
 
-        self.index
-            .update_internal(async |_| serde_json::to_value(state_objects))
+        objects.index.sort_unstable();
+        self.set_index_to(&objects.index).await?;
+
+        Ok(())
+    }
+
+    async fn set_index_to(&self, index_slice: &[String]) -> Result<(), Error> {
+        self.index_object
+            .update_internal(async |_| serde_json::to_value(index_slice))
             .await?;
 
         Ok(())
@@ -80,32 +94,20 @@ impl StateStore {
     pub async fn get_or_create(&self, name: &str) -> Result<Arc<StateObject>, Error> {
         let mut objects = self.objects.write().await;
 
-        if let Some(obj) = objects.get(name) {
+        if let Some(obj) = objects.map.get(name) {
             Ok(Arc::clone(obj))
         } else {
             let new_obj = Arc::new(StateObject::new(name).await?);
 
-            objects.insert(name.to_string(), Arc::clone(&new_obj));
+            objects.map.insert(name.to_string(), Arc::clone(&new_obj));
 
-            self.index
-                .update_internal(async |mut value| -> Result<_, serde_json::Error> {
-                    if let serde_json::Value::Array(ref mut index_list) = value {
-                        if !index_list.iter().any(|v| {
-                            if let serde_json::Value::String(s) = v {
-                                s == name
-                            } else {
-                                false
-                            }
-                        }) {
-                            index_list.push(serde_json::Value::String(name.to_owned()));
-                        }
-                    } else {
-                        panic!("index state objects was not an array");
-                    }
+            match objects.index.binary_search(&name.to_owned()) {
+                // Object is already in the index, must be a persisted object with a corresponding file on disk.
+                Ok(_) => {}
 
-                    Ok(value)
-                })
-                .await?;
+                Err(pos) => objects.index.insert(pos, name.to_owned()),
+            }
+            self.set_index_to(&objects.index).await?;
 
             Ok(new_obj)
         }

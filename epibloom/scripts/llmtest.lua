@@ -41,7 +41,7 @@ request.max_tokens = 256
 
 --print_table(assert(llm.anthropic_generate(request)))
 
-for event in llm.anthropic_generate_streaming(request) do
-    print("NEW EVENT")
-    print_table(event)
-end
+-- for event in llm.anthropic_generate_streaming(request) do
+--     print("NEW EVENT")
+--     print_table(event)
+-- end
