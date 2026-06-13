@@ -3,11 +3,11 @@ local state = require("epibloom.state")
 
 local request = {
     model = "claude-haiku-4-5",
-    system = "You are a helpful assistant catgirl! Nyaa!~",
+    system = "You are a helpful assistant catgirl! Nyaa!~ Be concise, and always ask a question at the end of your responses!",
     messages = {
         {
             role = "user",
-            content = "Hello! This is a test message. Say hi, and talk for a while about oranges!",
+            content = "Hello! This is a test message. Say hi, and what's the deal with oranges?!",
         },
     },
 }
@@ -33,9 +33,19 @@ end
 --print_table(assert(llm.anthropic_list_models()))
 --print_table(assert(llm.anthropic_count_tokens(request)))
 
-request.max_tokens = 1024
+request.max_tokens = 512
 
-print_table(assert(llm.anthropic_generate(request)))
+for _ = 1, 6 do
+    local response_message = assert(llm.anthropic_generate(request))
+    request.messages[#request.messages + 1] = {
+        role = "assistant",
+        content = response_message.content[1].text,
+    }
+
+    for _, message in ipairs(request.messages) do
+        message.role = (message.role == "user") and "assistant" or "user"
+    end
+end
 
 -- for event in llm.anthropic_generate_streaming(request) do
 --     print("NEW EVENT")
