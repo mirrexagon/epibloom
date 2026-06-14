@@ -2,6 +2,7 @@
 //!
 //! TODO: Each request creates a state object `llm-trace:<uuid>` that is updated with the contents of the response, for monitoring.
 
+use std::future::Future;
 use std::sync::Arc;
 
 use futures::StreamExt;
@@ -36,15 +37,19 @@ impl LlmStore {
         }
     }
 
-    pub async fn anthropic_generate(
+    pub fn anthropic_generate(
+        &self,
+        request: messages::request::MessagesRequest,
+    ) -> Result<impl Future<Output = Result<messages::Message, Error>>, Error> {
+        self.anthropic_generate_internal(request)
+    }
+
+    async fn anthropic_generate_internal(
         &self,
         request: messages::request::MessagesRequest,
     ) -> Result<messages::Message, Error> {
-        log::info!("Starting generation");
-
         let trace_object = self.new_anthropic_llm_trace_state_object(&request).await?;
-
-        log::info!("Starting generation: {}", &trace_object.name);
+        log::info!("Starting Anthropic generation: {}", &trace_object.name);
 
         let response_result = self.anthropic_client.generate(request).await;
         let end_time = OffsetDateTime::now_utc();
@@ -95,7 +100,7 @@ impl LlmStore {
                             .send(AnthropicMessagesEvent::MessageStreamEvent(event))
                             .await
                         {
-                            log::error!("Failed to send StreamingEvent into channel: {err:?}");
+                            log::warn!("Failed to send StreamingEvent into channel: {err:?}");
                             return;
                         }
                     }

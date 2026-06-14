@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use futures::FutureExt;
 use mlua::{FromLua, Lua, LuaSerdeExt, ObjectLike, Table, UserData, Value};
 use tokio::sync::mpsc;
 
@@ -43,13 +44,23 @@ pub fn setup(lua: &Lua, llm_store: Arc<LlmStore>) -> mlua::Result<()> {
                 lua.from_value_with(request, *super::DESERIALIZE_OPTIONS)?;
 
             let store: LuaLlmStore = lua.named_registry_value("epibloom.llm.store")?;
-            match store.llm_store.anthropic_generate(request).await {
-                Ok(response_message) => Ok((
-                    Some(lua.to_value_with(&response_message, *super::SERIALIZE_OPTIONS)?),
-                    None,
-                )),
-                Err(err) => Ok((None, Some(err.to_string()))),
-            }
+
+            // TODO: If we don't poll this future, does it actually ever start?
+            // Maybe need to spawn a task for it instead, like how streaming
+            // works. But also want to be able to cancelled.
+            // https://docs.rs/tokio-util/latest/tokio_util/sync/struct.CancellationToken.html
+            let generate_future = store
+                .llm_store
+                .anthropic_generate(request)
+                .map_err(mlua::Error::external)?;
+
+            Ok(LuaGenerateAnthropicHandle {
+                handle: AnthropicRequestHandle::Normal {
+                    future: generate_future.boxed(),
+                },
+                trace_state_object_name: todo!(),
+                response: None,
+            })
         })?,
     )?;
 
@@ -117,41 +128,70 @@ impl FromLua for LuaLlmStore {
     }
 }
 
-/// Handle returned by `llm.generate_anthropic()`. Supports chunk-by-chunk iteration
-/// (via `__call`) and blocking until complete (via `wait()`).
-struct LuaGenerateAnthropicHandle {
-    receiver: Option<mpsc::Receiver<llm::AnthropicMessagesEvent>>,
-    // TODO: Save the response/build it up from the streaming events and expose to it Lua as a property on this.
+/// Handle returned by `llm.generate_anthropic()`.
+struct LuaGenerateAnthropicHandle<'a> {
+    handle: AnthropicRequestHandle<'a>,
+
+    /// The name of the state object that contains the trace of this request.
+    trace_state_object_name: String,
+
+    /// The final full response.
+    response: Option<anthropic::messages::Message>,
 }
 
-impl UserData for LuaGenerateAnthropicHandle {
+enum AnthropicRequestHandle<'a> {
+    Normal {
+        future: futures::future::BoxFuture<'a, Result<anthropic::messages::Message, llm::Error>>,
+    },
+    // TODO: Save the response/build it up from the streaming events and expose to it Lua as a property on this.
+    Streaming {
+        receiver: Option<mpsc::Receiver<llm::AnthropicMessagesEvent>>,
+    },
+}
+
+impl<'a> UserData for LuaGenerateAnthropicHandle<'a> {
+    fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
+        // TODO: Add getting response and trace state object name or the object itself.
+    }
+
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         // __call: return the next chunk, or nil when generation is complete.
         methods.add_async_meta_method_mut(
             "__call",
             async |lua, mut handle, _args: mlua::MultiValue| {
-                // Receive one chunk. The borrow of `handle.receiver` via
-                // `ref mut rx` ends before we call `.take()` below.
-                let event = match handle.receiver {
-                    None => return Ok(None),
-                    Some(ref mut rx) => rx.recv().await,
-                };
-
-                match event {
-                    Some(event) => match event {
-                        llm::AnthropicMessagesEvent::MessageStreamEvent(event) => {
-                            Ok(Some(lua.to_value_with(&event, *super::SERIALIZE_OPTIONS)?))
-                        }
-                        llm::AnthropicMessagesEvent::Error(message) => {
-                            let result = lua.create_table()?;
-                            result.set("type", "error")?;
-                            result.set("message", message)?;
-                            Ok(Some(Value::Table(result)))
-                        }
+                match self.handle {
+                    AnthropicRequestHandle::Normal { future } => match future.await {
+                        Ok(response_message) => Ok((
+                            Some(lua.to_value_with(&response_message, *super::SERIALIZE_OPTIONS)?),
+                            None,
+                        )),
+                        Err(err) => Ok((None, Some(err.to_string()))),
                     },
-                    None => {
-                        handle.receiver.take();
-                        Ok(None)
+                    AnthropicRequestHandle::Streaming { receiver } => {
+                        // Receive one chunk. The borrow of `handle.receiver` via
+                        // `ref mut rx` ends before we call `.take()` below.
+                        let event = match receiver {
+                            None => return Ok(None),
+                            Some(ref mut rx) => rx.recv().await,
+                        };
+
+                        match event {
+                            Some(event) => match event {
+                                llm::AnthropicMessagesEvent::MessageStreamEvent(event) => {
+                                    Ok(Some(lua.to_value_with(&event, *super::SERIALIZE_OPTIONS)?))
+                                }
+                                llm::AnthropicMessagesEvent::Error(message) => {
+                                    let result = lua.create_table()?;
+                                    result.set("type", "error")?;
+                                    result.set("message", message)?;
+                                    Ok(Some(Value::Table(result)))
+                                }
+                            },
+                            None => {
+                                receiver.take();
+                                Ok(None)
+                            }
+                        }
                     }
                 }
             },

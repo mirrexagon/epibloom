@@ -36,7 +36,6 @@ function Chat.get(chat_id)
     local now_string = time.now_utc_rfc3339()
 
     chat.state_object:update(function(value)
-        print("value is", value)
         if not value then
             -- This is a new chat.
             value = {
@@ -46,7 +45,6 @@ function Chat.get(chat_id)
                 messages = {},
             }
         end
-        print("value is now", value)
 
         return value
     end)
