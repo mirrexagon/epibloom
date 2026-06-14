@@ -33,6 +33,9 @@ pub fn setup(lua: &Lua, llm_store: Arc<LlmStore>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // TODO: Allow this to run in the background, maybe have the generate handle
+    // either hold a future for a response or the receive channel/stream for
+    // streaming.
     llm_module.set(
         "anthropic_generate",
         lua.create_async_function(async |lua, request: Value| {

@@ -46,21 +46,28 @@ impl LlmStore {
 
         log::info!("Starting generation: {}", &trace_object.name);
 
-        let response = self.anthropic_client.generate(request).await?;
+        let response_result = self.anthropic_client.generate(request).await;
         let end_time = OffsetDateTime::now_utc();
 
         // TODO: Handle prefill, if the last message is an assistant message,
         // stick the response on the end of that.
+
         trace_object
             .update(async |value| {
                 let mut trace: AnthropicLlmTrace = serde_json::from_value(value)?;
-                trace.trace.messages.push(response.clone());
+
                 trace.end_time = Some(end_time);
+
+                match &response_result {
+                    Ok(response) => trace.trace.messages.push(response.clone()),
+                    Err(err) => trace.error = Some(err.to_string()),
+                }
+
                 serde_json::to_value(trace)
             })
             .await?;
 
-        Ok(response)
+        Ok(response_result?)
     }
 
     // TODO: Should this just return a stream that wraps the request stream,
@@ -132,6 +139,7 @@ struct AnthropicLlmTrace {
     end_time: Option<OffsetDateTime>,
 
     trace: messages::request::MessagesRequest,
+    error: Option<String>,
 }
 
 impl From<messages::request::MessagesRequest> for AnthropicLlmTrace {
@@ -140,6 +148,7 @@ impl From<messages::request::MessagesRequest> for AnthropicLlmTrace {
             start_time: OffsetDateTime::now_utc(),
             end_time: None,
             trace: request,
+            error: None,
         }
     }
 }
