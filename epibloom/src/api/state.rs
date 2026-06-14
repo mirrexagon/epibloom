@@ -4,8 +4,9 @@ use futures::StreamExt;
 use rocket::{
     get,
     response::stream::{Event, EventStream},
-    State,
+    Shutdown, State,
 };
+use tokio::select;
 use utoipa::OpenApi;
 
 use crate::state::{StateEvent, StateStore};
@@ -40,6 +41,7 @@ pub struct StateApiDoc;
 pub async fn stream_state_objects(
     objects: String,
     store: &State<Arc<StateStore>>,
+    mut shutdown: Shutdown,
 ) -> Result<EventStream![], ApiErrorResponse> {
     let object_names: Vec<&str> = objects.split(',').collect();
 
@@ -57,8 +59,14 @@ pub async fn stream_state_objects(
         // Merge all streams and forward updates.
         let mut merged = futures::stream::select_all(streams);
 
-        while let Some(event) = merged.next().await {
-            yield Event::json(&event);
+        loop {
+            select! {
+                Some(event) = merged.next() => yield Event::json(&event),
+                _ = &mut shutdown => {
+                    break;
+                }
+                else => break,
+            }
         }
     })
 }
