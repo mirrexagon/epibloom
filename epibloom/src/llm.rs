@@ -40,7 +40,7 @@ impl LlmStore {
     pub fn anthropic_generate(
         &self,
         request: messages::request::MessagesRequest,
-    ) -> Result<impl Future<Output = Result<messages::Message, Error>>, Error> {
+    ) -> impl Future<Output = Result<messages::Message, Error>> {
         self.anthropic_generate_internal(request)
     }
 
