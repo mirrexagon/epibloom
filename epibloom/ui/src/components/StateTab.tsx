@@ -11,7 +11,7 @@ export function StateTab() {
     
     // Subscribe to the selected object if any
     const selectedObjectNames = useMemo(
-        () => (selectedObject ? [selectedObject] : []),
+        () => (selectedObject !== null ? [selectedObject] : []),
         [selectedObject]
     );
     const { objects: selectedObjects } = useStateObjects(selectedObjectNames);
