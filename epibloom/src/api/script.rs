@@ -11,6 +11,9 @@ use crate::script;
 #[openapi(paths(run_script))]
 pub struct ScriptApiDoc;
 
+// TODO: Report errors in a more structured way.
+// Probably goes for all APIs.
+// TODO: Report serialization/deserialization/etc. errors with position and key information if possible
 impl From<script::Error> for ApiErrorResponse {
     fn from(value: script::Error) -> Self {
         match value {
@@ -40,7 +43,7 @@ impl From<script::Error> for ApiErrorResponse {
         ("script_path" = String, description = "Path to the script relative to the scripts directory, without a file extension."),
         (
             "script_input",
-            description = "A JSON object that will be passed to the script.",
+            description = "A JSON value that will be passed to the script.",
             example = json!({"hello": "world", "value": 6}),
         ),
     ),

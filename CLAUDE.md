@@ -48,6 +48,7 @@ Built-in Lua modules available to scripts:
 - `epibloom.state`: Get and manipulate state objects.
 - `epibloom.log`: Logging using Rust's `log` crate.
 - `epibloom.uuid`: Generate UUIDs.
+- `epibloom.time`: Functions related to date and time.
 
 ### Commands
 

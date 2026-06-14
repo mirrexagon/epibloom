@@ -16,6 +16,8 @@ use std::sync::Arc;
 
 use lazy_static::lazy_static;
 use mlua::{Lua, LuaSerdeExt, ObjectLike, Table};
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 use tokio::fs;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -137,6 +139,21 @@ impl Context {
 
             let package_loaded: Table = globals.get_path("package.loaded")?;
             package_loaded.set("epibloom.uuid", uuid_module)?;
+        }
+
+        {
+            let time_module = lua.create_table()?;
+
+            time_module.set(
+                "now_utc_rfc3339",
+                lua.create_function(|_lua, _: ()| {
+                    let now = OffsetDateTime::now_utc();
+                    now.format(&Rfc3339).map_err(mlua::Error::external)
+                })?,
+            )?;
+
+            let package_loaded: Table = globals.get_path("package.loaded")?;
+            package_loaded.set("epibloom.time", time_module)?;
         }
 
         log_module::setup(&lua)?;
