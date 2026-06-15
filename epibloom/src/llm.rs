@@ -5,22 +5,16 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
 use crate::{
     backend::anthropic::{self, messages, AnthropicClient},
     state::{self, StateObject, StateStore},
 };
-
-#[derive(Debug, Serialize, Deserialize)]
-pub enum AnthropicMessagesEvent {
-    MessageStreamEvent(messages::response::MessageStreamEvent),
-    Error(String),
-}
 
 pub struct LlmStore {
     pub anthropic_client: Arc<AnthropicClient>,
@@ -37,42 +31,48 @@ impl LlmStore {
         }
     }
 
-    pub fn anthropic_generate(
+    pub async fn anthropic_generate(
         &self,
         request: messages::request::MessagesRequest,
-    ) -> impl Future<Output = Result<messages::Message, Error>> {
-        self.anthropic_generate_internal(request)
-    }
-
-    async fn anthropic_generate_internal(
-        &self,
-        request: messages::request::MessagesRequest,
-    ) -> Result<messages::Message, Error> {
+    ) -> Result<oneshot::Receiver<Result<messages::Message, Error>>, Error> {
         let trace_object = self.new_anthropic_llm_trace_state_object(&request).await?;
-        log::info!("Starting Anthropic generation: {}", &trace_object.name);
 
-        let response_result = self.anthropic_client.generate(request).await;
-        let end_time = OffsetDateTime::now_utc();
+        let anthropic_client = Arc::clone(&self.anthropic_client);
+        let (tx, rx) = oneshot::channel();
 
-        // TODO: Handle prefill, if the last message is an assistant message,
-        // stick the response on the end of that.
+        tokio::spawn(async move {
+            // TODO: Handle prefill, if the last message is an assistant message,
+            // stick the response on the end of that.
 
-        trace_object
-            .update(async |value| {
-                let mut trace: AnthropicLlmTrace = serde_json::from_value(value)?;
+            let response_result = anthropic_client.generate(request).await;
+            let end_time = OffsetDateTime::now_utc();
 
-                trace.end_time = Some(end_time);
+            match trace_object
+                .update(async |value| {
+                    let mut trace: AnthropicLlmTrace = serde_json::from_value(value)?;
 
-                match &response_result {
-                    Ok(response) => trace.trace.messages.push(response.clone()),
-                    Err(err) => trace.error = Some(err.to_string()),
-                }
+                    trace.end_time = Some(end_time);
 
-                serde_json::to_value(trace)
-            })
-            .await?;
+                    match &response_result {
+                        Ok(response) => trace.trace.messages.push(response.clone()),
+                        Err(err) => trace.error = Some(err.to_string()),
+                    }
 
-        Ok(response_result?)
+                    serde_json::to_value(trace)
+                })
+                .await
+            {
+                Ok(_) => {}
+                Err(err) => log::error!(
+                    "Failed to update trace '{}' with response: {err}",
+                    &trace_object.name
+                ),
+            }
+
+            let _ = tx.send(response_result.map_err(Error::from));
+        });
+
+        Ok(rx)
     }
 
     // TODO: Should this just return a stream that wraps the request stream,
@@ -82,37 +82,22 @@ impl LlmStore {
     pub async fn anthropic_generate_streaming(
         &self,
         request: messages::request::MessagesRequest,
-    ) -> Result<mpsc::Receiver<AnthropicMessagesEvent>, Error> {
-        let backend = Arc::clone(&self.anthropic_client);
-        let (tx, rx) = mpsc::channel(1024);
-
+    ) -> Result<mpsc::Receiver<Result<messages::response::MessageStreamEvent, Error>>, Error> {
         let trace_object = self.new_anthropic_llm_trace_state_object(&request).await?;
 
-        let stream = backend.generate_streaming(request);
+        let anthropic_client = Arc::clone(&self.anthropic_client);
+        let (tx, rx) = mpsc::channel(1024);
 
         tokio::spawn(async move {
+            let stream = anthropic_client.generate_streaming(request);
             futures::pin_mut!(stream);
 
             while let Some(result) = stream.next().await {
-                match result {
-                    Ok(event) => {
-                        if let Err(err) = tx
-                            .send(AnthropicMessagesEvent::MessageStreamEvent(event))
-                            .await
-                        {
-                            log::warn!("Failed to send StreamingEvent into channel: {err:?}");
-                            return;
-                        }
-                    }
-
-                    Err(err) => {
-                        log::error!("Error in LLM generation stream: {err:?}");
-                        let _ = tx
-                            .send(AnthropicMessagesEvent::Error(err.to_string()))
-                            .await;
-                        return;
-                    }
+                if let Err(err) = tx.send(result.map_err(Error::from)).await {
+                    log::warn!("Failed to send StreamingEvent into channel: {err:?}");
                 }
+
+                // TODO: Update the trace object.
             }
         });
 
