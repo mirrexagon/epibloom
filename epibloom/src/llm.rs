@@ -76,7 +76,7 @@ impl LlmStore {
         &self,
         request: messages::request::MessagesRequest,
     ) -> Result<AnthropicGenerateStreamingHandle, Error> {
-        let _trace = self.new_anthropic_llm_trace_state_object(&request).await?;
+        let mut trace = self.new_anthropic_llm_trace_state_object(&request).await?;
 
         let anthropic_client = Arc::clone(&self.anthropic_client);
         let (tx, rx) = mpsc::channel(1024);
@@ -86,11 +86,28 @@ impl LlmStore {
             futures::pin_mut!(stream);
 
             while let Some(result) = stream.next().await {
+                match &result {
+                    Ok(event) => {} // TODO: Update the trace.
+                    Err(err) => {
+                        trace.content.error = Some(err.to_string());
+
+                        // The error should be the last thing in the channel, so
+                        // when we go around again, we we fall out of the loop
+                        // and set the end time and save the trace then.
+                    }
+                }
+
                 if let Err(err) = tx.send(result).await {
                     log::warn!("Failed to send StreamingEvent into channel: {err:?}");
                 }
+            }
 
-                // TODO: Update the trace.
+            trace.content.end_time = Some(OffsetDateTime::now_utc());
+            if let Err(err) = trace.update_state_object_from_content().await {
+                log::error!(
+                    "Couldn't update trace (state object '{}') at streaming end: {err}",
+                    trace.state_object.name
+                );
             }
         });
 
@@ -104,7 +121,7 @@ impl LlmStore {
     async fn new_anthropic_llm_trace_state_object(
         &self,
         request: &messages::request::MessagesRequest,
-    ) -> Result<AnthropicTrace, state::Error> {
+    ) -> Result<AnthropicTrace, Error> {
         let trace_id = Uuid::now_v7();
         let state_object_name = format!("llm-trace-anthropic:{}:persist", trace_id);
 
@@ -114,7 +131,7 @@ impl LlmStore {
             state_object: self.state_store.get_or_create(&state_object_name).await?,
         };
 
-        trace.update_state_object_from_content();
+        trace.update_state_object_from_content().await?;
 
         Ok(trace)
     }
