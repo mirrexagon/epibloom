@@ -1,12 +1,8 @@
 //! Container for active LLM requests.
-//!
-//! TODO: Each request creates a state object `llm-trace:<uuid>` that is updated with the contents of the response, for monitoring.
 
-use std::future::Future;
 use std::sync::Arc;
 
-use futures::{FutureExt, StreamExt};
-use rocket::State;
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use tokio::sync::{mpsc, oneshot};
@@ -80,7 +76,7 @@ impl LlmStore {
         &self,
         request: messages::request::MessagesRequest,
     ) -> Result<AnthropicGenerateStreamingHandle, Error> {
-        let trace = self.new_anthropic_llm_trace_state_object(&request).await?;
+        let _trace = self.new_anthropic_llm_trace_state_object(&request).await?;
 
         let anthropic_client = Arc::clone(&self.anthropic_client);
         let (tx, rx) = mpsc::channel(1024);
