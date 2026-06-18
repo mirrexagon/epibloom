@@ -59,7 +59,7 @@ impl LlmStore {
                 ),
             }
 
-            if let Err(_) = tx.send(response_result) {
+            if tx.send(response_result).is_err() {
                 log::warn!(
                     "llm::anthropic_generate trace (state object {}): tried to send non-streaming response but the channel has already been closed",
                     trace.state_object.name
@@ -228,11 +228,9 @@ impl AnthropicGenerateStreamingHandle {
     pub async fn get_response(
         &mut self,
     ) -> (Option<&messages::Message>, Option<&anthropic::Error>) {
-        loop {
-            match self.get_next_event().await {
-                Some(_) => {} // Let `get_next_event()` process any normal events and update `self.response`.
-                None => break,
-            }
+        // Drain all events until the generation is done.
+        while self.get_next_event().await.is_some() {
+            // Let `get_next_event()` process any normal events and update `self.response`.
         }
 
         (self.response.as_ref(), self.error.as_ref())
@@ -252,7 +250,7 @@ impl AnthropicTrace {
             .update(async |_| serde_json::to_value(&self.content))
             .await?;
 
-        return Ok(());
+        Ok(())
     }
 }
 
