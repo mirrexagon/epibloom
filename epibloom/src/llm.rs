@@ -33,6 +33,7 @@ impl LlmStore {
         request: messages::request::MessagesRequest,
     ) -> Result<AnthropicGenerateHandle, Error> {
         let mut trace = self.new_anthropic_llm_trace_state_object(&request).await?;
+        let trace_state_object_name = trace.state_object.name.clone();
 
         let anthropic_client = Arc::clone(&self.anthropic_client);
         let (tx, rx) = oneshot::channel();
@@ -67,6 +68,7 @@ impl LlmStore {
         });
 
         Ok(AnthropicGenerateHandle {
+            trace_state_object_name,
             receiver: Some(rx),
             response: None,
         })
@@ -77,6 +79,7 @@ impl LlmStore {
         request: messages::request::MessagesRequest,
     ) -> Result<AnthropicGenerateStreamingHandle, Error> {
         let mut trace = self.new_anthropic_llm_trace_state_object(&request).await?;
+        let trace_state_object_name = trace.state_object.name.clone();
 
         let anthropic_client = Arc::clone(&self.anthropic_client);
         let (tx, rx) = mpsc::channel(1024);
@@ -112,6 +115,7 @@ impl LlmStore {
         });
 
         Ok(AnthropicGenerateStreamingHandle {
+            trace_state_object_name,
             receiver: Some(rx),
             response: None,
             error: None,
@@ -138,6 +142,8 @@ impl LlmStore {
 }
 
 pub struct AnthropicGenerateHandle {
+    trace_state_object_name: String,
+
     receiver: Option<oneshot::Receiver<Result<messages::Message, anthropic::Error>>>,
 
     /// The final full response.
@@ -145,6 +151,10 @@ pub struct AnthropicGenerateHandle {
 }
 
 impl AnthropicGenerateHandle {
+    pub fn get_trace_state_object_name(&self) -> &str {
+        &self.trace_state_object_name
+    }
+
     pub async fn get_response(&mut self) -> Result<&messages::Message, &anthropic::Error> {
         match self.receiver.take() {
             Some(receiver) => {
@@ -163,6 +173,8 @@ impl AnthropicGenerateHandle {
 }
 
 pub struct AnthropicGenerateStreamingHandle {
+    trace_state_object_name: String,
+
     receiver:
         Option<mpsc::Receiver<Result<messages::response::MessageStreamEvent, anthropic::Error>>>,
 
@@ -175,6 +187,10 @@ pub struct AnthropicGenerateStreamingHandle {
 }
 
 impl AnthropicGenerateStreamingHandle {
+    pub fn get_trace_state_object_name(&self) -> &str {
+        &self.trace_state_object_name
+    }
+
     pub async fn get_next_event(
         &mut self,
     ) -> Option<Result<messages::response::MessageStreamEvent, &anthropic::Error>> {

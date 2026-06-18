@@ -129,6 +129,12 @@ struct LuaAnthropicGenerateHandle {
 }
 
 impl UserData for LuaAnthropicGenerateHandle {
+    fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
+        fields.add_field_method_get("name", |_lua, lua_handle| {
+            Ok(lua_handle.handle.get_trace_state_object_name().to_owned())
+        });
+    }
+
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_method_mut("get_response", async |lua, mut lua_handle, ()| {
             match lua_handle.handle.get_response().await {
@@ -153,6 +159,12 @@ struct LuaAnthropicGenerateStreamingHandle {
 }
 
 impl UserData for LuaAnthropicGenerateStreamingHandle {
+    fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
+        fields.add_field_method_get("name", |_lua, lua_handle| {
+            Ok(lua_handle.handle.get_trace_state_object_name().to_owned())
+        });
+    }
+
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         // __call: return the next event or whatever error occurs, then nil when
         // generation is complete or after an error.
