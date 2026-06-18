@@ -33,6 +33,10 @@ pub fn setup(lua: &Lua, llm_store: Arc<llm::LlmStore>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // TODO: Be able to create the request and the trace object but not start it
+    // and potentially never start it, so the user can preview what is going to
+    // be sent to the model.
+    // This goes for both this and streaming.
     llm_module.set(
         "anthropic_generate",
         lua.create_async_function(async |lua, request: Value| {
