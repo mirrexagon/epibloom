@@ -61,7 +61,7 @@ impl LlmStore {
 
             if tx.send(response_result).is_err() {
                 log::warn!(
-                    "llm::anthropic_generate trace (state object {}): tried to send non-streaming response but the channel has already been closed",
+                    "llm::anthropic_generate trace (state object '{}'): tried to send non-streaming response but the channel has already been closed",
                     trace.state_object.name
                 );
             }
