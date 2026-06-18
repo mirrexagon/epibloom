@@ -27,6 +27,7 @@ export interface AnthropicTraceStateObject {
     start_time: string; // RFC3339 datetime
     end_time: string | null; // RFC3339 datetime or null if still running
     trace: AnthropicTrace;
+    error: string | null;
 }
 
 export interface AnthropicTrace {

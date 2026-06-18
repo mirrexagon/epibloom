@@ -9,11 +9,16 @@ export function AnthropicTracesTab() {
 
     // Subscribe to the index to get all state object names
     const indexObjectNames = useMemo(() => [""], []);
-    const { objects: indexObjects, connected, error } = useStateObjects(indexObjectNames);
+    const {
+        objects: indexObjects,
+        connected,
+        error,
+    } = useStateObjects(indexObjectNames);
 
     // Extract trace IDs from the index
     const traceIds = useMemo(() => {
-        const stateObjectNames = (indexObjects[0]?.value as string[] | undefined) || [];
+        const stateObjectNames =
+            (indexObjects[0]?.value as string[] | undefined) || [];
         return stateObjectNames
             .filter((name) => name.startsWith("llm-trace-anthropic:"))
             .map((name) => {
@@ -29,7 +34,7 @@ export function AnthropicTracesTab() {
     // Subscribe to all traces - memoize the array to prevent infinite loops
     const traceObjectNames = useMemo(
         () => traceIds.map((id) => `llm-trace-anthropic:${id}:persist`),
-        [traceIds]
+        [traceIds],
     );
     const { objects: traceObjects } = useStateObjects(traceObjectNames);
 
@@ -48,7 +53,10 @@ export function AnthropicTracesTab() {
     // Sort traces by start time (newest first)
     const sortedTraces = useMemo(() => {
         return [...traces].sort((a, b) => {
-            return new Date(b.start_time).getTime() - new Date(a.start_time).getTime();
+            return (
+                new Date(b.start_time).getTime() -
+                new Date(a.start_time).getTime()
+            );
         });
     }, [traces]);
 
@@ -61,7 +69,7 @@ export function AnthropicTracesTab() {
 
         // Find newly added trace IDs
         const newTraceIds = currentTraceIds.filter(
-            (id) => !prevTraceIds.includes(id)
+            (id) => !prevTraceIds.includes(id),
         );
 
         if (newTraceIds.length > 0 && sortedTraces.length > 0) {
@@ -86,7 +94,9 @@ export function AnthropicTracesTab() {
                         ) : (
                             <span className="text-red-400">● Disconnected</span>
                         )}
-                        <span className="ml-2">({sortedTraces.length} traces)</span>
+                        <span className="ml-2">
+                            ({sortedTraces.length} traces)
+                        </span>
                     </div>
                     {error && (
                         <div className="text-sm text-red-400 mt-1">{error}</div>
@@ -96,10 +106,14 @@ export function AnthropicTracesTab() {
                             <input
                                 type="checkbox"
                                 checked={autoSelectNew}
-                                onChange={(e) => setAutoSelectNew(e.target.checked)}
+                                onChange={(e) =>
+                                    setAutoSelectNew(e.target.checked)
+                                }
                                 className="mr-2 cursor-pointer"
                             />
-                            <span className="text-gray-300">Auto-select new traces</span>
+                            <span className="text-gray-300">
+                                Auto-select new traces
+                            </span>
                         </label>
                     </div>
                 </div>
@@ -109,22 +123,31 @@ export function AnthropicTracesTab() {
                             key={trace.id}
                             onClick={() => setSelectedTraceId(trace.id)}
                             className={`w-full text-left px-4 py-3 border-b border-gray-800 hover:bg-gray-800 transition-colors ${
-                                selectedTraceId === trace.id ? "bg-gray-800 border-l-4 border-blue-500" : ""
+                                selectedTraceId === trace.id
+                                    ? "bg-gray-800 border-l-4 border-blue-500"
+                                    : ""
                             }`}
                         >
                             <div className="flex items-center justify-between mb-1">
                                 <span className="font-mono text-xs text-gray-400">
                                     {trace.id.slice(0, 8)}...
                                 </span>
-                                {!trace.end_time && (
-                                    <span className="text-xs text-yellow-400">● Running</span>
-                                )}
+                                {trace.error ? (
+                                    <span className="text-xs text-red-400">
+                                        ● Error
+                                    </span>
+                                ) : !trace.end_time ? (
+                                    <span className="text-xs text-yellow-400">
+                                        ● Running
+                                    </span>
+                                ) : null}
                             </div>
                             <div className="text-sm text-gray-300">
                                 {new Date(trace.start_time).toLocaleString()}
                             </div>
                             <div className="text-xs text-gray-500 mt-1">
-                                {trace.trace.model} • {trace.trace.messages.length} messages
+                                {trace.trace.model} •{" "}
+                                {trace.trace.messages.length} messages
                             </div>
                         </button>
                     ))}
@@ -142,35 +165,67 @@ export function AnthropicTracesTab() {
                     <>
                         <div className="p-4 border-b border-gray-700">
                             <div className="flex items-center justify-between">
-                                <h3 className="text-lg font-semibold">Trace Details</h3>
-                                {!selectedTrace.end_time && (
-                                    <span className="text-sm text-yellow-400">● Running</span>
-                                )}
+                                <h3 className="text-lg font-semibold">
+                                    Trace Details
+                                </h3>
+                                {selectedTrace.error ? (
+                                    <span className="text-sm text-red-400">
+                                        ● Error
+                                    </span>
+                                ) : !selectedTrace.end_time ? (
+                                    <span className="text-sm text-yellow-400">
+                                        ● Running
+                                    </span>
+                                ) : null}
                             </div>
                             <div className="mt-2 space-y-1 text-sm text-gray-400">
                                 <div>
                                     <span className="font-semibold">ID:</span>{" "}
-                                    <span className="font-mono">{selectedTrace.id}</span>
+                                    <span className="font-mono">
+                                        {selectedTrace.id}
+                                    </span>
                                 </div>
                                 <div>
-                                    <span className="font-semibold">Model:</span>{" "}
+                                    <span className="font-semibold">
+                                        Model:
+                                    </span>{" "}
                                     {selectedTrace.trace.model}
                                 </div>
                                 <div>
-                                    <span className="font-semibold">Started:</span>{" "}
-                                    {new Date(selectedTrace.start_time).toLocaleString()}
+                                    <span className="font-semibold">
+                                        Started:
+                                    </span>{" "}
+                                    {new Date(
+                                        selectedTrace.start_time,
+                                    ).toLocaleString()}
                                 </div>
                                 {selectedTrace.end_time && (
                                     <div>
-                                        <span className="font-semibold">Ended:</span>{" "}
-                                        {new Date(selectedTrace.end_time).toLocaleString()}
+                                        <span className="font-semibold">
+                                            Ended:
+                                        </span>{" "}
+                                        {new Date(
+                                            selectedTrace.end_time,
+                                        ).toLocaleString()}
                                     </div>
                                 )}
                                 <div>
-                                    <span className="font-semibold">Max Tokens:</span>{" "}
+                                    <span className="font-semibold">
+                                        Max Tokens:
+                                    </span>{" "}
                                     {selectedTrace.trace.max_tokens}
                                 </div>
                             </div>
+                            {selectedTrace.error && (
+                                <div className="mt-3 p-3 bg-red-900/20 border border-red-700 rounded">
+                                    <div className="text-sm font-semibold text-red-400 mb-1">
+                                        Error
+                                    </div>
+                                    <div className="text-sm text-gray-300 whitespace-pre-wrap font-mono">
+                                        {selectedTrace.error}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                         <div className="flex-1 overflow-auto p-4 space-y-4">
                             {/* Show system prompt if present */}
@@ -183,9 +238,14 @@ export function AnthropicTracesTab() {
                                 />
                             )}
                             {/* Show regular messages */}
-                            {selectedTrace.trace.messages.map((message, index) => (
-                                <MessageView key={index} message={message} />
-                            ))}
+                            {selectedTrace.trace.messages.map(
+                                (message, index) => (
+                                    <MessageView
+                                        key={index}
+                                        message={message}
+                                    />
+                                ),
+                            )}
                         </div>
                     </>
                 ) : (
@@ -201,11 +261,11 @@ export function AnthropicTracesTab() {
 function MessageView({ message }: { message: AnthropicMessage }) {
     const isUser = message.role === "user";
     const isSystem = message.role === "system";
-    
+
     // Extract text and thinking content
     let textContent = "";
     let thinkingContent = "";
-    
+
     if (typeof message.content === "string") {
         textContent = message.content;
     } else {
@@ -221,13 +281,21 @@ function MessageView({ message }: { message: AnthropicMessage }) {
     return (
         <div
             className={`rounded-lg p-4 ${
-                isSystem ? "bg-gray-800/50" : isUser ? "bg-blue-900/30" : "bg-gray-800"
+                isSystem
+                    ? "bg-gray-800/50"
+                    : isUser
+                      ? "bg-blue-900/30"
+                      : "bg-gray-800"
             }`}
         >
             <div className="flex items-center justify-between mb-2">
                 <span
                     className={`font-semibold ${
-                        isSystem ? "text-gray-400" : isUser ? "text-blue-400" : "text-green-400"
+                        isSystem
+                            ? "text-gray-400"
+                            : isUser
+                              ? "text-blue-400"
+                              : "text-green-400"
                     }`}
                 >
                     {isSystem ? "System" : isUser ? "User" : "Assistant"}
@@ -258,7 +326,8 @@ function MessageView({ message }: { message: AnthropicMessage }) {
                 <div className="mt-3 pt-3 border-t border-gray-700 text-xs text-gray-400 space-y-1">
                     <div>
                         <span className="font-semibold">Tokens:</span>{" "}
-                        {message.usage.input_tokens} in / {message.usage.output_tokens} out
+                        {message.usage.input_tokens} in /{" "}
+                        {message.usage.output_tokens} out
                     </div>
                     {message.stop_reason && (
                         <div>
@@ -269,7 +338,9 @@ function MessageView({ message }: { message: AnthropicMessage }) {
                     {message.usage.cache_read_input_tokens !== undefined &&
                         message.usage.cache_read_input_tokens > 0 && (
                             <div>
-                                <span className="font-semibold">Cache read:</span>{" "}
+                                <span className="font-semibold">
+                                    Cache read:
+                                </span>{" "}
                                 {message.usage.cache_read_input_tokens} tokens
                             </div>
                         )}

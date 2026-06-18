@@ -2,7 +2,7 @@ local llm = require("epibloom.llm")
 local state = require("epibloom.state")
 
 local request = {
-    model = "claude-haiku-4-6",
+    model = "claude-haiku-4-5",
     system = "You are a helpful assistant catgirl! Nyaa!~ Be concise, and always ask a question at the end of your responses!",
     messages = {
         {
