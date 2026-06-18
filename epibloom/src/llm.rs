@@ -70,13 +70,12 @@ impl LlmStore {
             }
         });
 
-        Ok(AnthropicGenerateHandle { receiver: rx })
+        Ok(AnthropicGenerateHandle {
+            receiver: Some(rx),
+            response: None,
+        })
     }
 
-    // TODO: Should this just return a stream that wraps the request stream,
-    // modifying the trace state object before passing on the event? Might mean
-    // it can be cancelled by dropping. As long as we can buffer events for Lua
-    // to get at its own pace, the channel currently works as the queue.
     pub async fn anthropic_generate_streaming(
         &self,
         request: messages::request::MessagesRequest,
@@ -99,7 +98,11 @@ impl LlmStore {
             }
         });
 
-        Ok(AnthropicGenerateStreamingHandle { receiver: rx })
+        Ok(AnthropicGenerateStreamingHandle {
+            receiver: Some(rx),
+            response: None,
+            error: None,
+        })
     }
 
     async fn new_anthropic_llm_trace_state_object(
@@ -122,11 +125,89 @@ impl LlmStore {
 }
 
 pub struct AnthropicGenerateHandle {
-    receiver: oneshot::Receiver<Result<messages::Message, anthropic::Error>>,
+    receiver: Option<oneshot::Receiver<Result<messages::Message, anthropic::Error>>>,
+
+    /// The final full response.
+    response: Option<Result<messages::Message, anthropic::Error>>,
+}
+
+impl AnthropicGenerateHandle {
+    pub async fn get_response(&mut self) -> Result<&messages::Message, &anthropic::Error> {
+        match self.receiver.take() {
+            Some(receiver) => {
+                // `receiver.await` will only fail if the sender is dropped.
+                // If this happens, we've done something very wrong.
+                self.response = Some(
+                    receiver
+                        .await
+                        .expect("AnthropicGenerateHandle channel sender has been dropped"),
+                );
+                self.response.as_ref().unwrap().as_ref()
+            }
+            None => self.response.as_ref().unwrap().as_ref(),
+        }
+    }
 }
 
 pub struct AnthropicGenerateStreamingHandle {
-    receiver: mpsc::Receiver<Result<messages::response::MessageStreamEvent, anthropic::Error>>,
+    receiver:
+        Option<mpsc::Receiver<Result<messages::response::MessageStreamEvent, anthropic::Error>>>,
+
+    /// The final full response up to either when the generation completed
+    /// successfully or an error occurred.
+    response: Option<messages::Message>,
+
+    // The error that occurred, if one did.
+    error: Option<anthropic::Error>,
+}
+
+impl AnthropicGenerateStreamingHandle {
+    pub async fn get_next_event(
+        &mut self,
+    ) -> Option<Result<messages::response::MessageStreamEvent, &anthropic::Error>> {
+        let event = match self.receiver {
+            Some(ref mut rx) => rx.recv().await,
+
+            // Channel has been dropped because it was done.
+            None => return None,
+        };
+
+        match event {
+            Some(event) => {
+                match event {
+                    Ok(event) => {
+                        // TODO: Update self.response
+
+                        Some(Ok(event))
+                    }
+                    Err(err) => {
+                        self.error = Some(err);
+                        Some(Err(self.error.as_ref().unwrap()))
+                    }
+                }
+            }
+
+            // Channel is done.
+            None => {
+                self.receiver.take();
+                None
+            }
+        }
+    }
+
+    /// Wait for the request to be complete and return the final result.
+    pub async fn get_response(
+        &mut self,
+    ) -> (Option<&messages::Message>, Option<&anthropic::Error>) {
+        loop {
+            match self.get_next_event().await {
+                Some(_) => {} // Let `get_next_event()` process any normal events and update `self.response`.
+                None => break,
+            }
+        }
+
+        (self.response.as_ref(), self.error.as_ref())
+    }
 }
 
 #[derive(Debug)]

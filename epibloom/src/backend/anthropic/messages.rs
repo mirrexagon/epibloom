@@ -33,6 +33,15 @@ pub struct Message {
 }
 
 impl Message {
+    // Returns `Err` if the event was not a [`response::MessageStreamEvent::MessageStart`].
+    pub fn from_message_start_event(event: response::MessageStreamEvent) -> Result<Self, ()> {
+        if let response::MessageStreamEvent::MessageStart { message } = event {
+            Ok(message)
+        } else {
+            Err(())
+        }
+    }
+
     pub fn apply_event(&mut self, _event: response::MessageStreamEvent) {
         // TODO: Implement and bind to Lua
         unimplemented!();

@@ -131,7 +131,7 @@ impl Context {
 
             uuid_module.set(
                 "now_v7",
-                lua.create_function(|_lua, _: ()| {
+                lua.create_function(|_lua, ()| {
                     let new_uuid = Uuid::now_v7();
                     Ok(format!("{}", new_uuid.hyphenated()))
                 })?,
@@ -146,7 +146,7 @@ impl Context {
 
             time_module.set(
                 "now_utc_rfc3339",
-                lua.create_function(|_lua, _: ()| {
+                lua.create_function(|_lua, ()| {
                     let now = OffsetDateTime::now_utc();
                     now.format(&Rfc3339).map_err(mlua::Error::external)
                 })?,
