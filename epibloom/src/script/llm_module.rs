@@ -5,9 +5,9 @@ use mlua::{FromLua, Lua, LuaSerdeExt, ObjectLike, Table, UserData, Value};
 use tokio::sync::mpsc;
 
 use crate::backend::anthropic;
-use crate::llm::{self, LlmStore};
+use crate::llm;
 
-pub fn setup(lua: &Lua, llm_store: Arc<LlmStore>) -> mlua::Result<()> {
+pub fn setup(lua: &Lua, llm_store: Arc<llm::LlmStore>) -> mlua::Result<()> {
     lua.set_named_registry_value(
         "epibloom.llm.store",
         lua.create_userdata(LuaLlmStore {
@@ -46,22 +46,13 @@ pub fn setup(lua: &Lua, llm_store: Arc<LlmStore>) -> mlua::Result<()> {
 
             let store: LuaLlmStore = lua.named_registry_value("epibloom.llm.store")?;
 
-            // TODO: If we don't poll this future, does it actually ever start?
-            // Maybe need to spawn a task for it instead, like how streaming
-            // works. But also want to be able to cancelled.
-            // https://docs.rs/tokio-util/latest/tokio_util/sync/struct.CancellationToken.html
-            let generate_future = store
+            let handle = store
                 .llm_store
                 .anthropic_generate(request)
+                .await
                 .map_err(mlua::Error::external)?;
 
-            Ok(LuaGenerateAnthropicHandle {
-                handle: AnthropicRequestHandle::Normal {
-                    future: generate_future.boxed(),
-                },
-                trace_state_object_name: todo!(),
-                response: None,
-            })
+            Ok(LuaAnthropicGenerateHandle { handle })
         })?,
     )?;
 
@@ -78,7 +69,7 @@ pub fn setup(lua: &Lua, llm_store: Arc<LlmStore>) -> mlua::Result<()> {
                 .await
                 .map_err(mlua::Error::external)?;
 
-            Ok(LuaGenerateAnthropicHandle {
+            Ok(LuaAnthropicGenerateStreamingHandle {
                 handle: AnthropicRequestHandle::Streaming { receiver: Some(rx) },
                 trace_state_object_name: todo!(),
                 response: None,
@@ -112,7 +103,7 @@ pub fn setup(lua: &Lua, llm_store: Arc<LlmStore>) -> mlua::Result<()> {
 }
 
 struct LuaLlmStore {
-    llm_store: Arc<LlmStore>,
+    llm_store: Arc<llm::LlmStore>,
 }
 
 impl UserData for LuaLlmStore {}
@@ -133,96 +124,158 @@ impl FromLua for LuaLlmStore {
     }
 }
 
-/// Handle returned by `llm.generate_anthropic()`.
-struct LuaGenerateAnthropicHandle<'a> {
-    handle: AnthropicRequestHandle<'a>,
-
-    /// The name of the state object that contains the trace of this request.
-    trace_state_object_name: String,
+/// Handle returned by `llm.anthropic_generate()`.
+struct LuaAnthropicGenerateHandle {
+    handle: llm::AnthropicGenerateHandle,
 
     /// The final full response.
     response: Option<anthropic::messages::Message>,
 }
 
-enum AnthropicRequestHandle<'a> {
-    Normal {
-        future: futures::future::BoxFuture<'a, Result<anthropic::messages::Message, llm::Error>>,
-    },
-    // TODO: Save the response/build it up from the streaming events and expose to it Lua as a property on this.
-    Streaming {
-        receiver: Option<
-            mpsc::Receiver<Result<anthropic::messages::response::MessageStreamEvent, llm::Error>>,
-        >,
-    },
-}
-
-impl<'a> UserData for LuaGenerateAnthropicHandle<'a> {
+impl UserData for LuaAnthropicGenerateHandle {
     fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
         // TODO: Add getting response and trace state object name or the object itself.
     }
 
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
-        /*
-            // __call: return the next chunk, or nil when generation is complete.
-            methods.add_async_meta_method_mut(
-                "__call",
-                async |lua, mut handle, _args: mlua::MultiValue| {
-                    match self.handle {
-                        AnthropicRequestHandle::Normal { future } => match future.await {
-                            Ok(response_message) => Ok((
-                                Some(lua.to_value_with(&response_message, *super::SERIALIZE_OPTIONS)?),
-                                None,
-                            )),
-                            Err(err) => Ok((None, Some(err.to_string()))),
-                        },
-                        AnthropicRequestHandle::Streaming { receiver } => {
-                            // Receive one chunk. The borrow of `handle.receiver` via
-                            // `ref mut rx` ends before we call `.take()` below.
-                            let event = match receiver {
-                                None => return Ok(None),
-                                Some(ref mut rx) => rx.recv().await,
-                            };
+        // TODO: Add function for getting the response, waiting if necessary.
 
-                            match event {
-                                Some(event) => match event {
-                                    llm::AnthropicMessagesEvent::MessageStreamEvent(event) => {
-                                        Ok(Some(lua.to_value_with(&event, *super::SERIALIZE_OPTIONS)?))
-                                    }
-                                    llm::AnthropicMessagesEvent::Error(message) => {
-                                        let result = lua.create_table()?;
-                                        result.set("type", "error")?;
-                                        result.set("message", message)?;
-                                        Ok(Some(Value::Table(result)))
-                                    }
-                                },
-                                None => {
-                                    receiver.take();
-                                    Ok(None)
+        // __call: return the next chunk, or nil when generation is complete.
+        methods.add_async_meta_method_mut(
+            "__call",
+            async |lua, mut handle, _args: mlua::MultiValue| {
+                match self.handle {
+                    AnthropicRequestHandle::Normal { future } => match future.await {
+                        Ok(response_message) => Ok((
+                            Some(lua.to_value_with(&response_message, *super::SERIALIZE_OPTIONS)?),
+                            None,
+                        )),
+                        Err(err) => Ok((None, Some(err.to_string()))),
+                    },
+                    AnthropicRequestHandle::Streaming { receiver } => {
+                        // Receive one chunk. The borrow of `handle.receiver` via
+                        // `ref mut rx` ends before we call `.take()` below.
+                        let event = match receiver {
+                            None => return Ok(None),
+                            Some(ref mut rx) => rx.recv().await,
+                        };
+
+                        match event {
+                            Some(event) => match event {
+                                llm::AnthropicMessagesEvent::MessageStreamEvent(event) => {
+                                    Ok(Some(lua.to_value_with(&event, *super::SERIALIZE_OPTIONS)?))
                                 }
+                                llm::AnthropicMessagesEvent::Error(message) => {
+                                    let result = lua.create_table()?;
+                                    result.set("type", "error")?;
+                                    result.set("message", message)?;
+                                    Ok(Some(Value::Table(result)))
+                                }
+                            },
+                            None => {
+                                receiver.take();
+                                Ok(None)
                             }
                         }
                     }
-                },
-            );
-
-            // wait(): drain remaining chunks, returning (success, error_message).
-            methods.add_async_method_mut("wait", async |_lua, mut handle, ()| loop {
-                let chunk = match handle.receiver {
-                    None => return Ok((true, None)),
-                    Some(ref mut rx) => rx.recv().await,
-                };
-                match chunk {
-                    None => {
-                        handle.receiver.take();
-                        return Ok((true, None));
-                    }
-                    Some(llm::AnthropicMessagesEvent::Error(message)) => {
-                        handle.receiver.take();
-                        return Ok((false, Some(message)));
-                    }
-                    Some(_) => {} // Discard normal chunks.
                 }
-            });
-        */
+            },
+        );
+
+        // wait(): drain remaining chunks, returning (success, error_message).
+        methods.add_async_method_mut("wait", async |_lua, mut handle, ()| loop {
+            let chunk = match handle.receiver {
+                None => return Ok((true, None)),
+                Some(ref mut rx) => rx.recv().await,
+            };
+            match chunk {
+                None => {
+                    handle.receiver.take();
+                    return Ok((true, None));
+                }
+                Some(llm::AnthropicMessagesEvent::Error(message)) => {
+                    handle.receiver.take();
+                    return Ok((false, Some(message)));
+                }
+                Some(_) => {} // Discard normal chunks.
+            }
+        });
+    }
+}
+/// Handle returned by `llm.anthropic_generate_streaming()`.
+struct LuaAnthropicGenerateStreamingHandle {
+    handle: llm::AnthropicGenerateStreamingHandle,
+
+    /// The final full response.
+    // TODO: Build the final response up from the streaming events and expose to it Lua as a property on this.
+    response: Option<anthropic::messages::Message>,
+}
+
+impl UserData for LuaAnthropicGenerateStreamingHandle {
+    fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
+        // TODO: Add getting response and trace state object name or the object itself.
+    }
+
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        // __call: return the next chunk, or nil when generation is complete.
+        methods.add_async_meta_method_mut(
+            "__call",
+            async |lua, mut handle, _args: mlua::MultiValue| {
+                match self.handle {
+                    AnthropicRequestHandle::Normal { future } => match future.await {
+                        Ok(response_message) => Ok((
+                            Some(lua.to_value_with(&response_message, *super::SERIALIZE_OPTIONS)?),
+                            None,
+                        )),
+                        Err(err) => Ok((None, Some(err.to_string()))),
+                    },
+                    AnthropicRequestHandle::Streaming { receiver } => {
+                        // Receive one chunk. The borrow of `handle.receiver` via
+                        // `ref mut rx` ends before we call `.take()` below.
+                        let event = match receiver {
+                            None => return Ok(None),
+                            Some(ref mut rx) => rx.recv().await,
+                        };
+
+                        match event {
+                            Some(event) => match event {
+                                llm::AnthropicMessagesEvent::MessageStreamEvent(event) => {
+                                    Ok(Some(lua.to_value_with(&event, *super::SERIALIZE_OPTIONS)?))
+                                }
+                                llm::AnthropicMessagesEvent::Error(message) => {
+                                    let result = lua.create_table()?;
+                                    result.set("type", "error")?;
+                                    result.set("message", message)?;
+                                    Ok(Some(Value::Table(result)))
+                                }
+                            },
+                            None => {
+                                receiver.take();
+                                Ok(None)
+                            }
+                        }
+                    }
+                }
+            },
+        );
+
+        // wait(): drain remaining chunks, returning (success, error_message).
+        methods.add_async_method_mut("wait", async |_lua, mut handle, ()| loop {
+            let chunk = match handle.receiver {
+                None => return Ok((true, None)),
+                Some(ref mut rx) => rx.recv().await,
+            };
+            match chunk {
+                None => {
+                    handle.receiver.take();
+                    return Ok((true, None));
+                }
+                Some(llm::AnthropicMessagesEvent::Error(message)) => {
+                    handle.receiver.take();
+                    return Ok((false, Some(message)));
+                }
+                Some(_) => {} // Discard normal chunks.
+            }
+        });
     }
 }

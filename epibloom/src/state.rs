@@ -117,6 +117,7 @@ impl StateStore {
 }
 
 /// A single state object with a JSON value.
+#[derive(Debug)]
 pub struct StateObject {
     pub name: String,
 

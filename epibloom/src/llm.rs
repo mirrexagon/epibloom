@@ -6,6 +6,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use futures::{FutureExt, StreamExt};
+use rocket::State;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use tokio::sync::{mpsc, oneshot};
@@ -34,8 +35,8 @@ impl LlmStore {
     pub async fn anthropic_generate(
         &self,
         request: messages::request::MessagesRequest,
-    ) -> Result<oneshot::Receiver<Result<messages::Message, Error>>, Error> {
-        let trace_object = self.new_anthropic_llm_trace_state_object(&request).await?;
+    ) -> Result<AnthropicGenerateHandle, Error> {
+        let mut trace = self.new_anthropic_llm_trace_state_object(&request).await?;
 
         let anthropic_client = Arc::clone(&self.anthropic_client);
         let (tx, rx) = oneshot::channel();
@@ -47,32 +48,29 @@ impl LlmStore {
             let response_result = anthropic_client.generate(request).await;
             let end_time = OffsetDateTime::now_utc();
 
-            match trace_object
-                .update(async |value| {
-                    let mut trace: AnthropicLlmTrace = serde_json::from_value(value)?;
+            trace.content.end_time = Some(end_time);
+            match &response_result {
+                Ok(response) => trace.content.trace.messages.push(response.clone()),
+                Err(err) => trace.content.error = Some(err.to_string()),
+            }
 
-                    trace.end_time = Some(end_time);
-
-                    match &response_result {
-                        Ok(response) => trace.trace.messages.push(response.clone()),
-                        Err(err) => trace.error = Some(err.to_string()),
-                    }
-
-                    serde_json::to_value(trace)
-                })
-                .await
-            {
+            match trace.update_state_object_from_content().await {
                 Ok(_) => {}
                 Err(err) => log::error!(
-                    "Failed to update trace '{}' with response: {err}",
-                    &trace_object.name
+                    "Failed to update trace (state object '{}') with response: {err}",
+                    trace.state_object.name
                 ),
             }
 
-            let _ = tx.send(response_result.map_err(Error::from));
+            if let Err(_) = tx.send(response_result) {
+                log::warn!(
+                    "llm::anthropic_generate trace (state object {}): tried to send non-streaming response but the channel has already been closed",
+                    trace.state_object.name
+                );
+            }
         });
 
-        Ok(rx)
+        Ok(AnthropicGenerateHandle { receiver: rx })
     }
 
     // TODO: Should this just return a stream that wraps the request stream,
@@ -82,8 +80,8 @@ impl LlmStore {
     pub async fn anthropic_generate_streaming(
         &self,
         request: messages::request::MessagesRequest,
-    ) -> Result<mpsc::Receiver<Result<messages::response::MessageStreamEvent, Error>>, Error> {
-        let trace_object = self.new_anthropic_llm_trace_state_object(&request).await?;
+    ) -> Result<AnthropicGenerateStreamingHandle, Error> {
+        let trace = self.new_anthropic_llm_trace_state_object(&request).await?;
 
         let anthropic_client = Arc::clone(&self.anthropic_client);
         let (tx, rx) = mpsc::channel(1024);
@@ -93,36 +91,64 @@ impl LlmStore {
             futures::pin_mut!(stream);
 
             while let Some(result) = stream.next().await {
-                if let Err(err) = tx.send(result.map_err(Error::from)).await {
+                if let Err(err) = tx.send(result).await {
                     log::warn!("Failed to send StreamingEvent into channel: {err:?}");
                 }
 
-                // TODO: Update the trace object.
+                // TODO: Update the trace.
             }
         });
 
-        Ok(rx)
+        Ok(AnthropicGenerateStreamingHandle { receiver: rx })
     }
 
     async fn new_anthropic_llm_trace_state_object(
         &self,
         request: &messages::request::MessagesRequest,
-    ) -> Result<Arc<StateObject>, state::Error> {
-        let trace = AnthropicLlmTrace::from(request.clone());
+    ) -> Result<AnthropicTrace, state::Error> {
+        let trace_id = Uuid::now_v7();
+        let state_object_name = format!("llm-trace-anthropic:{}:persist", trace_id);
 
-        let name = format!("llm-trace-anthropic:{}:persist", Uuid::now_v7());
-        let state_object = self.state_store.get_or_create(&name).await?;
+        let trace = AnthropicTrace {
+            id: trace_id,
+            content: AnthropicTraceContents::from(request.clone()),
+            state_object: self.state_store.get_or_create(&state_object_name).await?,
+        };
 
-        state_object
-            .update(async |_| serde_json::to_value(trace))
-            .await?;
+        trace.update_state_object_from_content();
 
-        Ok(state_object)
+        Ok(trace)
     }
 }
 
+pub struct AnthropicGenerateHandle {
+    receiver: oneshot::Receiver<Result<messages::Message, anthropic::Error>>,
+}
+
+pub struct AnthropicGenerateStreamingHandle {
+    receiver: mpsc::Receiver<Result<messages::response::MessageStreamEvent, anthropic::Error>>,
+}
+
+#[derive(Debug)]
+pub struct AnthropicTrace {
+    id: Uuid,
+    content: AnthropicTraceContents,
+    state_object: Arc<StateObject>,
+}
+
+impl AnthropicTrace {
+    async fn update_state_object_from_content(&self) -> Result<(), Error> {
+        self.state_object
+            .update(async |_| serde_json::to_value(&self.content))
+            .await?;
+
+        return Ok(());
+    }
+}
+
+/// Trace state object contents.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct AnthropicLlmTrace {
+struct AnthropicTraceContents {
     #[serde(with = "time::serde::rfc3339")]
     start_time: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339::option")]
@@ -132,7 +158,7 @@ struct AnthropicLlmTrace {
     error: Option<String>,
 }
 
-impl From<messages::request::MessagesRequest> for AnthropicLlmTrace {
+impl From<messages::request::MessagesRequest> for AnthropicTraceContents {
     fn from(request: messages::request::MessagesRequest) -> Self {
         Self {
             start_time: OffsetDateTime::now_utc(),

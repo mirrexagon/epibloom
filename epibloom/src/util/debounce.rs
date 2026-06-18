@@ -4,6 +4,7 @@ use tokio::time::{sleep, Duration};
 
 /// Calls only the last function set by `call()` after the set duration has
 /// passed with no calls to `call()`.
+#[derive(Debug)]
 pub struct Debounce {
     delay: Duration,
     task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
