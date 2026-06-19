@@ -877,7 +877,133 @@ pub struct Message {
 
 impl Message {
     pub fn accumulate(&mut self, event: &response::MessageStreamEvent) {
-        todo!()
+        match event {
+            response::MessageStreamEvent::MessageStart { .. } => {
+                // This event should be used to initialize a new message, not accumulate.
+                // The caller should handle this case separately.
+                // TODO: Add new function to initialise from this event
+            }
+            response::MessageStreamEvent::Ping => {
+                // No-op
+            }
+            response::MessageStreamEvent::ContentBlockStart { content_block, .. } => {
+                // Append the new content block
+                self.content.push(content_block.clone());
+            }
+            response::MessageStreamEvent::ContentBlockDelta { index, delta } => {
+                let index = *index as usize;
+                if let Some(content) = self.content.get_mut(index) {
+                    match delta {
+                        response::ContentBlockDelta::TextDelta { text } => {
+                            if let ContentBlock::Text {
+                                text: existing_text,
+                                ..
+                            } = content
+                            {
+                                existing_text.push_str(text);
+                            }
+                        }
+                        response::ContentBlockDelta::InputJsonDelta { partial_json } => {
+                            // Handle for both ToolUse and ServerToolUse
+                            match content {
+                                ContentBlock::ToolUse { input, .. } => {
+                                    accumulate_json_input(input, partial_json);
+                                }
+                                ContentBlock::ServerToolUse { input, .. } => {
+                                    accumulate_json_input(input, partial_json);
+                                }
+                                _ => {}
+                            }
+                        }
+                        response::ContentBlockDelta::ThinkingDelta { thinking } => {
+                            if let ContentBlock::Thinking {
+                                thinking: existing_thinking,
+                                ..
+                            } = content
+                            {
+                                existing_thinking.push_str(thinking);
+                            }
+                        }
+                        response::ContentBlockDelta::SignatureDelta { signature } => {
+                            if let ContentBlock::Thinking {
+                                signature: existing_signature,
+                                ..
+                            } = content
+                            {
+                                *existing_signature = signature.clone();
+                            }
+                        }
+                    }
+                }
+            }
+            response::MessageStreamEvent::ContentBlockStop { .. } => {
+                // Could do final processing here if needed
+            }
+            response::MessageStreamEvent::MessageDelta { delta, usage } => {
+                // Update message-level fields from delta
+                if let Some(stop_reason) = &delta.stop_reason {
+                    self.stop_reason = Some(stop_reason.clone());
+                }
+                if let Some(stop_sequence) = &delta.stop_sequence {
+                    self.stop_sequence = Some(stop_sequence.clone());
+                }
+                if let Some(stop_details) = &delta.stop_details {
+                    self.stop_details = Some(stop_details.clone());
+                }
+                if let Some(container) = &delta.container {
+                    self.container = Some(container.clone());
+                }
+
+                // Update usage - output_tokens is always present
+                self.usage.output_tokens = usage.output_tokens;
+
+                // Update other usage fields
+                self.usage.input_tokens = usage.input_tokens;
+                self.usage.cache_creation_input_tokens = usage.cache_creation_input_tokens;
+                self.usage.cache_read_input_tokens = usage.cache_read_input_tokens;
+
+                // Update optional usage fields if present
+                if usage.cache_creation.is_some() {
+                    self.usage.cache_creation = usage.cache_creation.clone();
+                }
+                if usage.output_tokens_details.is_some() {
+                    self.usage.output_tokens_details = usage.output_tokens_details.clone();
+                }
+                if usage.server_tool_use.is_some() {
+                    self.usage.server_tool_use = usage.server_tool_use.clone();
+                }
+                if usage.service_tier.is_some() {
+                    self.usage.service_tier = usage.service_tier.clone();
+                }
+                if usage.inference_geo.is_some() {
+                    self.usage.inference_geo = usage.inference_geo.clone();
+                }
+            }
+            response::MessageStreamEvent::MessageStop => {
+                // No-op
+            }
+        }
+    }
+}
+
+/// Helper function to accumulate partial JSON and attempt to parse it.
+/// Stores the accumulated JSON string in the input value temporarily if parsing fails.
+fn accumulate_json_input(input: &mut serde_json::Value, partial_json: &str) {
+    // Get the accumulated JSON string
+    let accumulated = if let serde_json::Value::String(s) = input {
+        format!("{}{}", s, partial_json)
+    } else {
+        // If input is not a string, it means we already successfully parsed it,
+        // but we're getting more deltas. This shouldn't happen normally,
+        // but we'll just continue accumulating from this delta.
+        partial_json.to_string()
+    };
+
+    // Try to parse the accumulated JSON
+    // If successful, store the parsed value; otherwise keep the string for next delta
+    match serde_json::from_str(&accumulated) {
+        Ok(parsed) => *input = parsed,
+        Err(_) => *input = serde_json::Value::String(accumulated),
     }
 }
 
