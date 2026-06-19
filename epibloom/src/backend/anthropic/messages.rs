@@ -25,9 +25,8 @@ pub enum Role {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum CacheControlEphemeral {
-    #[serde(rename = "ephemeral")]
     Ephemeral {
         #[serde(skip_serializing_if = "Option::is_none")]
         ttl: Option<CacheControlTtl>,
@@ -319,15 +318,14 @@ pub struct TextBlockParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TextBlockType {
-    #[serde(rename = "text")]
     Text,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum TextCitationParam {
-    #[serde(rename = "char_location")]
     CharLocation {
         cited_text: String,
         document_index: u32,
@@ -335,7 +333,6 @@ pub enum TextCitationParam {
         start_char_index: u32,
         end_char_index: u32,
     },
-    #[serde(rename = "page_location")]
     PageLocation {
         cited_text: String,
         document_index: u32,
@@ -343,7 +340,6 @@ pub enum TextCitationParam {
         start_page_number: u32,
         end_page_number: u32,
     },
-    #[serde(rename = "content_block_location")]
     ContentBlockLocation {
         cited_text: String,
         document_index: u32,
@@ -351,14 +347,12 @@ pub enum TextCitationParam {
         start_block_index: u32,
         end_block_index: u32,
     },
-    #[serde(rename = "web_search_result_location")]
     WebSearchResultLocation {
         cited_text: String,
         encrypted_index: String,
         title: String,
         url: String,
     },
-    #[serde(rename = "search_result_location")]
     SearchResultLocation {
         cited_text: String,
         title: String,
@@ -370,35 +364,29 @@ pub enum TextCitationParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum ImageSourceParam {
-    #[serde(rename = "base64")]
     Base64 {
         media_type: ImageMediaType,
         data: String,
     },
-    #[serde(rename = "url")]
     Url { url: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum DocumentSourceParam {
-    #[serde(rename = "base64")]
     Base64 {
         media_type: PdfMediaType,
         data: String,
     },
-    #[serde(rename = "text")]
     Text {
         media_type: TextMediaType,
         data: String,
     },
-    #[serde(rename = "content")]
     Content {
         content: DocumentSourceContentParam,
     },
-    #[serde(rename = "url")]
     Url { url: String },
 }
 
@@ -411,15 +399,13 @@ pub enum DocumentSourceContentParam {
 
 #[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum DocumentContentBlockParam {
-    #[serde(rename = "text")]
     Text {
         text: String,
         cache_control: Option<CacheControlEphemeral>,
         citations: Option<Vec<TextCitationParam>>,
     },
-    #[serde(rename = "image")]
     Image {
         source: ImageSourceParam,
         cache_control: Option<CacheControlEphemeral>,
@@ -464,20 +450,17 @@ pub enum ToolResultContentParam {
 
 #[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum ToolResultContentBlockParam {
-    #[serde(rename = "text")]
     Text {
         text: String,
         cache_control: Option<CacheControlEphemeral>,
         citations: Option<Vec<TextCitationParam>>,
     },
-    #[serde(rename = "image")]
     Image {
         source: ImageSourceParam,
         cache_control: Option<CacheControlEphemeral>,
     },
-    #[serde(rename = "search_result")]
     SearchResult {
         content: Vec<TextBlockParam>,
         source: String,
@@ -485,7 +468,6 @@ pub enum ToolResultContentBlockParam {
         cache_control: Option<CacheControlEphemeral>,
         citations: Option<CitationsConfigParam>,
     },
-    #[serde(rename = "document")]
     Document {
         source: DocumentSourceParam,
         cache_control: Option<CacheControlEphemeral>,
@@ -493,7 +475,6 @@ pub enum ToolResultContentBlockParam {
         context: Option<String>,
         title: Option<String>,
     },
-    #[serde(rename = "tool_reference")]
     ToolReference {
         tool_name: String,
         cache_control: Option<CacheControlEphemeral>,
@@ -519,8 +500,8 @@ pub struct WebSearchResultBlockParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum WebSearchResultBlockType {
-    #[serde(rename = "web_search_result")]
     WebSearchResult,
 }
 
@@ -532,8 +513,8 @@ pub struct WebSearchToolResultErrorParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum WebSearchToolResultErrorType {
-    #[serde(rename = "web_search_tool_result_error")]
     WebSearchToolResultError,
 }
 
@@ -566,8 +547,8 @@ pub struct WebFetchBlockParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum WebFetchBlockType {
-    #[serde(rename = "web_fetch_result")]
     WebFetchResult,
 }
 
@@ -584,8 +565,8 @@ pub struct DocumentBlockParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DocumentBlockType {
-    #[serde(rename = "document")]
     Document,
 }
 
@@ -597,8 +578,8 @@ pub struct WebFetchToolResultErrorBlockParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum WebFetchToolResultErrorType {
-    #[serde(rename = "web_fetch_tool_result_error")]
     WebFetchToolResultError,
 }
 
@@ -635,8 +616,8 @@ pub struct CodeExecutionResultBlockParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CodeExecutionResultBlockType {
-    #[serde(rename = "code_execution_result")]
     CodeExecutionResult,
 }
 
@@ -648,8 +629,8 @@ pub struct CodeExecutionOutputBlockParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CodeExecutionOutputBlockType {
-    #[serde(rename = "code_execution_output")]
     CodeExecutionOutput,
 }
 
@@ -664,8 +645,8 @@ pub struct EncryptedCodeExecutionResultBlockParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum EncryptedCodeExecutionResultBlockType {
-    #[serde(rename = "encrypted_code_execution_result")]
     EncryptedCodeExecutionResult,
 }
 
@@ -677,8 +658,8 @@ pub struct CodeExecutionToolResultErrorParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CodeExecutionToolResultErrorType {
-    #[serde(rename = "code_execution_tool_result_error")]
     CodeExecutionToolResultError,
 }
 
@@ -709,8 +690,8 @@ pub struct BashCodeExecutionResultBlockParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum BashCodeExecutionResultBlockType {
-    #[serde(rename = "bash_code_execution_result")]
     BashCodeExecutionResult,
 }
 
@@ -722,8 +703,8 @@ pub struct BashCodeExecutionOutputBlockParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum BashCodeExecutionOutputBlockType {
-    #[serde(rename = "bash_code_execution_output")]
     BashCodeExecutionOutput,
 }
 
@@ -735,8 +716,8 @@ pub struct BashCodeExecutionToolResultErrorParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum BashCodeExecutionToolResultErrorType {
-    #[serde(rename = "bash_code_execution_tool_result_error")]
     BashCodeExecutionToolResultError,
 }
 
@@ -772,8 +753,8 @@ pub struct TextEditorCodeExecutionViewResultBlockParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TextEditorViewResultType {
-    #[serde(rename = "text_editor_code_execution_view_result")]
     TextEditorCodeExecutionViewResult,
 }
 
@@ -793,8 +774,8 @@ pub struct TextEditorCodeExecutionCreateResultBlockParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TextEditorCreateResultType {
-    #[serde(rename = "text_editor_code_execution_create_result")]
     TextEditorCodeExecutionCreateResult,
 }
 
@@ -811,8 +792,8 @@ pub struct TextEditorCodeExecutionStrReplaceResultBlockParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TextEditorStrReplaceResultType {
-    #[serde(rename = "text_editor_code_execution_str_replace_result")]
     TextEditorCodeExecutionStrReplaceResult,
 }
 
@@ -826,8 +807,8 @@ pub struct TextEditorCodeExecutionToolResultErrorParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TextEditorToolResultErrorType {
-    #[serde(rename = "text_editor_code_execution_tool_result_error")]
     TextEditorCodeExecutionToolResultError,
 }
 
@@ -856,8 +837,8 @@ pub struct ToolSearchToolSearchResultBlockParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ToolSearchResultType {
-    #[serde(rename = "tool_search_tool_search_result")]
     ToolSearchToolSearchResult,
 }
 
@@ -871,8 +852,8 @@ pub struct ToolReferenceBlockParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ToolReferenceBlockType {
-    #[serde(rename = "tool_reference")]
     ToolReference,
 }
 
@@ -886,8 +867,8 @@ pub struct ToolSearchToolResultErrorParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ToolSearchToolResultErrorType {
-    #[serde(rename = "tool_search_tool_result_error")]
     ToolSearchToolResultError,
 }
 
@@ -922,78 +903,65 @@ pub struct Message {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum MessageType {
-    #[serde(rename = "message")]
     Message,
 }
 
 #[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum ContentBlock {
-    #[serde(rename = "text")]
     Text {
         text: String,
         citations: Option<Vec<TextCitation>>,
     },
-    #[serde(rename = "thinking")]
     Thinking { signature: String, thinking: String },
-    #[serde(rename = "redacted_thinking")]
     RedactedThinking { data: String },
-    #[serde(rename = "tool_use")]
     ToolUse {
         id: String,
         name: String,
         input: serde_json::Value,
         caller: Option<ToolCaller>,
     },
-    #[serde(rename = "server_tool_use")]
     ServerToolUse {
         id: String,
         name: ServerToolName,
         input: serde_json::Value,
         caller: Option<ToolCaller>,
     },
-    #[serde(rename = "web_search_tool_result")]
     WebSearchToolResult {
         tool_use_id: String,
         content: WebSearchToolResultContent,
         caller: Option<ToolCaller>,
     },
-    #[serde(rename = "web_fetch_tool_result")]
     WebFetchToolResult {
         tool_use_id: String,
         content: WebFetchToolResultContent,
         caller: Option<ToolCaller>,
     },
-    #[serde(rename = "code_execution_tool_result")]
     CodeExecutionToolResult {
         tool_use_id: String,
         content: CodeExecutionToolResultContent,
     },
-    #[serde(rename = "bash_code_execution_tool_result")]
     BashCodeExecutionToolResult {
         tool_use_id: String,
         content: BashCodeExecutionToolResultContent,
     },
-    #[serde(rename = "text_editor_code_execution_tool_result")]
     TextEditorCodeExecutionToolResult {
         tool_use_id: String,
         content: TextEditorCodeExecutionToolResultContent,
     },
-    #[serde(rename = "tool_search_tool_result")]
     ToolSearchToolResult {
         tool_use_id: String,
         content: ToolSearchToolResultContent,
     },
-    #[serde(rename = "container_upload")]
     ContainerUpload { file_id: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum TextCitation {
-    #[serde(rename = "char_location")]
     CharLocation {
         cited_text: String,
         document_index: u32,
@@ -1002,7 +970,6 @@ pub enum TextCitation {
         end_char_index: u32,
         file_id: String,
     },
-    #[serde(rename = "page_location")]
     PageLocation {
         cited_text: String,
         document_index: u32,
@@ -1011,7 +978,6 @@ pub enum TextCitation {
         end_page_number: u32,
         file_id: String,
     },
-    #[serde(rename = "content_block_location")]
     ContentBlockLocation {
         cited_text: String,
         document_index: u32,
@@ -1020,14 +986,12 @@ pub enum TextCitation {
         end_block_index: u32,
         file_id: String,
     },
-    #[serde(rename = "web_search_result_location")]
     WebSearchResultLocation {
         cited_text: String,
         encrypted_index: String,
         title: String,
         url: String,
     },
-    #[serde(rename = "search_result_location")]
     SearchResultLocation {
         cited_text: String,
         title: String,
@@ -1088,14 +1052,12 @@ pub struct DocumentBlock {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum DocumentSource {
-    #[serde(rename = "base64")]
     Base64 {
         media_type: PdfMediaType,
         data: String,
     },
-    #[serde(rename = "text")]
     Text {
         media_type: TextMediaType,
         data: String,
@@ -1280,9 +1242,8 @@ pub enum StopReason {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum StopDetails {
-    #[serde(rename = "refusal")]
     Refusal {
         category: Option<RefusalCategory>,
         explanation: Option<String>,
@@ -1385,22 +1346,18 @@ pub struct Metadata {
 
 #[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum ToolChoice {
-    #[serde(rename = "auto")]
     Auto {
         disable_parallel_tool_use: Option<bool>,
     },
-    #[serde(rename = "any")]
     Any {
         disable_parallel_tool_use: Option<bool>,
     },
-    #[serde(rename = "tool")]
     Tool {
         name: String,
         disable_parallel_tool_use: Option<bool>,
     },
-    #[serde(rename = "none")]
     None,
 }
 
@@ -1598,8 +1555,8 @@ pub struct ToolInputSchema {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ToolInputSchemaType {
-    #[serde(rename = "object")]
     Object,
 }
 
@@ -1612,62 +1569,62 @@ pub enum AllowedCaller {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum BashToolName {
-    #[serde(rename = "bash")]
     Bash,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CodeExecutionToolName {
-    #[serde(rename = "code_execution")]
     CodeExecution,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum MemoryToolName {
-    #[serde(rename = "memory")]
     Memory,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TextEditorToolName20250124 {
-    #[serde(rename = "str_replace_editor")]
     StrReplaceEditor,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TextEditorToolName20250429 {
-    #[serde(rename = "str_replace_based_edit_tool")]
     StrReplaceBasedEditTool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TextEditorToolName20250728 {
-    #[serde(rename = "str_replace_based_edit_tool")]
     StrReplaceBasedEditTool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum WebSearchToolName {
-    #[serde(rename = "web_search")]
     WebSearch,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum WebFetchToolName {
-    #[serde(rename = "web_fetch")]
     WebFetch,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ToolSearchBm25ToolName {
-    #[serde(rename = "tool_search_tool_bm25")]
     ToolSearchToolBm25,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ToolSearchRegexToolName {
-    #[serde(rename = "tool_search_tool_regex")]
     ToolSearchToolRegex,
 }
 
@@ -1683,23 +1640,20 @@ pub struct UserLocation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum UserLocationType {
-    #[serde(rename = "approximate")]
     Approximate,
 }
 
 #[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum ThinkingConfig {
-    #[serde(rename = "enabled")]
     Enabled {
         budget_tokens: u32,
         display: Option<ThinkingDisplay>,
     },
-    #[serde(rename = "disabled")]
     Disabled,
-    #[serde(rename = "adaptive")]
     Adaptive {
         display: Option<ThinkingDisplay>,
     },
@@ -1730,9 +1684,8 @@ pub enum Effort {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum JsonOutputFormat {
-    #[serde(rename = "json_schema")]
     JsonSchema { schema: serde_json::Value },
 }
 
@@ -1769,40 +1722,29 @@ pub mod response {
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
-    #[serde(tag = "type")]
+    #[serde(rename_all = "snake_case", tag = "type")]
     pub enum MessageStreamEvent {
-    #[serde(rename = "message_start")]
-    MessageStart { message: Message },
-    #[serde(rename = "ping")]
-    Ping,
-    #[serde(rename = "content_block_start")]
-    ContentBlockStart {
-        index: u32,
-        content_block: ContentBlock,
-    },
-    #[serde(rename = "content_block_delta")]
-    ContentBlockDelta {
-        index: u32,
-        delta: ContentBlockDelta,
-    },
-    #[serde(rename = "content_block_stop")]
-    ContentBlockStop { index: u32 },
-    #[serde(rename = "message_delta")]
-    MessageDelta { delta: MessageDelta, usage: Usage },
-    #[serde(rename = "message_stop")]
-    MessageStop,
-}
+        MessageStart { message: Message },
+        Ping,
+        ContentBlockStart {
+            index: u32,
+            content_block: ContentBlock,
+        },
+        ContentBlockDelta {
+            index: u32,
+            delta: ContentBlockDelta,
+        },
+        ContentBlockStop { index: u32 },
+        MessageDelta { delta: MessageDelta, usage: Usage },
+        MessageStop,
+    }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum ContentBlockDelta {
-    #[serde(rename = "text_delta")]
     TextDelta { text: String },
-    #[serde(rename = "input_json_delta")]
     InputJsonDelta { partial_json: String },
-    #[serde(rename = "thinking_delta")]
     ThinkingDelta { thinking: String },
-    #[serde(rename = "signature_delta")]
     SignatureDelta { signature: String },
 }
 
