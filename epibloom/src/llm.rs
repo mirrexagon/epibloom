@@ -46,7 +46,7 @@ impl LlmStore {
             // TODO: Handle prefill, if the last message is an assistant message,
             // stick the response on the end of that.
             match &response_result {
-                Ok(response) => trace.content.trace.messages.push(response.clone()),
+                Ok(response) => trace.content.trace.messages.push(response.clone().into()),
                 Err(err) => trace.content.error = Some(err.to_string()),
             }
 
