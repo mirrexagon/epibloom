@@ -875,6 +875,12 @@ pub struct Message {
     pub stop_details: Option<StopDetails>,
 }
 
+impl Message {
+    pub fn accumulate(&mut self, event: &response::MessageStreamEvent) {
+        todo!()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MessageType {

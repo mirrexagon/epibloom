@@ -35,7 +35,7 @@ end
 
 request.max_tokens = 1024
 
-for _ = 1, 6 do
+for _ = 1, 2 do
     local response_message = llm.anthropic_generate(request):get_response()
     request.messages[#request.messages + 1] = {
         role = "assistant",
@@ -47,11 +47,11 @@ for _ = 1, 6 do
     end
 end
 
--- for ok, event in llm.anthropic_generate_streaming(request) do
---     print("NEW EVENT")
---     if ok then
---         print_table(event)
---     else
---         print("Error", event)
---     end
--- end
+for ok, event in llm.anthropic_generate_streaming(request) do
+    print("NEW EVENT")
+    if ok then
+        print_table(event)
+    else
+        print("Error", event)
+    end
+end
