@@ -39,13 +39,12 @@ impl LlmStore {
         let (tx, rx) = oneshot::channel();
 
         tokio::spawn(async move {
-            // TODO: Handle prefill, if the last message is an assistant message,
-            // stick the response on the end of that.
-
             let response_result = anthropic_client.generate(request).await;
             let end_time = OffsetDateTime::now_utc();
 
             trace.content.end_time = Some(end_time);
+            // TODO: Handle prefill, if the last message is an assistant message,
+            // stick the response on the end of that.
             match &response_result {
                 Ok(response) => trace.content.trace.messages.push(response.clone()),
                 Err(err) => trace.content.error = Some(err.to_string()),
@@ -54,7 +53,7 @@ impl LlmStore {
             match trace.update_state_object_from_content().await {
                 Ok(_) => {}
                 Err(err) => log::error!(
-                    "Failed to update trace (state object '{}') with response: {err}",
+                    "Failed to update trace (state object '{}') with non-streaming response: {err}",
                     trace.state_object.name
                 ),
             }
@@ -90,7 +89,12 @@ impl LlmStore {
 
             while let Some(result) = stream.next().await {
                 match &result {
-                    Ok(event) => {} // TODO: Update the trace.
+                    Ok(event) => {
+                        // TODO: Update the trace.
+
+                        // TODO: Handle prefill, if the last message is an assistant message,
+                        // stick the response on the end of that.
+                    }
                     Err(err) => {
                         trace.content.error = Some(err.to_string());
 
