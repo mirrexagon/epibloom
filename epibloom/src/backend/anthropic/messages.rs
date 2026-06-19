@@ -43,7 +43,7 @@ impl Message {
     }
 
     pub fn apply_event(&mut self, _event: response::MessageStreamEvent) {
-        // TODO: Implement and bind to Lua
+        // TODO: Implement
         unimplemented!();
     }
 }
