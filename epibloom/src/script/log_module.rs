@@ -21,7 +21,9 @@ pub fn setup(lua: &Lua) -> mlua::Result<()> {
             };
 
             let context_name: String = lua.named_registry_value("epibloom.context.name")?;
-            let log_target = format!("script context '{context_name}'");
+            let script_path: String =
+                lua.named_registry_value("epibloom.context.current_script_path")?;
+            let log_target = format!("script '{script_path}' on '{context_name}'");
 
             log::log!(target: &log_target, level, "{message}");
 

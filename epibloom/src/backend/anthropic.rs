@@ -178,7 +178,7 @@ impl AnthropicReqwestClient for reqwest::Client {
     where
         T: Serialize + ?Sized,
     {
-        log::debug!(
+        log::trace!(
             "POST to {path} body: {}",
             serde_json::to_string_pretty(body)?
         );

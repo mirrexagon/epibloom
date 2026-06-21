@@ -91,6 +91,8 @@ impl LlmStore {
                 match &result {
                     Ok(event) => {
                         // TODO: Update the trace.
+                        // Accumulate here instead of in the handle, and give
+                        // the handle access to this built-up message.
 
                         // TODO: Handle prefill, if the last message is an assistant message,
                         // stick the response on the end of that.
@@ -206,19 +208,36 @@ impl AnthropicGenerateStreamingHandle {
         };
 
         match event {
-            Some(event) => {
-                match event {
-                    Ok(event) => {
-                        // TODO: Update self.response
+            Some(event) => match event {
+                Ok(event) => {
+                    match &mut self.response {
+                        Some(response) => {
+                            // TODO: Do this accumulation in the streaming task instead
+                            response.accumulate(&event);
+                        }
 
-                        Some(Ok(event))
+                        None => {
+                            if let messages::response::MessageStreamEvent::MessageStart {
+                                ref message,
+                            } = event
+                            {
+                                self.response = Some(message.clone());
+                            } else {
+                                log::error!(
+                                    "AnthropicGenerateStreamingHandle (state object '{}') did not receive a MessageStart event as the first event.",
+                                    self.trace_state_object_name
+                                );
+                            }
+                        }
                     }
-                    Err(err) => {
-                        self.error = Some(err);
-                        Some(Err(self.error.as_ref().unwrap()))
-                    }
+
+                    Some(Ok(event))
                 }
-            }
+                Err(err) => {
+                    self.error = Some(err);
+                    Some(Err(self.error.as_ref().unwrap()))
+                }
+            },
 
             // Channel is done.
             None => {

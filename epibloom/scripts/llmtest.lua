@@ -35,19 +35,20 @@ end
 
 request.max_tokens = 1024
 
-for _ = 1, 2 do
-    local response_message = llm.anthropic_generate(request):get_response()
-    request.messages[#request.messages + 1] = {
-        role = "assistant",
-        content = response_message.content[1].text,
-    }
+-- for _ = 1, 2 do
+--     local response_message = llm.anthropic_generate(request):get_response()
+--     request.messages[#request.messages + 1] = {
+--         role = "assistant",
+--         content = response_message.content[1].text,
+--     }
 
-    for _, message in ipairs(request.messages) do
-        message.role = (message.role == "user") and "assistant" or "user"
-    end
-end
+--     for _, message in ipairs(request.messages) do
+--         message.role = (message.role == "user") and "assistant" or "user"
+--     end
+-- end
 
-for ok, event in llm.anthropic_generate_streaming(request) do
+local streaming_handle = llm.anthropic_generate_streaming(request)
+for ok, event in streaming_handle do
     print("NEW EVENT")
     if ok then
         print_table(event)
@@ -55,3 +56,7 @@ for ok, event in llm.anthropic_generate_streaming(request) do
         print("Error", event)
     end
 end
+
+print("Full accumulated response:")
+print_table(streaming_handle:get_response())
+print_table(streaming_handle:get_response())

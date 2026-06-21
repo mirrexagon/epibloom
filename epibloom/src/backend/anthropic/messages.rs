@@ -16,6 +16,7 @@ use super::AnthropicReqwestClient;
 // ============================================================================
 // Common Types (used in both input and output)
 // ============================================================================
+//
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
@@ -1863,7 +1864,7 @@ pub async fn generate(
     request.stream = Some(false);
 
     let request_json = serde_json::to_string_pretty(&request)?;
-    log::debug!("Anthropic messages request: {request_json}");
+    log::debug!("Anthropic messages non-streaming request: {request_json}");
 
     let response = client.anthropic_post("messages", &request).await?;
     let response_message: serde_json::Value = response.json().await?;
@@ -1879,7 +1880,7 @@ pub fn generate_streaming(
         request.stream = Some(true);
 
         let request_json = serde_json::to_string_pretty(&request)?;
-        log::debug!("Anthropic messages request: {}", request_json);
+        log::debug!("Anthropic messages streaming request: {request_json}");
 
         let response = client.anthropic_post("messages", &request).await?;
 
@@ -1889,11 +1890,9 @@ pub fn generate_streaming(
             let sse = sse?;
 
             let json_string = sse.data.ok_or(super::Error::StreamingEventHasNoData)?;
-            log::debug!("Anthropic streaming event JSON: {:#?}", serde_json::from_str::<serde_json::Value>(&json_string).unwrap());
+            log::debug!("Anthropic streaming event JSON: {}", json_string);
 
             let event: response::MessageStreamEvent = serde_json::from_str(&json_string)?;
-            log::debug!("Anthropic streaming event: {event:?}");
-
             yield event;
         }
     }

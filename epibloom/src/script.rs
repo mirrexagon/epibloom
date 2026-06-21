@@ -191,6 +191,8 @@ impl Context {
         filesystem_script_path = path::absolute(filesystem_script_path)?;
 
         if !filesystem_script_path.starts_with(crate::SCRIPTS_DIR.get().unwrap()) {
+            log::warn!("Script {filesystem_script_path:?} tried to escape the scripts directory.");
+
             return Err(Error::ScriptPathEscapesScriptDirectory);
         }
 
@@ -198,10 +200,7 @@ impl Context {
         // make error handling easier in general?
         let script_content = fs::read_to_string(&filesystem_script_path).await?;
 
-        debug!(
-            "Running script {filesystem_script_path:?} on context {}",
-            self.name
-        );
+        lua.set_named_registry_value("epibloom.context.current_script_path", script_path)?;
 
         let result = lua
             .load(script_content)
