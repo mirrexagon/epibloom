@@ -26,15 +26,26 @@ export interface StateObjectData {
 export interface AnthropicTraceStateObject {
     start_time: string; // RFC3339 datetime
     end_time: string | null; // RFC3339 datetime or null if still running
-    trace: AnthropicTrace;
+    request: AnthropicRequest;
+    response: AnthropicResponse | null;
     error: string | null;
 }
 
-export interface AnthropicTrace {
+export interface AnthropicRequest {
     model: string;
     max_tokens: number;
     system?: string; // Optional system prompt
     messages: AnthropicMessage[];
+}
+
+export interface AnthropicResponse {
+    id: string;
+    type: string;
+    role: string;
+    content: AnthropicContentBlock[];
+    model: string;
+    stop_reason: string;
+    usage: AnthropicUsage;
 }
 
 export interface AnthropicMessage {

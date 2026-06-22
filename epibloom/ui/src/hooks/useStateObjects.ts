@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { StateEvent, StateObjectData } from "../types/api";
-import { applyPatch, Operation } from "fast-json-patch";
-import { produce } from "immer";
+import { applyPatch, Operation, deepClone } from "fast-json-patch";
 
 // How long (ms) to accumulate patches before flushing them to React state.
 // This caps the re-render rate at ~20/s regardless of LLM streaming speed.
@@ -111,23 +110,16 @@ export function useStateObjects(objectNames: string[]): UseStateObjectsResult {
                                 const ops = toApply.get(obj.name);
                                 if (!ops || ops.length === 0) return obj;
                                 try {
-                                    // produce() gives structural sharing:
-                                    // only the objects along the mutated
-                                    // path get new references; everything
-                                    // else stays pointer-equal to the old
-                                    // document, keeping React.memo effective.
-                                    const patched = produce(
-                                        obj.value,
-                                        (draft) => {
-                                            applyPatch(
-                                                draft,
-                                                ops,
-                                                /* validate */ false,
-                                                /* mutate */ true,
-                                            );
-                                        },
+                                    // Deep clone the value to avoid mutating the original
+                                    const cloned = deepClone(obj.value);
+                                    // Apply patches with mutation enabled
+                                    applyPatch(
+                                        cloned,
+                                        ops,
+                                        /* validate */ false,
+                                        /* mutate */ true,
                                     );
-                                    return { ...obj, value: patched };
+                                    return { ...obj, value: cloned };
                                 } catch (patchError) {
                                     console.error(
                                         "Error applying patch batch:",
