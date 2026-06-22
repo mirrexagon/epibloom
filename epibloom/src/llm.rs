@@ -296,6 +296,8 @@ pub struct AnthropicTrace {
 
 impl AnthropicTrace {
     async fn sync_state_object(&self) -> Result<(), Error> {
+        // TODO: In the response, don't update the entire text string each time.
+        // Only send the change.
         let data = json!({
             "start_time": self.start_time.format(&Rfc3339)?,
             "end_time": self.end_time.map(|t| t.format(&Rfc3339)).transpose()?,

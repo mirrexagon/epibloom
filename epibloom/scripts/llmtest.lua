@@ -48,15 +48,4 @@ request.max_tokens = 1024
 -- end
 
 local streaming_handle = llm.anthropic_generate_streaming(request)
-for ok, event in streaming_handle do
-    print("NEW EVENT")
-    if ok then
-        print_table(event)
-    else
-        print("Error", event)
-    end
-end
-
-print("Full accumulated response:")
-print_table(streaming_handle:get_response())
-print_table(streaming_handle:get_response())
+return streaming_handle.name
