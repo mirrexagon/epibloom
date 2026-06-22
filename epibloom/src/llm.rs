@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
+use serde_json::json;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
@@ -42,15 +43,13 @@ impl LlmStore {
             let response_result = anthropic_client.generate(request).await;
             let end_time = OffsetDateTime::now_utc();
 
-            trace.content.end_time = Some(end_time);
-            // TODO: Handle prefill, if the last message is an assistant message,
-            // stick the response on the end of that.
+            trace.end_time = Some(end_time);
             match &response_result {
-                Ok(response) => trace.content.trace.messages.push(response.clone().into()),
-                Err(err) => trace.content.error = Some(err.to_string()),
+                Ok(response) => trace.response = Some(response.clone()),
+                Err(err) => trace.error = Some(err.to_string()),
             }
 
-            match trace.update_state_object_from_content().await {
+            match trace.sync_state_object().await {
                 Ok(_) => {}
                 Err(err) => log::error!(
                     "Failed to update trace (state object '{}') with non-streaming response: {err}",
@@ -89,20 +88,36 @@ impl LlmStore {
 
             while let Some(result) = stream.next().await {
                 match &result {
-                    Ok(event) => {
-                        // TODO: Update the trace.
-                        // Accumulate here instead of in the handle, and give
-                        // the handle access to this built-up message.
-
-                        // TODO: Handle prefill, if the last message is an assistant message,
-                        // stick the response on the end of that.
-                    }
+                    Ok(event) => match event {
+                        messages::response::MessageStreamEvent::MessageStart { message } => {
+                            trace.response = Some(message.clone());
+                        }
+                        e => match &mut trace.response {
+                            Some(message) => message.accumulate(e),
+                            None => {
+                                log::error!(
+                                    "Anthropic streaming request (state object '{}') received a non-MessageStart event before a MessageStart event: {e:?}",
+                                    trace.state_object.name
+                                )
+                            }
+                        },
+                    },
                     Err(err) => {
-                        trace.content.error = Some(err.to_string());
+                        trace.error = Some(err.to_string());
 
                         // The error should be the last thing in the channel, so
                         // when we go around again, we we fall out of the loop
                         // and set the end time and save the trace then.
+                    }
+                }
+
+                match trace.sync_state_object().await {
+                    Ok(_) => {}
+                    Err(err) => {
+                        log::error!(
+                            "Failed to update trace (state object '{}') with non-streaming response: {err}",
+                            trace.state_object.name
+                        );
                     }
                 }
 
@@ -111,8 +126,8 @@ impl LlmStore {
                 }
             }
 
-            trace.content.end_time = Some(OffsetDateTime::now_utc());
-            if let Err(err) = trace.update_state_object_from_content().await {
+            trace.end_time = Some(OffsetDateTime::now_utc());
+            if let Err(err) = trace.sync_state_object().await {
                 log::error!(
                     "Couldn't update trace (state object '{}') at streaming end: {err}",
                     trace.state_object.name
@@ -137,11 +152,17 @@ impl LlmStore {
 
         let trace = AnthropicTrace {
             id: trace_id,
-            content: AnthropicTraceContents::from(request.clone()),
+
+            start_time: OffsetDateTime::now_utc(),
+            end_time: None,
+            request: request.clone(),
+            response: None,
+            error: None,
+
             state_object: self.state_store.get_or_create(&state_object_name).await?,
         };
 
-        trace.update_state_object_from_content().await?;
+        trace.sync_state_object().await?;
 
         Ok(trace)
     }
@@ -212,7 +233,7 @@ impl AnthropicGenerateStreamingHandle {
                 Ok(event) => {
                     match &mut self.response {
                         Some(response) => {
-                            // TODO: Do this accumulation in the streaming task instead
+                            // TODO: Don't duplicate the accumulation that happens in the streaming task.
                             response.accumulate(&event);
                         }
 
@@ -263,40 +284,31 @@ impl AnthropicGenerateStreamingHandle {
 #[derive(Debug)]
 pub struct AnthropicTrace {
     id: Uuid,
-    content: AnthropicTraceContents,
+
+    start_time: OffsetDateTime,
+    end_time: Option<OffsetDateTime>,
+    request: messages::request::MessagesRequest,
+    response: Option<messages::Message>,
+    error: Option<String>,
+
     state_object: Arc<StateObject>,
 }
 
 impl AnthropicTrace {
-    async fn update_state_object_from_content(&self) -> Result<(), Error> {
+    async fn sync_state_object(&self) -> Result<(), Error> {
+        let data = json!({
+            "start_time": self.start_time.format(&Rfc3339)?,
+            "end_time": self.end_time.map(|t| t.format(&Rfc3339)).transpose()?,
+            "request": &self.request,
+            "response": &self.response,
+            "error": self.error.as_ref().map(|e| e.to_string()),
+        });
+
         self.state_object
-            .update(async |_| serde_json::to_value(&self.content))
+            .update(async |_| serde_json::to_value(&data))
             .await?;
 
         Ok(())
-    }
-}
-
-/// Trace state object contents.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct AnthropicTraceContents {
-    #[serde(with = "time::serde::rfc3339")]
-    start_time: OffsetDateTime,
-    #[serde(with = "time::serde::rfc3339::option")]
-    end_time: Option<OffsetDateTime>,
-
-    trace: messages::request::MessagesRequest,
-    error: Option<String>,
-}
-
-impl From<messages::request::MessagesRequest> for AnthropicTraceContents {
-    fn from(request: messages::request::MessagesRequest) -> Self {
-        Self {
-            start_time: OffsetDateTime::now_utc(),
-            end_time: None,
-            trace: request,
-            error: None,
-        }
     }
 }
 
@@ -306,6 +318,8 @@ pub enum Error {
     Io(#[from] tokio::io::Error),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("Time formatting error: {0}")]
+    TimeFormatting(#[from] time::error::Format),
     #[error("Anthropic error: {0}")]
     Anthropic(#[from] anthropic::Error),
     #[error("State object error: {0}")]
