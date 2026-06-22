@@ -152,10 +152,6 @@ impl UserData for LuaAnthropicGenerateHandle {
 /// TODO: Just implement UserData for the underlying handle directly.
 struct LuaAnthropicGenerateStreamingHandle {
     handle: llm::AnthropicGenerateStreamingHandle,
-
-    /// The final full response.
-    // TODO: Build the final response up from the streaming events and expose to it Lua as a property on this.
-    response: Option<anthropic::messages::Message>,
 }
 
 impl UserData for LuaAnthropicGenerateStreamingHandle {
