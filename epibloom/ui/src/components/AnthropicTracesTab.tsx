@@ -146,8 +146,8 @@ export function AnthropicTracesTab() {
                                 {new Date(trace.start_time).toLocaleString()}
                             </div>
                             <div className="text-xs text-gray-500 mt-1">
-                                {trace.trace.model} •{" "}
-                                {trace.trace.messages.length} messages
+                                {trace.request.model} •{" "}
+                                {trace.request.messages.length} messages
                             </div>
                         </button>
                     ))}
@@ -189,7 +189,7 @@ export function AnthropicTracesTab() {
                                     <span className="font-semibold">
                                         Model:
                                     </span>{" "}
-                                    {selectedTrace.trace.model}
+                                    {selectedTrace.request.model}
                                 </div>
                                 <div>
                                     <span className="font-semibold">
@@ -213,7 +213,7 @@ export function AnthropicTracesTab() {
                                     <span className="font-semibold">
                                         Max Tokens:
                                     </span>{" "}
-                                    {selectedTrace.trace.max_tokens}
+                                    {selectedTrace.request.max_tokens}
                                 </div>
                             </div>
                             {selectedTrace.error && (
@@ -228,23 +228,39 @@ export function AnthropicTracesTab() {
                             )}
                         </div>
                         <div className="flex-1 overflow-auto p-4 space-y-4">
-                            {/* Show system prompt if present */}
-                            {selectedTrace.trace.system && (
-                                <MessageView
-                                    message={{
-                                        role: "system",
-                                        content: selectedTrace.trace.system,
-                                    }}
-                                />
-                            )}
-                            {/* Show regular messages */}
-                            {selectedTrace.trace.messages.map(
-                                (message, index) => (
-                                    <MessageView
-                                        key={index}
-                                        message={message}
-                                    />
-                                ),
+                            {/* Request Section */}
+                            <div>
+                                <h4 className="text-sm font-semibold text-gray-400 mb-3">Request</h4>
+                                <div className="space-y-4">
+                                    {/* Show system prompt if present */}
+                                    {selectedTrace.request.system && (
+                                        <MessageView
+                                            message={{
+                                                role: "system",
+                                                content: selectedTrace.request.system,
+                                            }}
+                                        />
+                                    )}
+                                    {/* Show regular messages */}
+                                    {selectedTrace.request.messages.map(
+                                        (message, index) => (
+                                            <MessageView
+                                                key={index}
+                                                message={message}
+                                            />
+                                        ),
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Response Section */}
+                            {selectedTrace.response && (
+                                <div className="pt-4 border-t border-gray-700">
+                                    <h4 className="text-sm font-semibold text-gray-400 mb-3">Response</h4>
+                                    <div className="space-y-4">
+                                        <ResponseView response={selectedTrace.response} />
+                                    </div>
+                                </div>
                             )}
                         </div>
                     </>
@@ -342,6 +358,77 @@ function MessageView({ message }: { message: AnthropicMessage }) {
                                     Cache read:
                                 </span>{" "}
                                 {message.usage.cache_read_input_tokens} tokens
+                            </div>
+                        )}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function ResponseView({ response }: { response: any }) {
+    // Extract text and thinking content from response
+    let textContent = "";
+    let thinkingContent = "";
+
+    if (response.content) {
+        for (const block of response.content) {
+            if (block.type === "text") {
+                textContent += block.text;
+            } else if (block.type === "thinking") {
+                thinkingContent += block.thinking;
+            }
+        }
+    }
+
+    return (
+        <div className="rounded-lg p-4 bg-green-900/20 border border-green-900/30">
+            <div className="flex items-center justify-between mb-2">
+                <span className="font-semibold text-green-400">
+                    Assistant
+                </span>
+                {response.id && (
+                    <span className="text-xs text-gray-500 font-mono">
+                        {response.id}
+                    </span>
+                )}
+            </div>
+
+            {thinkingContent && (
+                <div className="mb-3 p-3 bg-purple-900/20 border border-purple-800 rounded">
+                    <div className="text-xs text-purple-400 font-semibold mb-1">
+                        THINKING
+                    </div>
+                    <div className="text-sm text-gray-300 whitespace-pre-wrap">
+                        {thinkingContent}
+                    </div>
+                </div>
+            )}
+
+            <div className="text-gray-100 whitespace-pre-wrap">
+                {textContent}
+            </div>
+
+            {response.usage && (
+                <div className="mt-3 pt-3 border-t border-gray-700 text-xs text-gray-400 space-y-1">
+                    <div>
+                        <span className="font-semibold">Tokens:</span>{" "}
+                        {response.usage.input_tokens} in /{" "}
+                        {response.usage.output_tokens} out
+                    </div>
+                    {response.stop_reason && (
+                        <div>
+                            <span className="font-semibold">Stop reason:</span>{" "}
+                            {response.stop_reason}
+                        </div>
+                    )}
+                    {response.usage.cache_read_input_tokens !== undefined &&
+                        response.usage.cache_read_input_tokens > 0 && (
+                            <div>
+                                <span className="font-semibold">
+                                    Cache read:
+                                </span>{" "}
+                                {response.usage.cache_read_input_tokens} tokens
                             </div>
                         )}
                 </div>
