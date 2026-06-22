@@ -9,6 +9,13 @@ local util = require("util")
 local Chat = {}
 Chat.__index = Chat
 
+--[[
+TODO: DESIGN
+
+Each message index has one or more "swipes" and a selected swipe index.
+
+--]]
+
 function Chat.list()
     return util.table.filter_map(state.get(""):read(), function(name)
         if string.find(name, "^chat:") then
