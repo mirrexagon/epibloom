@@ -68,10 +68,7 @@ pub fn setup(lua: &Lua, llm_store: Arc<llm::LlmStore>) -> mlua::Result<()> {
                 .await
                 .map_err(mlua::Error::external)?;
 
-            Ok(LuaAnthropicGenerateStreamingHandle {
-                handle,
-                response: None,
-            })
+            Ok(LuaAnthropicGenerateStreamingHandle { handle })
         })?,
     )?;
 
