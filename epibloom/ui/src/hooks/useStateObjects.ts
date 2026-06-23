@@ -112,10 +112,17 @@ export function useStateObjects(objectNames: string[]): UseStateObjectsResult {
                                 try {
                                     // Deep clone the value to avoid mutating the original
                                     const cloned = deepClone(obj.value);
+                                    // Deep clone the ops so that applyPatch doesn't
+                                    // contaminate them through shared references
+                                    // (op values are inserted by reference into the
+                                    // document, and subsequent ops can mutate them).
+                                    // This is required for React Strict Mode which
+                                    // double-invokes state updaters to verify purity.
+                                    const clonedOps = deepClone(ops) as Operation[];
                                     // Apply patches with mutation enabled
                                     applyPatch(
                                         cloned,
-                                        ops,
+                                        clonedOps,
                                         /* validate */ false,
                                         /* mutate */ true,
                                     );
