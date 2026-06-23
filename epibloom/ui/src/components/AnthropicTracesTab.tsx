@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useStateObjects } from "../hooks/useStateObjects";
-import { AnthropicTraceStateObject, AnthropicMessage } from "../types/api";
+import { AnthropicTraceStateObject, AnthropicMessage, AnthropicResponse } from "../types/api";
 
 export function AnthropicTracesTab() {
     const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
@@ -15,72 +15,58 @@ export function AnthropicTracesTab() {
         error,
     } = useStateObjects(indexObjectNames);
 
-    // Extract trace IDs from the index
+    // Extract trace IDs from the index (in index order, assumed append-order)
     const traceIds = useMemo(() => {
         const stateObjectNames =
             (indexObjects[0]?.value as string[] | undefined) || [];
         return stateObjectNames
             .filter((name) => name.startsWith("llm-trace-anthropic:"))
             .map((name) => {
-                // Strip prefix and :persist suffix if present
                 let id = name.replace("llm-trace-anthropic:", "");
                 if (id.endsWith(":persist")) {
-                    id = id.slice(0, -8); // Remove ":persist"
+                    id = id.slice(0, -8);
                 }
                 return id;
             });
     }, [indexObjects]);
 
-    // Subscribe to all traces - memoize the array to prevent infinite loops
-    const traceObjectNames = useMemo(
-        () => traceIds.map((id) => `llm-trace-anthropic:${id}:persist`),
-        [traceIds],
+    // Reverse so the newest (last-appended) trace appears at the top of the sidebar
+    const orderedTraceIds = useMemo(() => [...traceIds].reverse(), [traceIds]);
+
+    // Subscribe to only the selected trace
+    const selectedTraceObjectNames = useMemo(
+        () =>
+            selectedTraceId
+                ? [`llm-trace-anthropic:${selectedTraceId}:persist`]
+                : [],
+        [selectedTraceId],
     );
-    const { objects: traceObjects } = useStateObjects(traceObjectNames);
+    const { objects: selectedTraceObjects } = useStateObjects(
+        selectedTraceObjectNames,
+    );
 
-    // Parse trace data
-    const traces = useMemo(() => {
-        return traceObjects.map((obj) => {
-            const data = obj.value as AnthropicTraceStateObject;
-            let id = obj.name.replace("llm-trace-anthropic:", "");
-            if (id.endsWith(":persist")) {
-                id = id.slice(0, -8); // Remove ":persist"
-            }
-            return { id, ...data };
-        });
-    }, [traceObjects]);
-
-    // Sort traces by start time (newest first)
-    const sortedTraces = useMemo(() => {
-        return [...traces].sort((a, b) => {
-            return (
-                new Date(b.start_time).getTime() -
-                new Date(a.start_time).getTime()
-            );
-        });
-    }, [traces]);
+    // Parse selected trace data
+    const selectedTrace = useMemo(() => {
+        if (!selectedTraceId || selectedTraceObjects.length === 0) return null;
+        const obj = selectedTraceObjects[0];
+        const data = obj.value as AnthropicTraceStateObject;
+        return { id: selectedTraceId, ...data };
+    }, [selectedTraceId, selectedTraceObjects]);
 
     // Auto-select new traces if enabled
     useEffect(() => {
         if (!autoSelectNew) return;
 
-        const currentTraceIds = sortedTraces.map((t) => t.id);
         const prevTraceIds = prevTraceIdsRef.current;
+        const newTraceIds = traceIds.filter((id) => !prevTraceIds.includes(id));
 
-        // Find newly added trace IDs
-        const newTraceIds = currentTraceIds.filter(
-            (id) => !prevTraceIds.includes(id),
-        );
-
-        if (newTraceIds.length > 0 && sortedTraces.length > 0) {
-            // Select the newest trace (first in sorted list)
-            setSelectedTraceId(sortedTraces[0].id);
+        if (newTraceIds.length > 0) {
+            // Select the most recently added new trace
+            setSelectedTraceId(newTraceIds[newTraceIds.length - 1]);
         }
 
-        prevTraceIdsRef.current = currentTraceIds;
-    }, [sortedTraces, autoSelectNew]);
-
-    const selectedTrace = sortedTraces.find((t) => t.id === selectedTraceId);
+        prevTraceIdsRef.current = [...traceIds];
+    }, [traceIds, autoSelectNew]);
 
     return (
         <div className="h-full flex bg-gray-900 text-white">
@@ -95,7 +81,7 @@ export function AnthropicTracesTab() {
                             <span className="text-red-400">● Disconnected</span>
                         )}
                         <span className="ml-2">
-                            ({sortedTraces.length} traces)
+                            ({traceIds.length} traces)
                         </span>
                     </div>
                     {error && (
@@ -118,40 +104,22 @@ export function AnthropicTracesTab() {
                     </div>
                 </div>
                 <div className="flex-1 overflow-y-auto">
-                    {sortedTraces.map((trace) => (
+                    {orderedTraceIds.map((id) => (
                         <button
-                            key={trace.id}
-                            onClick={() => setSelectedTraceId(trace.id)}
+                            key={id}
+                            onClick={() => setSelectedTraceId(id)}
                             className={`w-full text-left px-4 py-3 border-b border-gray-800 hover:bg-gray-800 transition-colors ${
-                                selectedTraceId === trace.id
+                                selectedTraceId === id
                                     ? "bg-gray-800 border-l-4 border-blue-500"
                                     : ""
                             }`}
                         >
-                            <div className="flex items-center justify-between mb-1">
-                                <span className="font-mono text-xs text-gray-400">
-                                    {trace.id.slice(0, 8)}...
-                                </span>
-                                {trace.error ? (
-                                    <span className="text-xs text-red-400">
-                                        ● Error
-                                    </span>
-                                ) : !trace.end_time ? (
-                                    <span className="text-xs text-yellow-400">
-                                        ● Running
-                                    </span>
-                                ) : null}
-                            </div>
-                            <div className="text-sm text-gray-300">
-                                {new Date(trace.start_time).toLocaleString()}
-                            </div>
-                            <div className="text-xs text-gray-500 mt-1">
-                                {trace.request.model} •{" "}
-                                {trace.request.messages.length} messages
-                            </div>
+                            <span className="font-mono text-xs text-gray-400 break-all">
+                                {id}
+                            </span>
                         </button>
                     ))}
-                    {sortedTraces.length === 0 && (
+                    {orderedTraceIds.length === 0 && (
                         <div className="p-4 text-center text-gray-400">
                             No traces found
                         </div>
@@ -366,7 +334,7 @@ function MessageView({ message }: { message: AnthropicMessage }) {
     );
 }
 
-function ResponseView({ response }: { response: any }) {
+function ResponseView({ response }: { response: AnthropicResponse }) {
     // Extract text and thinking content from response
     let textContent = "";
     let thinkingContent = "";
