@@ -168,6 +168,8 @@ impl LlmStore {
     }
 }
 
+// TODO: Cancellation and being able to cancel from another script that doesn't
+// have the Lua handle, getting by UUID.
 pub struct AnthropicGenerateHandle {
     trace_state_object_name: String,
 
