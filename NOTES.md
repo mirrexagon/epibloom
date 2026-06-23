@@ -35,56 +35,41 @@
     - probably Handlebars, which is what ST uses
     - There is also Vento by the creator of Lume: https://vento.js.org
     - Or, don't use traditional templating for overall response building, build in order based on roles like chat completion, including for system prompt, etc.
-    - Use Lua, see somewhere below
-- Chat interface and flat interface - probably can't mix both but having both is nice, and converting from chat to flat might be good
 - Swipes
+    - If not doing a full tree structure, at least be able to change swipes of any message in the history and generate a new one at any depth.
 - Separating reasoning from main part
 - Multiple system prompt parts, eg. like for https://github.com/p-e-w/sorcery
 - World info is good, possibly more control over newlines for Markdown formatting, etc.
 - Markdown features
     - Structured document that gets turned into Markdown with nice formatting? Aware of header depth, world info can be nested correctly, etc.?
+    - World info can have folders of Markdown files for organization instead of just being flat
 - Lots of syntax highlighting, eg.
     - Templating language, highlighting `{{char}}` and so on
     - In final LLM input preview, highlight which sections come from what, eg. system prompt, chat, world info
+        - This will have to be some kind of other trace other than the raw API one
 - NovelAI-style edit and author tracking?
-- Load prompt format stuff based on model detected on API (by name or metadata)? Can ST do this somehow?
-    - Maybe associate lots of things with the specific chat?
-- Chat completion as well as text completion
-- Seeing logits/token probabilities for each token, see top few tokens, how sampler selected (if possible)
-- Binding template, prompt format, sampler settings, etc. to a chat, character, tagged in some way, etc.
-- Being able to hover and highlight individual tokens in every text field that it makes sense in (may require API support to tokenize)
+- Associate lots of things with the specific chat - I seem to prefer each chat to have its own separate lorebook, etc. so that every chat can evolve independently
+    - Binding template, prompt format, sampler settings, etc. to a chat, character, tagged in some way, etc.
 - Use chat completion wherever possible (including possibly for free text if using system prompt, etc.) to push chat tokenization to backend - build Epicalyx with this in mind
 - MCP support, PoC with blender-mcp for example
 - Image generation as tool as well as just asking for prompt from LLM
-- Notes per chat, not sent to LLM
-- Lore/lore book per chat, eg. for characters made up in that chat - ideally don't mix with other lore books but it can be useful, maybe UI to make creating lore books easier
+- Notes per chat and per message, not sent to LLM
+    - For each swipe/tree branch, be able to tag it in some way. Maybe just be able to tag messages, add notes, etc. eg. for which swipes I like and what about them I like.
 - Fancy summarization, eg. https://reddit.com/comments/1jkckum
-- Expose primitives to a scripting language which then assembles the prompt? Lua? Implement most features this way? Or templating language is good enough?
-    - Reload scripts on disk as soon as they are changed
-    - Expose scripts to UI editor, probably still store on disk, or in DB
-    - Lua as templating language: https://nachtimwald.com/2014/08/06/using-lua-as-a-templating-engine/
-    - https://github.com/mlua-rs/mlua/tree/v0.10?tab=readme-ov-file#serialization-serde-support
 - Add tool calls for things like adding lorebook entries, adding notes and character changes to bios, summarizing, adjusting timeline, so Claude can add them when requested instead of me having to copy and paste and then delete the messages.
 - If enabled/received, show thinking for actions like summarizing, generating images, etc. as well as normal messages
 - Branching chats natively supported
 
 ## Other notes
-- If some features need support from the backend (eg. token probabilities, how sampler chose tokens), make a new backend based on llama.cpp called Epicalyx (see Epibloom README for why)
-- How to support swipes and general transforms before sending the chat? Do the transforms in scripts, replace the entire content of a chat with the result, and send that? Or have a chat be assignable a transform script that makes any changes before it gets sent to the backend?
-
-Move debug to top level tab instead of drawer. Then there is RP/chat tab and game tab
-
 Dedicated guy making own story/RP interface with anti slop https://reddit.com/comments/1sh9tz7/comment/ofb7mhp?context=3
 
-Use a Reduxy thing where you emit an event to cause UI state to change? Eg. Clicking on a trace ID on a chat message emits an event to set the UI to debug tab and select that trace to show
+# Chat
 
-Ask AI how to make the scripting API nicer to use, perhaps by just having individual generations create traces behind the scenes automatically, since we probably never want to add to a trace after it is done, it's just to see how a generation went
-That would simplify the model a bunch, generate function would just return the new trace ID
-Also add agentic loop support for tool calling in a single generate call from scripting
+## Personas
 
-Also ask about cleaning up the streaming implementation
+Each scenario has characters in a lorebook like usual, but it would be great to be able to switch to playing any listed character for a new chat. There wouldn't really be personas, but instead just a note about which character the user is playing.
 
-For each swipe/tree branch, be able to tag it in some way. Maybe just be able to tag messages, add notes, etc. eg. for which swipes I like and what about them I like.
+Think about whether character names should be in the messages as a prefix or not, see what my ST text scenario preset does
 
 # RPG Ideas
 Based on AI RPG.
@@ -100,9 +85,6 @@ Start by making a simpler text adventure game with locations and exits, inventor
 - Freely-editable markdown plain text as chat: https://github.com/rusiaaman/chat.md
 - More complex templates/thinking message selection: https://huggingface.co/blog/qwen-3-chat-template-deep-dive
 
-# Tools for development
-- https://docs.rs/utoipa/latest/utoipa/index.html to export OpenAPI definitions for internal API - has Rocket support
-
 # Scripting
 - Make sure that scripts that are started and then the client disconnects are still run to completion. It doesn't matter if the response is not heard, as the client needs to be able to get the current state at any time anyway.
 
@@ -111,3 +93,4 @@ Start by making a simpler text adventure game with locations and exits, inventor
     - Streaming can be viewed in the trace panel, and each message can have a reference to the trace used to generate it. The UI can expose a button to open the trace associated with a message.
     - Cancel can be done by running a script to cancel the generation on another context.
 
+- Lua as templating language: https://nachtimwald.com/2014/08/06/using-lua-as-a-templating-engine/
