@@ -3,10 +3,11 @@
 use std::sync::Arc;
 
 use futures::StreamExt;
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+use tokio::select;
 use tokio::sync::{mpsc, oneshot};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::{
@@ -39,8 +40,15 @@ impl LlmStore {
         let anthropic_client = Arc::clone(&self.anthropic_client);
         let (tx, rx) = oneshot::channel();
 
+        let cancellation_token = CancellationToken::new();
+        let task_cancellation_token = cancellation_token.clone();
+
         tokio::spawn(async move {
-            let response_result = anthropic_client.generate(request).await;
+            let response_result = select! {
+                response_result = anthropic_client.generate(request) => response_result.map_err(From::from),
+                _ = task_cancellation_token.cancelled() => Err(Error::Cancelled),
+            };
+
             let end_time = OffsetDateTime::now_utc();
 
             trace.end_time = Some(end_time);
@@ -68,6 +76,7 @@ impl LlmStore {
         Ok(AnthropicGenerateHandle {
             trace_state_object_name,
             receiver: Some(rx),
+            cancellation_token,
             response: None,
         })
     }
@@ -82,11 +91,22 @@ impl LlmStore {
         let anthropic_client = Arc::clone(&self.anthropic_client);
         let (tx, rx) = mpsc::channel(1024);
 
+        let cancellation_token = CancellationToken::new();
+        let task_cancellation_token = cancellation_token.clone();
+
+        // TODO: Why does it seem like the task doesn't start until the script that spawned it finishes?
         tokio::spawn(async move {
             let stream = anthropic_client.generate_streaming(request);
             futures::pin_mut!(stream);
 
-            while let Some(result) = stream.next().await {
+            log::debug!("Yeah the task is about to loop stream");
+
+            while let Some(result) = select! {
+                item = stream.next() => item.map(|r| r.map_err(From::from)),
+                _ = task_cancellation_token.cancelled() => Some(Err(Error::Cancelled)),
+            } {
+                log::debug!("generate_streaming result: {result:#?}");
+
                 match &result {
                     Ok(event) => match event {
                         messages::response::MessageStreamEvent::MessageStart { message } => {
@@ -105,9 +125,9 @@ impl LlmStore {
                     Err(err) => {
                         trace.error = Some(err.to_string());
 
-                        // The error should be the last thing in the channel, so
-                        // when we go around again, we we fall out of the loop
-                        // and set the end time and save the trace then.
+                        // When we fall out of the loop, we and set the end time
+                        // and save the trace.
+                        break;
                     }
                 }
 
@@ -138,6 +158,7 @@ impl LlmStore {
         Ok(AnthropicGenerateStreamingHandle {
             trace_state_object_name,
             receiver: Some(rx),
+            cancellation_token,
             response: None,
             error: None,
         })
@@ -168,15 +189,16 @@ impl LlmStore {
     }
 }
 
-// TODO: Cancellation and being able to cancel from another script that doesn't
-// have the Lua handle, getting by UUID.
+// TODO: Being able to cancel from another script that doesn't have the Lua
+// handle, getting by trace UUID.
 pub struct AnthropicGenerateHandle {
     trace_state_object_name: String,
 
-    receiver: Option<oneshot::Receiver<Result<messages::Message, anthropic::Error>>>,
+    receiver: Option<oneshot::Receiver<Result<messages::Message, Error>>>,
+    cancellation_token: CancellationToken,
 
     /// The final full response.
-    response: Option<Result<messages::Message, anthropic::Error>>,
+    response: Option<Result<messages::Message, Error>>,
 }
 
 impl AnthropicGenerateHandle {
@@ -184,7 +206,7 @@ impl AnthropicGenerateHandle {
         &self.trace_state_object_name
     }
 
-    pub async fn get_response(&mut self) -> Result<&messages::Message, &anthropic::Error> {
+    pub async fn get_response(&mut self) -> Result<&messages::Message, &Error> {
         match self.receiver.take() {
             Some(receiver) => {
                 // `receiver.await` will only fail if the sender is dropped.
@@ -199,20 +221,25 @@ impl AnthropicGenerateHandle {
             None => self.response.as_ref().unwrap().as_ref(),
         }
     }
+
+    /// Cancel the request.
+    pub fn cancel(&self) {
+        self.cancellation_token.cancel()
+    }
 }
 
 pub struct AnthropicGenerateStreamingHandle {
     trace_state_object_name: String,
 
-    receiver:
-        Option<mpsc::Receiver<Result<messages::response::MessageStreamEvent, anthropic::Error>>>,
+    receiver: Option<mpsc::Receiver<Result<messages::response::MessageStreamEvent, Error>>>,
+    cancellation_token: CancellationToken,
 
     /// The final full response up to either when the generation completed
     /// successfully or an error occurred.
     response: Option<messages::Message>,
 
     // The error that occurred, if one did.
-    error: Option<anthropic::Error>,
+    error: Option<Error>,
 }
 
 impl AnthropicGenerateStreamingHandle {
@@ -222,7 +249,7 @@ impl AnthropicGenerateStreamingHandle {
 
     pub async fn get_next_event(
         &mut self,
-    ) -> Option<Result<messages::response::MessageStreamEvent, &anthropic::Error>> {
+    ) -> Option<Result<messages::response::MessageStreamEvent, &Error>> {
         let event = match self.receiver {
             Some(ref mut rx) => rx.recv().await,
 
@@ -271,15 +298,18 @@ impl AnthropicGenerateStreamingHandle {
     }
 
     /// Wait for the request to be complete and return the final result.
-    pub async fn get_response(
-        &mut self,
-    ) -> (Option<&messages::Message>, Option<&anthropic::Error>) {
+    pub async fn get_response(&mut self) -> (Option<&messages::Message>, Option<&Error>) {
         // Drain all events until the generation is done.
         while self.get_next_event().await.is_some() {
             // Let `get_next_event()` process any normal events and update `self.response`.
         }
 
         (self.response.as_ref(), self.error.as_ref())
+    }
+
+    /// Cancel the request.
+    pub fn cancel(&self) {
+        self.cancellation_token.cancel()
     }
 }
 
@@ -318,6 +348,8 @@ impl AnthropicTrace {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("Generation was cancelled")]
+    Cancelled,
     #[error("I/O error: {0}")]
     Io(#[from] tokio::io::Error),
     #[error("JSON error: {0}")]

@@ -33,10 +33,6 @@ pub fn setup(lua: &Lua, llm_store: Arc<llm::LlmStore>) -> mlua::Result<()> {
         })?,
     )?;
 
-    // TODO: Be able to create the request and the trace object but not start it
-    // and potentially never start it, so the user can preview what is going to
-    // be sent to the model.
-    // This goes for both this and streaming.
     llm_module.set(
         "anthropic_generate",
         lua.create_async_function(async |lua, request: Value| {
@@ -67,6 +63,8 @@ pub fn setup(lua: &Lua, llm_store: Arc<llm::LlmStore>) -> mlua::Result<()> {
                 .anthropic_generate_streaming(request)
                 .await
                 .map_err(mlua::Error::external)?;
+
+            log::debug!("Yeah lua generate_streaming is about to return");
 
             Ok(LuaAnthropicGenerateStreamingHandle { handle })
         })?,
@@ -142,6 +140,11 @@ impl UserData for LuaAnthropicGenerateHandle {
                 Err(err) => Ok((None, Some(err.to_string()))),
             }
         });
+
+        methods.add_method("cancel", |_lua, lua_handle, ()| {
+            lua_handle.handle.cancel();
+            Ok(())
+        });
     }
 }
 
@@ -198,6 +201,11 @@ impl UserData for LuaAnthropicGenerateStreamingHandle {
                     .transpose()?,
                 error.map(|e| e.to_string()),
             ))
+        });
+
+        methods.add_method("cancel", |_lua, lua_handle, ()| {
+            lua_handle.handle.cancel();
+            Ok(())
         });
     }
 }

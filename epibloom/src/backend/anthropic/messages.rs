@@ -1864,11 +1864,11 @@ pub async fn generate(
     request.stream = Some(false);
 
     let request_json = serde_json::to_string_pretty(&request)?;
-    log::debug!("Anthropic messages non-streaming request: {request_json}");
+    log::trace!("Anthropic messages non-streaming request: {request_json}");
 
     let response = client.anthropic_post("messages", &request).await?;
     let response_message: serde_json::Value = response.json().await?;
-    log::debug!("Anthropic messages raw response: {response_message:#?}");
+    log::trace!("Anthropic messages raw response: {response_message:#?}");
     Ok(serde_json::from_value(response_message)?)
 }
 
@@ -1903,12 +1903,12 @@ pub async fn count_tokens(
     request: request::CountTokensRequest,
 ) -> Result<response::MessageTokensCount, super::Error> {
     let request_json = serde_json::to_string_pretty(&request)?;
-    log::debug!("Anthropic messages token count request: {request_json}");
+    log::trace!("Anthropic messages token count request: {request_json}");
 
     let response = client
         .anthropic_post("messages/count_tokens", &request)
         .await?;
     let response_token_count = response.json().await?;
-    log::debug!("Token count response: {response_token_count:?}");
+    log::trace!("Token count response: {response_token_count:?}");
     Ok(response_token_count)
 }
