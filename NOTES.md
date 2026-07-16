@@ -80,6 +80,7 @@ Start by making a simpler text adventure game with locations and exits, inventor
 - Tracking what the player should know/has found out, instead of just having NPCs have descriptions and knowing their names immediately.
     - https://www.reddit.com/r/aiRPGofficial/comments/1rjrdup/what_i_have_done_to_eliminate_spoilers_in_ai_rpg/
         - Implement things like this with Anthropic batching API, use batching for parallel things where possible
+- Map: https://www.reddit.com/r/SillyTavernAI/comments/1uxstd6/a_ddstyle_interactive_map_for_visual_rp_with/
 
 # Inspirations
 - Freely-editable markdown plain text as chat: https://github.com/rusiaaman/chat.md
