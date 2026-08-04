@@ -95,3 +95,7 @@ Start by making a simpler text adventure game with locations and exits, inventor
     - Cancel can be done by running a script to cancel the generation on another context.
 
 - Lua as templating language: https://nachtimwald.com/2014/08/06/using-lua-as-a-templating-engine/
+
+# Prompts
+- https://www.reddit.com/r/SillyTavernAI/comments/1u06qml/chat_preset_prompt_opinions_and_discussion/
+- https://www.reddit.com/r/SillyTavernAI/comments/1u7llcj/comment/os1881r/?context=3
