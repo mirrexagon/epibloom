@@ -20,9 +20,10 @@ impl From<script::Error> for ApiErrorResponse {
             script::Error::ScriptPathEscapesScriptDirectory => {
                 ApiErrorResponse::Forbidden(value.to_string())
             }
-            script::Error::Io(_) | script::Error::Lua(_) | script::Error::Json(_) => {
-                ApiErrorResponse::InternalServerError(value.to_string())
-            }
+            script::Error::ScriptQueueFull
+            | script::Error::Io(_)
+            | script::Error::Lua(_)
+            | script::Error::Json(_) => ApiErrorResponse::InternalServerError(value.to_string()),
         }
     }
 }
@@ -54,11 +55,11 @@ pub async fn run_script(
     script_path: PathBuf,
     mut script_input: Json<serde_json::Value>,
     script_context_store: &State<script::ContextStore>,
-) -> Result<serde_json::Value, ApiErrorResponse> {
+) -> Result<(), ApiErrorResponse> {
     let context = script_context_store.get_context(context_name).await?;
     let result = context
         .run_script(&script_path, script_input.take())
         .await?;
 
-    Ok(result)
+    Ok(())
 }

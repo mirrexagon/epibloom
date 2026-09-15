@@ -10,23 +10,43 @@
 // functions that call back into the state. But I also want to be able to run
 // multiple generations at once.
 
+// TODO: Change the REST API and internals so that script run requests
+// return an execution ID immediately which the caller can use to wait on
+// the execution result. Successfully getting the result clears it from memory.
+//
+// Script design:
+// We want to be able to do these things with scripts:
+// - Get the status of something immediately, script executes quickly.
+// - Long-running operations, want to kick off and wait for finish and possibly
+//   not care about the result, allow script to finish in the background and monitor state objects for state - if the client is restarted then reestablishing
+//   state should probably just use scripts to read state objects and not try to
+//   remember execution IDs.
+//   - Could always require monitoring state objects for state and scripts don't return anything. Try to design chat interface with this maybe. No reason we can't have an endpoint that fire-and-forgets a script and doesn't give the return value back, but still useful to have the ability to run a short script sometimes
+//
+// But is this really what we want? What would the ideal REST API for my various use cases (chat, game) look like?
+
 use std::collections::HashMap;
-use std::path::{self, Path};
+use std::path::{self, Path, PathBuf};
 use std::sync::Arc;
 
 use lazy_static::lazy_static;
 use mlua::{Lua, LuaSerdeExt, ObjectLike, Table};
+use serde::Serialize;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use tokio::fs;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
+use tokio::task;
 use uuid::Uuid;
 
+use crate::state::StateObject;
 use crate::{llm::LlmStore, state::StateStore};
 
 mod llm_module;
 mod log_module;
 mod state_module;
+
+const SCRIPT_STATUS_HISTORY_OBJECT_NAME_PREFIX: &str = "script-status";
 
 lazy_static! {
     static ref SERIALIZE_OPTIONS: mlua::SerializeOptions = mlua::SerializeOptions::new()
@@ -81,9 +101,55 @@ impl ContextStore {
 pub struct Context {
     name: String,
 
-    // The Tokio mutex unlocks to clients in FIFO order, so callers will
-    // automatically implicitly queue for access.
-    lua: Mutex<Lua>,
+    script_request_sender: mpsc::Sender<ScriptRunRequest>,
+    task: task::JoinHandle<()>,
+    status_history: Arc<Mutex<ScriptStatusHistory>>,
+}
+
+#[derive(Debug)]
+struct ScriptStatusHistory {
+    status_history: Vec<ScriptStatus>,
+    state_object: Arc<StateObject>,
+}
+
+impl ScriptStatusHistory {
+    async fn sync_to_state_object(&self) {
+        if let Err(err) = self
+            .state_object
+            .update(async |_| serde_json::to_value(&self.status_history))
+            .await
+        {
+            log::warn!(
+                "Failed to sync script status to state object {}: {err}",
+                &self.state_object.name
+            );
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ScriptStatus {
+    input: serde_json::Value,
+    request_time: OffsetDateTime,
+    start_time: Option<OffsetDateTime>,
+    end_time: Option<OffsetDateTime>,
+    error: Option<String>,
+}
+
+struct ScriptRunRequest {
+    script_path: PathBuf,
+    input: serde_json::Value,
+    index: usize,
+}
+
+impl ScriptRunRequest {
+    fn new<P: AsRef<Path>>(script_path: P, input: serde_json::Value, index: usize) -> Self {
+        Self {
+            script_path: script_path.as_ref().to_owned(),
+            input,
+            index,
+        }
+    }
 }
 
 impl Context {
@@ -160,61 +226,153 @@ impl Context {
         state_module::setup(&lua, state_store)?;
         llm_module::setup(&lua, llm_store)?;
 
+        // Set up script context task.
+        let (script_request_sender, script_request_receiver) = mpsc::channel::<ScriptRunRequest>(1);
+        let context_name = name.clone();
+
+        let status_history_object = state_store
+            .get_or_create(&format!(
+                "{SCRIPT_STATUS_HISTORY_OBJECT_NAME_PREFIX}:{name}"
+            ))
+            .await?;
+        let task_status_history_object = Arc::clone(&status_history_object);
+
+        let status_history = Arc::new(Mutex::new(ScriptStatusHistory {
+            status_history: Vec::new(),
+            state_object: status_history_object,
+        }));
+        let task_status_history = Arc::clone(&status_history);
+
+        let task = task::spawn(async move {
+            while let Some(request) = script_request_receiver.recv().await {
+                info!(
+                    "Request to run script {:?} on context {}",
+                    request.script_path, context_name
+                );
+
+                {
+                    let status_history = task_status_history.lock().await;
+                    status_history.status_history[request.index].start_time =
+                        Some(OffsetDateTime::now_utc());
+                    status_history.sync_to_state_object().await;
+                }
+
+                let input = match lua.to_value_with(&request.input, *SERIALIZE_OPTIONS) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        // TODO: this pattern is used a lot, can it be factored out to a function/closure?
+                        let message = format!("Failed to convert input to Lua value.");
+
+                        log::warn!("{}", &message);
+
+                        {
+                            let status_history = task_status_history.lock().await;
+                            status_history.status_history[request.index].end_time =
+                                Some(OffsetDateTime::now_utc());
+                            status_history.status_history[request.index].error = Some(message);
+                            status_history.sync_to_state_object().await;
+                        }
+
+                        return Err(e);
+                    }
+                };
+
+                let mut filesystem_script_path = crate::SCRIPTS_DIR.get().unwrap().clone();
+                filesystem_script_path.push(request.script_path);
+                filesystem_script_path.set_extension("lua");
+                filesystem_script_path = path::absolute(filesystem_script_path)?;
+
+                if !filesystem_script_path.starts_with(crate::SCRIPTS_DIR.get().unwrap()) {
+                    let message = format!(
+                        "Script {filesystem_script_path:?} tried to escape the scripts directory."
+                    );
+
+                    log::warn!("{}", &message);
+
+                    {
+                        let status_history = task_status_history.lock().await;
+                        status_history.status_history[request.index].end_time =
+                            Some(OffsetDateTime::now_utc());
+                        status_history.status_history[request.index].error = Some(message);
+                        status_history.sync_to_state_object().await;
+                    }
+
+                    return Err(Error::ScriptPathEscapesScriptDirectory);
+                }
+
+                // TODO: Switch to using anyhow or eyre to add context to errors and
+                // make error handling easier in general?
+                let script_content = fs::read_to_string(&filesystem_script_path).await?;
+
+                lua.set_named_registry_value(
+                    "epibloom.context.current_script_path",
+                    request.script_path,
+                )?;
+
+                let result = lua
+                    .load(script_content)
+                    .set_name(request.script_path.to_string_lossy())
+                    .call_async(input)
+                    .await;
+
+                if let Err(err) = &result {
+                    let message = format!(
+                        "Error executing script {:?} on context {}: {err}",
+                        request.script_path, context_name,
+                    );
+
+                    log::error!("{}", &message);
+
+                    let status_history = task_status_history.lock().await;
+                    status_history.status_history[request.index].end_time =
+                        Some(OffsetDateTime::now_utc());
+                    status_history.status_history[request.index].error = Some(message);
+                    status_history.sync_to_state_object().await;
+                }
+
+                let result = result?;
+                let result_value: serde_json::Value =
+                    lua.from_value_with(result, *DESERIALIZE_OPTIONS)?;
+
+                // TODO: Send return value
+            }
+        });
+
         Ok(Self {
             name: name.to_owned(),
-            lua: Mutex::new(lua),
+            task,
+            script_request_sender,
+            status_history,
         })
     }
 
-    /// If there is already a script running on this context and/or if there are
-    /// some queued up, this script won't run until all previously-queued
-    /// scripts are run. This means the future won't resolve until then.
     pub async fn run_script<P: AsRef<Path>>(
         &self,
         script_path: P,
         input: serde_json::Value,
-    ) -> Result<serde_json::Value, Error> {
-        let script_path = script_path.as_ref();
+    ) -> Result<(), Error> {
+        let index = {
+            let mut status_history = self.status_history.lock().await;
 
-        info!(
-            "Request to run script {script_path:?} on context {}",
-            self.name
-        );
+            let index = status_history.status_history.len();
+            status_history.status_history.push(ScriptStatus {
+                input: input.clone(),
+                request_time: OffsetDateTime::now_utc(),
+                start_time: None,
+                end_time: None,
+                error: None,
+            });
+            status_history.sync_to_state_object().await;
 
-        let lua = self.lua.lock().await;
+            index
+        };
 
-        let input = lua.to_value_with(&input, *SERIALIZE_OPTIONS)?;
-
-        let mut filesystem_script_path = crate::SCRIPTS_DIR.get().unwrap().clone();
-        filesystem_script_path.push(script_path);
-        filesystem_script_path.set_extension("lua");
-        filesystem_script_path = path::absolute(filesystem_script_path)?;
-
-        if !filesystem_script_path.starts_with(crate::SCRIPTS_DIR.get().unwrap()) {
-            log::warn!("Script {filesystem_script_path:?} tried to escape the scripts directory.");
-
-            return Err(Error::ScriptPathEscapesScriptDirectory);
-        }
-
-        // TODO: Switch to using anyhow or eyre to add context to errors and
-        // make error handling easier in general?
-        let script_content = fs::read_to_string(&filesystem_script_path).await?;
-
-        lua.set_named_registry_value("epibloom.context.current_script_path", script_path)?;
-
-        let result = lua
-            .load(script_content)
-            .set_name(script_path.to_string_lossy())
-            .call_async(input)
+        self.script_request_sender
+            .send(ScriptRunRequest::new(script_path, input, index))
             .await
-            .inspect_err(|err| {
-                log::error!(
-                    "Error executing script {script_path:?} on context {}: {err}",
-                    self.name,
-                )
-            })?;
+            .map_err(|_| Error::ScriptQueueFull)?;
 
-        Ok(lua.from_value_with(result, *DESERIALIZE_OPTIONS)?)
+        Ok(())
     }
 }
 
@@ -222,6 +380,9 @@ impl Context {
 pub enum Error {
     #[error("Script path escapes the script directory")]
     ScriptPathEscapesScriptDirectory,
+
+    #[error("Script run queue for this context is full")]
+    ScriptQueueFull,
 
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
