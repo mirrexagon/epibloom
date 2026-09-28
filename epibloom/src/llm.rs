@@ -46,7 +46,16 @@ impl LlmStore {
         tokio::spawn(async move {
             let response_result = select! {
                 response_result = anthropic_client.generate(request) => response_result.map_err(From::from),
-                _ = task_cancellation_token.cancelled() => Err(Error::Cancelled),
+                _ = task_cancellation_token.cancelled() => {
+                    trace.error = Some("Generation was cancelled".to_owned());
+                    if let Err(err) = trace.sync_state_object().await {
+                        log::error!(
+                            "Failed to update trace (state object '{}') after cancellation: {err}",
+                            trace.state_object.name
+                        ),
+                    }
+                    Err(Error::Cancelled)
+                },
             };
 
             let end_time = OffsetDateTime::now_utc();
@@ -99,11 +108,18 @@ impl LlmStore {
             let stream = anthropic_client.generate_streaming(request);
             futures::pin_mut!(stream);
 
-            log::debug!("Yeah the task is about to loop stream");
-
             while let Some(result) = select! {
                 item = stream.next() => item.map(|r| r.map_err(From::from)),
-                _ = task_cancellation_token.cancelled() => Some(Err(Error::Cancelled)),
+                _ = task_cancellation_token.cancelled() => {
+                    trace.error = Some("Generation was cancelled".to_owned());
+                    if let Err(err) = trace.sync_state_object().await {
+                        log::error!(
+                            "Couldn't update trace (state object '{}') on cancellation: {err}",
+                            trace.state_object.name
+                        );
+                    }
+                    Some(Err(Error::Cancelled))
+                },
             } {
                 log::trace!("generate_streaming result: {result:#?}");
 
@@ -131,14 +147,11 @@ impl LlmStore {
                     }
                 }
 
-                match trace.sync_state_object().await {
-                    Ok(_) => {}
-                    Err(err) => {
-                        log::error!(
-                            "Failed to update trace (state object '{}') with non-streaming response: {err}",
-                            trace.state_object.name
-                        );
-                    }
+                if let Err(err) = trace.sync_state_object().await {
+                    log::error!(
+                        "Failed to update trace (state object '{}') with non-streaming response: {err}",
+                        trace.state_object.name
+                    );
                 }
 
                 if let Err(err) = tx.send(result).await {

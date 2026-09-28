@@ -1,5 +1,6 @@
 local llm = require("epibloom.llm")
 local state = require("epibloom.state")
+local time = require("epibloom.time")
 
 local request = {
     model = "claude-haiku-4-5",
@@ -35,12 +36,12 @@ end
 
 request.max_tokens = 1024
 
+--[[
 for _ = 1, 2 do
-    --local handle =llm.anthropic_generate(request)
-    --handle:cancel()
-    break
+    local handle = llm.anthropic_generate(request)
+    handle:cancel()
 
-    local response_message = handle :get_response()
+    local response_message = handle:get_response()
     request.messages[#request.messages + 1] = {
         role = "assistant",
         content = response_message.content[1].text,
@@ -50,9 +51,17 @@ for _ = 1, 2 do
         message.role = (message.role == "user") and "assistant" or "user"
     end
 end
+]]
 
-local streaming_handle = llm.anthropic_generate_streaming(request)
-os.execute("sleep 20")
--- streaming_handle:cancel()
--- streaming_handle:get_response()
-return streaming_handle.name
+local h1 = llm.anthropic_generate_streaming(request)
+local h2 = llm.anthropic_generate_streaming(request)
+
+print("h1")
+time.sleep(1)
+h2:cancel()
+for k, v in pairs(h1:get_response()) do
+    print(k, v)
+end
+
+print("h2")
+print(h2:get_response())
