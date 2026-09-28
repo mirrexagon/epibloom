@@ -6,8 +6,7 @@ local uuid = require("epibloom.uuid")
 
 local util = require("util")
 
-local Chat = {}
-Chat.__index = Chat
+local chat = {}
 
 --[[
 TODO: DESIGN
@@ -16,7 +15,23 @@ Each message index has one or more "swipes" and a selected swipe index.
 
 --]]
 
-function Chat.list()
+--- @alias ChatId string
+
+--- The top-level structure of a chat JSON object that is stored in a state object.
+--- @class Chat
+--- @field name string
+--- @field id ChatId
+--- @field messages Message[]
+
+--- @class Message
+--- @field content MessageContent[]
+
+--- @alias MessageContent
+--- | string # Text.
+
+--- List the IDs of all stored chats.
+--- @return ChatId[]
+function chat.list_all()
     return util.table.filter_map(state.get(""):read(), function(name)
         if string.find(name, "^chat:") then
             return true, string.match(name, "^chat:(.*)$")
@@ -26,7 +41,39 @@ function Chat.list()
     end)
 end
 
+--- Get the Chat object for a chat.
+--- @param chat_id ChatId
+--- @return Chat
+function chat.get(chat_id)
+    if not util.table.find(chat.list_all(), chat_id) then
+        error(string.format("No existing chat with ID '%s' found.", chat_id))
+    end
+
+    local state_object = chat._get_state_object(chat_id)
+    return state_object:read()
+end
+
+--- Modify/update the Chat object for a chat.
+--- @param chat_id ChatId
+--- @param update_function fun(chat: Chat)
+function chat.update(chat_id, update_function)
+    if not util.table.find(chat.list_all(), chat_id) then
+        error(string.format("No existing chat with ID '%s' found.", chat_id))
+    end
+
+    local state_object = chat._get_state_object(chat_id)
+    state_object:update(update_function)
+end
+
+function chat._get_state_object(chat_id)
+    return state.get(string.format("chat:%s", chat_id))
+end
+
 -- Pass nil chat_id to get a new chat.
+
+--- Blah
+--- @param chat_id any
+--- @return Chat
 function Chat.get(chat_id)
     local chat = {}
 
@@ -57,10 +104,6 @@ function Chat.get(chat_id)
     end)
 
     return setmetatable(chat, Chat)
-end
-
-function Chat._get_state_object(chat_id)
-    return state.get(string.format("chat:%s", chat_id))
 end
 
 function Chat:append_message(role, text)
@@ -96,4 +139,4 @@ function Chat:generate()
     end)
 end
 
-return Chat
+return chat
