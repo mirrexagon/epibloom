@@ -1,33 +1,11 @@
-// TODO: See NOTES.md for ideas like templating, reloading scripts, etc.
-//
-// Use cases:
-// - Press the button to submit a chat message, submit an action in the game, etc. which runs a script that does things like add messages to the chat and starts generation, etc. Needs to be able to return things for the UI to view? Updates the game state which is reflected in the UI?
-// - Defining the UI in scripts? As in, behaviour of buttons should be scriptable but should game UI/the API also be as flexible? eg. scripting inventory system instead of having it written in Rust.
-//
-// Scripts can go in global and local config locations, eg. /etc/epibloom/scripts and ~/.config/epibloom/scripts, and the user one is higher in package.path
-//
-// Tool calls: Lua should be able to attach tool call possibilities with Lua
-// functions that call back into the state. But I also want to be able to run
-// multiple generations at once.
-
-// TODO: Change the REST API and internals so that script run requests
-// return an execution ID immediately which the caller can use to wait on
-// the execution result. Successfully getting the result clears it from memory.
-//
-// Script design:
-// We want to be able to do these things with scripts:
-// - Get the status of something immediately, script executes quickly.
-// - Long-running operations, want to kick off and wait for finish and possibly
-//   not care about the result, allow script to finish in the background and monitor state objects for state - if the client is restarted then reestablishing
-//   state should probably just use scripts to read state objects and not try to
-//   remember execution IDs.
-//   - Could always require monitoring state objects for state and scripts don't return anything. Try to design chat interface with this maybe. No reason we can't have an endpoint that fire-and-forgets a script and doesn't give the return value back, but still useful to have the ability to run a short script sometimes
-//
-// But is this really what we want? What would the ideal REST API for my various use cases (chat, game) look like?
+// TODO: LLM tool calls: Lua should be able to attach tool call possibilities
+// with Lua functions that call back into the state. But I also want to be able
+// to run multiple generations at once.
 
 use std::collections::HashMap;
 use std::path::{self, Path, PathBuf};
 use std::sync::Arc;
+use std::thread;
 
 use lazy_static::lazy_static;
 use mlua::{Lua, LuaSerdeExt, ObjectLike, Table};
@@ -35,8 +13,8 @@ use serde::Serialize;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use tokio::fs;
+use tokio::runtime;
 use tokio::sync::{mpsc, Mutex};
-use tokio::task;
 use uuid::Uuid;
 
 use crate::state::StateObject;
@@ -102,7 +80,13 @@ pub struct Context {
     name: String,
 
     script_request_sender: mpsc::Sender<ScriptRunRequest>,
-    task: task::JoinHandle<()>,
+    /// Each context runs on its own dedicated OS thread (not a Tokio worker),
+    /// since Lua code can block (eg. `os.execute("sleep 1")`, busy loops),
+    /// and blocking a Tokio worker thread can starve tasks spawned from it.
+    /// In particular, a task spawned from a worker goes into that worker's
+    /// LIFO slot, which other workers can't steal from, so eg. an LLM
+    /// generation task wouldn't start until the script yields or finishes.
+    thread: thread::JoinHandle<()>,
     status_history: Arc<Mutex<ScriptStatusHistory>>,
 }
 
@@ -243,6 +227,21 @@ impl Context {
                 })?,
             )?;
 
+            // Asynchronously sleep for the given number of seconds (can be
+            // fractional). Unlike eg. `os.execute("sleep 1")`, this doesn't
+            // block the context's thread.
+            time_module.set(
+                "sleep",
+                lua.create_async_function(async |_lua, seconds: f64| {
+                    let duration =
+                        std::time::Duration::try_from_secs_f64(seconds).map_err(|e| {
+                            mlua::Error::runtime(format!("invalid sleep duration {seconds}: {e}"))
+                        })?;
+                    tokio::time::sleep(duration).await;
+                    Ok(())
+                })?,
+            )?;
+
             let package_loaded: Table = globals.get_path("package.loaded")?;
             package_loaded.set("epibloom.time", time_module)?;
         }
@@ -264,7 +263,14 @@ impl Context {
         }));
         let task_status_history = Arc::clone(&status_history);
 
-        let task = task::spawn(async move {
+        // `Handle::block_on` runs the future on this dedicated thread, while
+        // IO/timers are still driven by the main runtime, and `tokio::spawn`
+        // inside it spawns onto the main runtime's workers (via the injection
+        // queue, which all workers can take from).
+        let runtime_handle = runtime::Handle::current();
+        let thread = thread::Builder::new()
+            .name(format!("script-context-{name}"))
+            .spawn(move || runtime_handle.block_on(async move {
             while let Some(request) = script_request_receiver.recv().await {
                 info!(
                     "Request to run script {} on context {}",
@@ -300,7 +306,7 @@ impl Context {
                     Ok(v) => v,
                     Err(e) => {
                         report_error!(&format!("Failed to convert input to Lua value: {e}"));
-                        return;
+                        continue;
                     }
                 };
 
@@ -314,7 +320,7 @@ impl Context {
                             "Failed to get filesystem path for script {:?}: {e}",
                             request.script_path
                         ));
-                        return;
+                        continue;
                     }
                 };
 
@@ -323,7 +329,7 @@ impl Context {
                         "Script {} tried to escape the scripts directory.",
                         request.script_path.display()
                     ));
-                    return;
+                    continue;
                 }
 
                 let script_content = match fs::read_to_string(&filesystem_script_path).await {
@@ -333,7 +339,7 @@ impl Context {
                             "Failed to read script file for {}: {e}",
                             request.script_path.display()
                         ));
-                        return;
+                        continue;
                     }
                 };
 
@@ -347,7 +353,7 @@ impl Context {
                             "Failed to set epibloom.context.current_script_path registry value for {}: {e}",
                             request.script_path.display()
                         ));
-                        return;
+                        continue;
                     }
                 };
 
@@ -381,11 +387,11 @@ impl Context {
                     }
                 }
             }
-        });
+        }))?;
 
         Ok(Self {
             name: name.to_owned(),
-            task,
+            thread,
             script_request_sender,
             status_history,
         })
