@@ -69,58 +69,48 @@ export function AnthropicTracesTab() {
     }, [traceIds, autoSelectNew]);
 
     return (
-        <div className="h-full flex bg-gray-900 text-white">
+        <div className="h-full flex">
             {/* Left sidebar - list of traces */}
-            <div className="w-80 border-r border-gray-700 flex flex-col">
-                <div className="p-4 border-b border-gray-700">
+            <div className="w-96 border-r border-neutral-800 flex flex-col">
+                <div className="px-4 py-3 border-b border-neutral-800">
                     <h2 className="text-lg font-semibold">Traces</h2>
-                    <div className="text-sm text-gray-400 mt-1">
+                    <div className="text-sm mt-1">
                         {connected ? (
                             <span className="text-green-400">● Connected</span>
                         ) : (
                             <span className="text-red-400">● Disconnected</span>
                         )}
-                        <span className="ml-2">
-                            ({traceIds.length} traces)
-                        </span>
+                        <span className="ml-2 text-neutral-500">({traceIds.length} traces)</span>
                     </div>
                     {error && (
                         <div className="text-sm text-red-400 mt-1">{error}</div>
                     )}
-                    <div className="mt-3">
-                        <label className="flex items-center cursor-pointer text-sm">
-                            <input
-                                type="checkbox"
-                                checked={autoSelectNew}
-                                onChange={(e) =>
-                                    setAutoSelectNew(e.target.checked)
-                                }
-                                className="mr-2 cursor-pointer"
-                            />
-                            <span className="text-gray-300">
-                                Auto-select new traces
-                            </span>
-                        </label>
-                    </div>
+                    <label className="mt-2 flex items-center cursor-pointer text-sm text-neutral-400">
+                        <input
+                            type="checkbox"
+                            checked={autoSelectNew}
+                            onChange={(e) => setAutoSelectNew(e.target.checked)}
+                            className="mr-2 cursor-pointer accent-white"
+                        />
+                        Auto-select new traces
+                    </label>
                 </div>
                 <div className="flex-1 overflow-y-auto">
                     {orderedTraceIds.map((id) => (
                         <button
                             key={id}
                             onClick={() => setSelectedTraceId(id)}
-                            className={`w-full text-left px-4 py-3 border-b border-gray-800 hover:bg-gray-800 transition-colors ${
+                            className={`w-full text-left px-4 py-2 font-mono text-sm break-all transition-colors ${
                                 selectedTraceId === id
-                                    ? "bg-gray-800 border-l-4 border-blue-500"
-                                    : ""
+                                    ? "bg-neutral-900 text-white"
+                                    : "text-neutral-400 hover:bg-neutral-950 hover:text-neutral-200"
                             }`}
                         >
-                            <span className="font-mono text-xs text-gray-400 break-all">
-                                {id}
-                            </span>
+                            {id}
                         </button>
                     ))}
                     {orderedTraceIds.length === 0 && (
-                        <div className="p-4 text-center text-gray-400">
+                        <div className="p-4 text-center text-base text-neutral-500">
                             No traces found
                         </div>
                     )}
@@ -131,76 +121,48 @@ export function AnthropicTracesTab() {
             <div className="flex-1 flex flex-col overflow-hidden">
                 {selectedTrace ? (
                     <>
-                        <div className="p-4 border-b border-gray-700">
+                        <div className="px-4 py-3 border-b border-neutral-800">
                             <div className="flex items-center justify-between">
-                                <h3 className="text-lg font-semibold">
-                                    Trace Details
+                                <h3 className="text-lg font-semibold font-mono break-all">
+                                    {selectedTrace.id}
                                 </h3>
                                 {selectedTrace.error ? (
                                     <span className="text-sm text-red-400">
-                                        ● Error
+                                        Error
                                     </span>
                                 ) : !selectedTrace.end_time ? (
-                                    <span className="text-sm text-yellow-400">
-                                        ● Running
+                                    <span className="text-sm text-neutral-400 animate-pulse">
+                                        Running…
                                     </span>
                                 ) : null}
                             </div>
-                            <div className="mt-2 space-y-1 text-sm text-gray-400">
-                                <div>
-                                    <span className="font-semibold">ID:</span>{" "}
-                                    <span className="font-mono">
-                                        {selectedTrace.id}
-                                    </span>
-                                </div>
-                                <div>
-                                    <span className="font-semibold">
-                                        Model:
-                                    </span>{" "}
-                                    {selectedTrace.request.model}
-                                </div>
-                                <div>
-                                    <span className="font-semibold">
-                                        Started:
-                                    </span>{" "}
-                                    {new Date(
-                                        selectedTrace.start_time,
-                                    ).toLocaleString()}
-                                </div>
+                            <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-sm">
+                                <MetaRow label="Model" value={selectedTrace.request.model} />
+                                <MetaRow
+                                    label="Started"
+                                    value={new Date(selectedTrace.start_time).toLocaleString()}
+                                />
                                 {selectedTrace.end_time && (
-                                    <div>
-                                        <span className="font-semibold">
-                                            Ended:
-                                        </span>{" "}
-                                        {new Date(
-                                            selectedTrace.end_time,
-                                        ).toLocaleString()}
-                                    </div>
+                                    <MetaRow
+                                        label="Ended"
+                                        value={new Date(selectedTrace.end_time).toLocaleString()}
+                                    />
                                 )}
-                                <div>
-                                    <span className="font-semibold">
-                                        Max Tokens:
-                                    </span>{" "}
-                                    {selectedTrace.request.max_tokens}
-                                </div>
-                            </div>
+                                <MetaRow
+                                    label="Max tokens"
+                                    value={selectedTrace.request.max_tokens}
+                                />
+                            </dl>
                             {selectedTrace.error && (
-                                <div className="mt-3 p-3 bg-red-900/20 border border-red-700 rounded">
-                                    <div className="text-sm font-semibold text-red-400 mb-1">
-                                        Error
-                                    </div>
-                                    <div className="text-sm text-gray-300 whitespace-pre-wrap font-mono">
-                                        {selectedTrace.error}
-                                    </div>
+                                <div className="mt-3 border-l-2 border-red-400 pl-3 text-sm text-neutral-200 whitespace-pre-wrap font-mono">
+                                    {selectedTrace.error}
                                 </div>
                             )}
                         </div>
-                        <div className="flex-1 overflow-auto p-4 space-y-4">
-                            {/* Request Section */}
-                            <div>
-                                <h4 className="text-sm font-semibold text-gray-400 mb-3">Request</h4>
-                                <div className="space-y-4">
-                                    {/* Show system prompt if present */}
+                        <div className="flex-1 overflow-auto p-4 space-y-6">
+                            <section>
+                                <SectionHeading>Request</SectionHeading>
+                                <div className="space-y-3">
                                     {selectedTrace.request.system && (
                                         <MessageView
                                             message={{
@@ -209,7 +171,6 @@ export function AnthropicTracesTab() {
                                             }}
                                         />
                                     )}
-                                    {/* Show regular messages */}
                                     {selectedTrace.request.messages.map(
                                         (message, index) => (
                                             <MessageView
@@ -219,21 +180,21 @@ export function AnthropicTracesTab() {
                                         ),
                                     )}
                                 </div>
-                            </div>
+                            </section>
 
-                            {/* Response Section */}
                             {selectedTrace.response && (
-                                <div className="pt-4 border-t border-gray-700">
-                                    <h4 className="text-sm font-semibold text-gray-400 mb-3">Response</h4>
-                                    <div className="space-y-4">
-                                        <ResponseView response={selectedTrace.response} />
-                                    </div>
-                                </div>
+                                <section>
+                                    <SectionHeading>Response</SectionHeading>
+                                    <MessageView
+                                        message={selectedTrace.response}
+                                        highlight
+                                    />
+                                </section>
                             )}
                         </div>
                     </>
                 ) : (
-                    <div className="flex items-center justify-center h-full text-gray-400">
+                    <div className="flex items-center justify-center h-full text-base text-neutral-500">
                         Select a trace to view its details
                     </div>
                 )}
@@ -242,10 +203,54 @@ export function AnthropicTracesTab() {
     );
 }
 
-function MessageView({ message }: { message: AnthropicMessage }) {
-    const isUser = message.role === "user";
-    const isSystem = message.role === "system";
+function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
+    return (
+        <>
+            <dt className="text-neutral-500">{label}</dt>
+            <dd className="text-neutral-300">{value}</dd>
+        </>
+    );
+}
 
+function SectionHeading({ children }: { children: React.ReactNode }) {
+    return (
+        <h4 className="text-sm uppercase tracking-wider text-neutral-500 mb-2">
+            {children}
+        </h4>
+    );
+}
+
+const ROLE_STYLES: Record<
+    string,
+    { label: string; labelClass: string; borderClass: string; highlightBorderClass: string }
+> = {
+    system: {
+        label: "System",
+        labelClass: "text-neutral-400",
+        borderClass: "border-neutral-800",
+        highlightBorderClass: "border-neutral-500",
+    },
+    user: {
+        label: "User",
+        labelClass: "text-blue-400",
+        borderClass: "border-blue-900",
+        highlightBorderClass: "border-blue-600",
+    },
+    assistant: {
+        label: "Assistant",
+        labelClass: "text-green-400",
+        borderClass: "border-green-900",
+        highlightBorderClass: "border-green-600",
+    },
+};
+
+function MessageView({
+    message,
+    highlight = false,
+}: {
+    message: AnthropicMessage | AnthropicResponse;
+    highlight?: boolean;
+}) {
     // Extract text and thinking content
     let textContent = "";
     let thinkingContent = "";
@@ -253,7 +258,7 @@ function MessageView({ message }: { message: AnthropicMessage }) {
     if (typeof message.content === "string") {
         textContent = message.content;
     } else {
-        for (const block of message.content) {
+        for (const block of message.content ?? []) {
             if (block.type === "text") {
                 textContent += block.text;
             } else if (block.type === "thinking") {
@@ -262,143 +267,60 @@ function MessageView({ message }: { message: AnthropicMessage }) {
         }
     }
 
+    const isSystem = message.role === "system";
+    const style = ROLE_STYLES[message.role] ?? ROLE_STYLES.system;
+
     return (
         <div
-            className={`rounded-lg p-4 ${
-                isSystem
-                    ? "bg-gray-800/50"
-                    : isUser
-                      ? "bg-blue-900/30"
-                      : "bg-gray-800"
+            className={`border p-3 ${
+                highlight ? style.highlightBorderClass : style.borderClass
             }`}
         >
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-baseline justify-between mb-2">
                 <span
-                    className={`font-semibold ${
-                        isSystem
-                            ? "text-gray-400"
-                            : isUser
-                              ? "text-blue-400"
-                              : "text-green-400"
-                    }`}
+                    className={`text-sm font-semibold uppercase tracking-wider ${style.labelClass}`}
                 >
-                    {isSystem ? "System" : isUser ? "User" : "Assistant"}
+                    {ROLE_STYLES[message.role]?.label ?? message.role}
                 </span>
                 {message.id && (
-                    <span className="text-xs text-gray-500 font-mono">
+                    <span className="text-sm text-neutral-600 font-mono">
                         {message.id}
                     </span>
                 )}
             </div>
 
             {thinkingContent && (
-                <div className="mb-3 p-3 bg-purple-900/20 border border-purple-800 rounded">
-                    <div className="text-xs text-purple-400 font-semibold mb-1">
-                        THINKING
-                    </div>
-                    <div className="text-sm text-gray-300 whitespace-pre-wrap">
+                <div className="mb-3 border-l-2 border-neutral-700 pl-3">
+                    <div className="text-sm text-neutral-500 mb-1">Thinking</div>
+                    <div className="text-base text-neutral-400 italic whitespace-pre-wrap">
                         {thinkingContent}
                     </div>
                 </div>
             )}
 
-            <div className="text-gray-100 whitespace-pre-wrap">
+            <div
+                className={`text-base whitespace-pre-wrap ${
+                    isSystem ? "text-neutral-400" : "text-neutral-100"
+                }`}
+            >
                 {textContent}
             </div>
 
             {message.usage && (
-                <div className="mt-3 pt-3 border-t border-gray-700 text-xs text-gray-400 space-y-1">
-                    <div>
-                        <span className="font-semibold">Tokens:</span>{" "}
+                <div className="mt-3 pt-2 border-t border-neutral-800 text-sm text-neutral-500 flex flex-wrap gap-x-4">
+                    <span>
                         {message.usage.input_tokens} in /{" "}
                         {message.usage.output_tokens} out
-                    </div>
-                    {message.stop_reason && (
-                        <div>
-                            <span className="font-semibold">Stop reason:</span>{" "}
-                            {message.stop_reason}
-                        </div>
-                    )}
+                    </span>
                     {message.usage.cache_read_input_tokens !== undefined &&
                         message.usage.cache_read_input_tokens > 0 && (
-                            <div>
-                                <span className="font-semibold">
-                                    Cache read:
-                                </span>{" "}
-                                {message.usage.cache_read_input_tokens} tokens
-                            </div>
+                            <span>
+                                {message.usage.cache_read_input_tokens} cached
+                            </span>
                         )}
-                </div>
-            )}
-        </div>
-    );
-}
-
-function ResponseView({ response }: { response: AnthropicResponse }) {
-    // Extract text and thinking content from response
-    let textContent = "";
-    let thinkingContent = "";
-
-    if (response.content) {
-        for (const block of response.content) {
-            if (block.type === "text") {
-                textContent += block.text;
-            } else if (block.type === "thinking") {
-                thinkingContent += block.thinking;
-            }
-        }
-    }
-
-    return (
-        <div className="rounded-lg p-4 bg-green-900/20 border border-green-900/30">
-            <div className="flex items-center justify-between mb-2">
-                <span className="font-semibold text-green-400">
-                    Assistant
-                </span>
-                {response.id && (
-                    <span className="text-xs text-gray-500 font-mono">
-                        {response.id}
-                    </span>
-                )}
-            </div>
-
-            {thinkingContent && (
-                <div className="mb-3 p-3 bg-purple-900/20 border border-purple-800 rounded">
-                    <div className="text-xs text-purple-400 font-semibold mb-1">
-                        THINKING
-                    </div>
-                    <div className="text-sm text-gray-300 whitespace-pre-wrap">
-                        {thinkingContent}
-                    </div>
-                </div>
-            )}
-
-            <div className="text-gray-100 whitespace-pre-wrap">
-                {textContent}
-            </div>
-
-            {response.usage && (
-                <div className="mt-3 pt-3 border-t border-gray-700 text-xs text-gray-400 space-y-1">
-                    <div>
-                        <span className="font-semibold">Tokens:</span>{" "}
-                        {response.usage.input_tokens} in /{" "}
-                        {response.usage.output_tokens} out
-                    </div>
-                    {response.stop_reason && (
-                        <div>
-                            <span className="font-semibold">Stop reason:</span>{" "}
-                            {response.stop_reason}
-                        </div>
+                    {message.stop_reason && (
+                        <span>stop: {message.stop_reason}</span>
                     )}
-                    {response.usage.cache_read_input_tokens !== undefined &&
-                        response.usage.cache_read_input_tokens > 0 && (
-                            <div>
-                                <span className="font-semibold">
-                                    Cache read:
-                                </span>{" "}
-                                {response.usage.cache_read_input_tokens} tokens
-                            </div>
-                        )}
                 </div>
             )}
         </div>

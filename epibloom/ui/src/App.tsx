@@ -4,43 +4,37 @@ import { AnthropicTracesTab } from "./components/AnthropicTracesTab";
 
 type Tab = "state" | "anthropic-traces";
 
+const TABS: { id: Tab; label: string }[] = [
+    { id: "state", label: "State" },
+    { id: "anthropic-traces", label: "Anthropic LLM Traces" },
+];
+
 function App() {
     const [activeTab, setActiveTab] = useState<Tab>("state");
 
     return (
-        <div className="h-screen flex flex-col bg-gray-900">
-            {/* App header */}
-            <header className="bg-gray-800 text-white p-4 shadow-lg">
-                <h1 className="text-2xl font-bold">🌸 Epibloom</h1>
+        <div className="h-screen flex flex-col bg-black text-neutral-100">
+            <header className="flex items-stretch border-b border-neutral-800 px-4">
+                <h1 className="py-3 pr-6 text-xl font-semibold tracking-tight">
+                    Epibloom
+                </h1>
+                <nav className="flex">
+                    {TABS.map((tab) => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`px-4 text-base border-b -mb-px transition-colors ${
+                                activeTab === tab.id
+                                    ? "bg-neutral-800 border-white text-white"
+                                    : "border-transparent text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200"
+                            }`}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </nav>
             </header>
 
-            {/* Tab bar */}
-            <div className="bg-gray-800 border-b border-gray-700">
-                <div className="flex">
-                    <button
-                        onClick={() => setActiveTab("state")}
-                        className={`px-6 py-3 font-medium transition-colors ${
-                            activeTab === "state"
-                                ? "bg-gray-900 text-white border-b-2 border-blue-500"
-                                : "text-gray-400 hover:text-white hover:bg-gray-700"
-                        }`}
-                    >
-                        State
-                    </button>
-                    <button
-                        onClick={() => setActiveTab("anthropic-traces")}
-                        className={`px-6 py-3 font-medium transition-colors ${
-                            activeTab === "anthropic-traces"
-                                ? "bg-gray-900 text-white border-b-2 border-blue-500"
-                                : "text-gray-400 hover:text-white hover:bg-gray-700"
-                        }`}
-                    >
-                        Anthropic LLM Traces
-                    </button>
-                </div>
-            </div>
-
-            {/* Tab content */}
             <div className="flex-1 overflow-hidden">
                 {activeTab === "state" && <StateTab />}
                 {activeTab === "anthropic-traces" && <AnthropicTracesTab />}

@@ -3,12 +3,12 @@ import { useStateObjects } from "../hooks/useStateObjects";
 
 export function StateTab() {
     const [selectedObject, setSelectedObject] = useState<string | null>(null);
-    
+
     // Subscribe to the index (empty string name) to get the list of all state objects
     const indexObjectNames = useMemo(() => [""], []);
-    const { objects: indexObjects, connected: indexConnected, error: indexError } = 
+    const { objects: indexObjects, connected: indexConnected, error: indexError } =
         useStateObjects(indexObjectNames);
-    
+
     // Subscribe to the selected object if any
     const selectedObjectNames = useMemo(
         () => (selectedObject !== null ? [selectedObject] : []),
@@ -20,12 +20,12 @@ export function StateTab() {
     const selectedObjectData = selectedObjects[0];
 
     return (
-        <div className="h-full flex bg-gray-900 text-white">
+        <div className="h-full flex">
             {/* Left sidebar - list of state objects */}
-            <div className="w-80 border-r border-gray-700 flex flex-col">
-                <div className="p-4 border-b border-gray-700">
+            <div className="w-96 border-r border-neutral-800 flex flex-col">
+                <div className="px-4 py-3 border-b border-neutral-800">
                     <h2 className="text-lg font-semibold">State Objects</h2>
-                    <div className="text-sm text-gray-400 mt-1">
+                    <div className="text-sm mt-1">
                         {indexConnected ? (
                             <span className="text-green-400">● Connected</span>
                         ) : (
@@ -41,13 +41,13 @@ export function StateTab() {
                         <button
                             key={name}
                             onClick={() => setSelectedObject(name)}
-                            className={`w-full text-left px-4 py-2 border-b border-gray-800 hover:bg-gray-800 transition-colors ${
-                                selectedObject === name ? "bg-gray-800 text-blue-400" : ""
+                            className={`w-full text-left px-4 py-2 font-mono text-sm break-all transition-colors ${
+                                selectedObject === name
+                                    ? "bg-neutral-900 text-white"
+                                    : "text-neutral-400 hover:bg-neutral-950 hover:text-neutral-200"
                             }`}
                         >
-                            <div className="font-mono text-sm break-all">
-                                {name === "" ? "(index)" : name}
-                            </div>
+                            {name === "" ? "(index)" : name}
                         </button>
                     ))}
                 </div>
@@ -57,23 +57,23 @@ export function StateTab() {
             <div className="flex-1 flex flex-col overflow-hidden">
                 {selectedObject !== null ? (
                     <>
-                        <div className="p-4 border-b border-gray-700">
+                        <div className="px-4 py-3 border-b border-neutral-800">
                             <h3 className="text-lg font-semibold font-mono break-all">
                                 {selectedObject === "" ? "(index)" : selectedObject}
                             </h3>
                         </div>
                         <div className="flex-1 overflow-auto p-4">
                             {selectedObjectData ? (
-                                <pre className="text-sm bg-gray-800 p-4 rounded overflow-x-auto">
+                                <pre className="text-sm text-neutral-200 overflow-x-auto">
                                     {JSON.stringify(selectedObjectData.value, null, 2)}
                                 </pre>
                             ) : (
-                                <div className="text-gray-400">Loading...</div>
+                                <div className="text-base text-neutral-500">Loading...</div>
                             )}
                         </div>
                     </>
                 ) : (
-                    <div className="flex items-center justify-center h-full text-gray-400">
+                    <div className="flex items-center justify-center h-full text-base text-neutral-500">
                         Select a state object to view its contents
                     </div>
                 )}
