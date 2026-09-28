@@ -105,7 +105,7 @@ impl LlmStore {
                 item = stream.next() => item.map(|r| r.map_err(From::from)),
                 _ = task_cancellation_token.cancelled() => Some(Err(Error::Cancelled)),
             } {
-                log::debug!("generate_streaming result: {result:#?}");
+                log::trace!("generate_streaming result: {result:#?}");
 
                 match &result {
                     Ok(event) => match event {

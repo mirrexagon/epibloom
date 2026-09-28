@@ -1880,7 +1880,7 @@ pub fn generate_streaming(
         request.stream = Some(true);
 
         let request_json = serde_json::to_string_pretty(&request)?;
-        log::debug!("Anthropic messages streaming request: {request_json}");
+        log::trace!("Anthropic messages streaming request: {request_json}");
 
         let response = client.anthropic_post("messages", &request).await?;
 
@@ -1890,7 +1890,7 @@ pub fn generate_streaming(
             let sse = sse?;
 
             let json_string = sse.data.ok_or(super::Error::StreamingEventHasNoData)?;
-            log::debug!("Anthropic streaming event JSON: {}", json_string);
+            log::trace!("Anthropic streaming event JSON: {}", json_string);
 
             let event: response::MessageStreamEvent = serde_json::from_str(&json_string)?;
             yield event;
