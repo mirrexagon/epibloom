@@ -106,22 +106,39 @@ pub struct Context {
     status_history: Arc<Mutex<ScriptStatusHistory>>,
 }
 
-#[derive(Debug)]
 struct ScriptStatusHistory {
+    context_name: String,
     status_history: Vec<ScriptStatus>,
-    state_object: Arc<StateObject>,
+
+    state_store: Arc<StateStore>,
+    state_object: Option<Arc<StateObject>>,
 }
 
 impl ScriptStatusHistory {
-    async fn sync_to_state_object(&self) {
+    async fn sync_to_state_object(&mut self) {
+        let has_state_object = self.state_object.is_some();
+        if !has_state_object {
+            self.state_object = Some(
+                self.state_store
+                    .get_or_create(&format!(
+                        "{SCRIPT_STATUS_HISTORY_OBJECT_NAME_PREFIX}:{}",
+                        self.context_name
+                    ))
+                    .await
+                    .expect("Couldn't create script context status object"),
+            );
+        }
+
         if let Err(err) = self
             .state_object
+            .as_ref()
+            .unwrap()
             .update(async |_| serde_json::to_value(&self.status_history))
             .await
         {
             log::warn!(
                 "Failed to sync script status to state object {}: {err}",
-                &self.state_object.name
+                &self.state_object.as_ref().unwrap().name
             );
         }
     }
@@ -129,10 +146,18 @@ impl ScriptStatusHistory {
 
 #[derive(Debug, Serialize)]
 struct ScriptStatus {
-    input: serde_json::Value,
+    script_path: String,
+
+    #[serde(with = "time::serde::rfc3339")]
     request_time: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339::option")]
     start_time: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
     end_time: Option<OffsetDateTime>,
+
+    input: serde_json::Value,
+    result: serde_json::Value,
+
     error: Option<String>,
 }
 
@@ -223,91 +248,108 @@ impl Context {
         }
 
         log_module::setup(&lua)?;
-        state_module::setup(&lua, state_store)?;
+        state_module::setup(&lua, Arc::clone(&state_store))?;
         llm_module::setup(&lua, llm_store)?;
 
         // Set up script context task.
-        let (script_request_sender, script_request_receiver) = mpsc::channel::<ScriptRunRequest>(1);
-        let context_name = name.clone();
-
-        let status_history_object = state_store
-            .get_or_create(&format!(
-                "{SCRIPT_STATUS_HISTORY_OBJECT_NAME_PREFIX}:{name}"
-            ))
-            .await?;
-        let task_status_history_object = Arc::clone(&status_history_object);
+        let (script_request_sender, mut script_request_receiver) =
+            mpsc::channel::<ScriptRunRequest>(64);
+        let context_name = name.to_owned();
 
         let status_history = Arc::new(Mutex::new(ScriptStatusHistory {
+            context_name: name.to_owned(),
             status_history: Vec::new(),
-            state_object: status_history_object,
+            state_store: Arc::clone(&state_store),
+            state_object: None,
         }));
         let task_status_history = Arc::clone(&status_history);
 
         let task = task::spawn(async move {
             while let Some(request) = script_request_receiver.recv().await {
                 info!(
-                    "Request to run script {:?} on context {}",
-                    request.script_path, context_name
+                    "Request to run script {} on context {}",
+                    request.script_path.display(),
+                    context_name
                 );
 
-                {
-                    let status_history = task_status_history.lock().await;
-                    status_history.status_history[request.index].start_time =
-                        Some(OffsetDateTime::now_utc());
-                    status_history.sync_to_state_object().await;
+                macro_rules! update_status {
+                    ($update_function:expr) => {{
+                        let mut status_history = task_status_history.lock().await;
+                        let status = &mut status_history.status_history[request.index];
+                        ($update_function)(status);
+                        status_history.sync_to_state_object().await;
+                    }};
                 }
+
+                macro_rules! report_error {
+                    ($message:expr) => {{
+                        let msg = $message;
+                        log::warn!("{}", &msg);
+                        update_status!(|status: &mut ScriptStatus| {
+                            status.end_time = Some(OffsetDateTime::now_utc());
+                            status.error = Some(msg.to_owned());
+                        });
+                    }};
+                }
+
+                update_status!(|status: &mut ScriptStatus| {
+                    status.start_time = Some(OffsetDateTime::now_utc());
+                });
 
                 let input = match lua.to_value_with(&request.input, *SERIALIZE_OPTIONS) {
                     Ok(v) => v,
                     Err(e) => {
-                        // TODO: this pattern is used a lot, can it be factored out to a function/closure?
-                        let message = format!("Failed to convert input to Lua value.");
-
-                        log::warn!("{}", &message);
-
-                        {
-                            let status_history = task_status_history.lock().await;
-                            status_history.status_history[request.index].end_time =
-                                Some(OffsetDateTime::now_utc());
-                            status_history.status_history[request.index].error = Some(message);
-                            status_history.sync_to_state_object().await;
-                        }
-
-                        return Err(e);
+                        report_error!(&format!("Failed to convert input to Lua value: {e}"));
+                        return;
                     }
                 };
 
                 let mut filesystem_script_path = crate::SCRIPTS_DIR.get().unwrap().clone();
-                filesystem_script_path.push(request.script_path);
+                filesystem_script_path.push(&request.script_path);
                 filesystem_script_path.set_extension("lua");
-                filesystem_script_path = path::absolute(filesystem_script_path)?;
+                filesystem_script_path = match path::absolute(filesystem_script_path) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        report_error!(&format!(
+                            "Failed to get filesystem path for script {:?}: {e}",
+                            request.script_path
+                        ));
+                        return;
+                    }
+                };
 
                 if !filesystem_script_path.starts_with(crate::SCRIPTS_DIR.get().unwrap()) {
-                    let message = format!(
-                        "Script {filesystem_script_path:?} tried to escape the scripts directory."
-                    );
-
-                    log::warn!("{}", &message);
-
-                    {
-                        let status_history = task_status_history.lock().await;
-                        status_history.status_history[request.index].end_time =
-                            Some(OffsetDateTime::now_utc());
-                        status_history.status_history[request.index].error = Some(message);
-                        status_history.sync_to_state_object().await;
-                    }
-
-                    return Err(Error::ScriptPathEscapesScriptDirectory);
+                    report_error!(&format!(
+                        "Script {} tried to escape the scripts directory.",
+                        request.script_path.display()
+                    ));
+                    return;
                 }
 
-                // TODO: Switch to using anyhow or eyre to add context to errors and
-                // make error handling easier in general?
-                let script_content = fs::read_to_string(&filesystem_script_path).await?;
+                let script_content = match fs::read_to_string(&filesystem_script_path).await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        report_error!(&format!(
+                            "Failed to read script file for {}: {e}",
+                            request.script_path.display()
+                        ));
+                        return;
+                    }
+                };
 
-                lua.set_named_registry_value(
+                match lua.set_named_registry_value(
                     "epibloom.context.current_script_path",
-                    request.script_path,
-                )?;
+                    request.script_path.clone(),
+                ) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        report_error!(&format!(
+                            "Failed to set epibloom.context.current_script_path registry value for {}: {e}",
+                            request.script_path.display()
+                        ));
+                        return;
+                    }
+                };
 
                 let result = lua
                     .load(script_content)
@@ -315,26 +357,29 @@ impl Context {
                     .call_async(input)
                     .await;
 
-                if let Err(err) = &result {
-                    let message = format!(
-                        "Error executing script {:?} on context {}: {err}",
-                        request.script_path, context_name,
-                    );
+                match result {
+                    Ok(v) => {
+                        update_status!(|status: &mut ScriptStatus| {
+                            status.end_time = Some(OffsetDateTime::now_utc());
 
-                    log::error!("{}", &message);
-
-                    let status_history = task_status_history.lock().await;
-                    status_history.status_history[request.index].end_time =
-                        Some(OffsetDateTime::now_utc());
-                    status_history.status_history[request.index].error = Some(message);
-                    status_history.sync_to_state_object().await;
+                            match lua.from_value_with(v, *DESERIALIZE_OPTIONS) {
+                                Ok(v) => status.result = v,
+                                Err(e) => {
+                                    log::warn!(
+                                        "Could not convert script result to JSON value: {e}"
+                                    );
+                                }
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        report_error!(&format!(
+                            "Error executing script {} on context {}: {e}",
+                            request.script_path.display(),
+                            context_name,
+                        ));
+                    }
                 }
-
-                let result = result?;
-                let result_value: serde_json::Value =
-                    lua.from_value_with(result, *DESERIALIZE_OPTIONS)?;
-
-                // TODO: Send return value
             }
         });
 
@@ -351,15 +396,26 @@ impl Context {
         script_path: P,
         input: serde_json::Value,
     ) -> Result<(), Error> {
+        log::info!(
+            "Queuing script {} on context {}",
+            script_path.as_ref().display(),
+            &self.name
+        );
+
         let index = {
             let mut status_history = self.status_history.lock().await;
 
             let index = status_history.status_history.len();
             status_history.status_history.push(ScriptStatus {
-                input: input.clone(),
+                script_path: script_path.as_ref().to_string_lossy().into_owned(),
+
                 request_time: OffsetDateTime::now_utc(),
                 start_time: None,
                 end_time: None,
+
+                input: input.clone(),
+                result: serde_json::Value::Null,
+
                 error: None,
             });
             status_history.sync_to_state_object().await;
@@ -378,9 +434,6 @@ impl Context {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Script path escapes the script directory")]
-    ScriptPathEscapesScriptDirectory,
-
     #[error("Script run queue for this context is full")]
     ScriptQueueFull,
 

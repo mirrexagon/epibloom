@@ -17,9 +17,6 @@ pub struct ScriptApiDoc;
 impl From<script::Error> for ApiErrorResponse {
     fn from(value: script::Error) -> Self {
         match value {
-            script::Error::ScriptPathEscapesScriptDirectory => {
-                ApiErrorResponse::Forbidden(value.to_string())
-            }
             script::Error::ScriptQueueFull
             | script::Error::Io(_)
             | script::Error::Lua(_)
@@ -28,7 +25,7 @@ impl From<script::Error> for ApiErrorResponse {
     }
 }
 
-/// Run a script and get the result back.
+/// Run a script.
 ///
 /// Scripts are run on script contexts, which are independent Lua states. Only
 /// one script can run at a time on a single context, but multiple contexts can
@@ -57,7 +54,7 @@ pub async fn run_script(
     script_context_store: &State<script::ContextStore>,
 ) -> Result<(), ApiErrorResponse> {
     let context = script_context_store.get_context(context_name).await?;
-    let result = context
+    context
         .run_script(&script_path, script_input.take())
         .await?;
 
