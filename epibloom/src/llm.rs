@@ -103,7 +103,6 @@ impl LlmStore {
         let cancellation_token = CancellationToken::new();
         let task_cancellation_token = cancellation_token.clone();
 
-        // TODO: Why does it seem like the task doesn't start until the script that spawned it finishes?
         tokio::spawn(async move {
             let stream = anthropic_client.generate_streaming(request);
             futures::pin_mut!(stream);
