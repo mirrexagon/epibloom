@@ -52,7 +52,7 @@ impl LlmStore {
                         log::error!(
                             "Failed to update trace (state object '{}') after cancellation: {err}",
                             trace.state_object.name
-                        ),
+                        );
                     }
                     Err(Error::Cancelled)
                 },
