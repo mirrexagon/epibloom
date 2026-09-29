@@ -24,22 +24,25 @@ Each message index has one or more "swipes" and a selected swipe index.
 --- @field messages MessageSlot[]
 --- @field created string
 --- @field modified string
+--- @field generating? boolean # `true` if this message is currently being generated and so its content cannot be modified at the moment. TODO: This conflates temporary state with persistent state, if the application dies in the middle of generating and leaves this `true`, on startup we'd want to reset it somehow. Perhaps use a separate state object? But we'd want to synchronize access to both the persistent and ephemeral one.
 
 --- A list of message alternates/rerolls ("swipes").
 --- @class MessageSlot
 --- @field alternates Message[]
 
 --- A single message.
---- @class Message
---- @field role Role # Who this message is attributed to.
---- @field content MessageContent[]
+--- @class Message: MessageInput
 --- @field trace_id? uuid # Trace ID for the LLM generation that produced this message.
---- @field generating boolean # `true` if this message is currently being generated.
 --- @field created string
 --- @field modified string
 
+--- @class MessageInput
+--- @field role Role # Who this message is attributed to.
+--- @field content MessageContent[]
+--- @field note string # A user note attached to this message.
+
 --- @alias MessageContent
---- | string # Text.
+--- | string[] # Text. This is a list for efficient chunk streaming via JSON Patch, the list elements should be concatenated to form the message text.
 
 --- @alias Role
 --- | "system"
@@ -48,7 +51,7 @@ Each message index has one or more "swipes" and a selected swipe index.
 
 --- List the IDs of all stored chats.
 --- @return ChatId[]
-function chat.list_all()
+function chat.list()
     return util.table.filter_map(state.get(""):read(), function(name)
         if string.find(name, "^chat:") then
             return true, string.match(name, "^chat:(.*)$")
@@ -85,16 +88,108 @@ end
 --- Insert or append a new message or message alternate.
 ---
 --- Set an index one past the end to append.
---- @param chat_id any
---- @param message_index any
---- @param alternate_index any
-function chat.insert_message(chat_id, message_index, alternate_index) end
+--- @param chat_id ChatId
+--- @param message_index integer
+--- @param new_message MessageInput
+--- @param alternate_index integer
+function chat.insert_message(chat_id, message_index, new_message, alternate_index)
+    chat._update(chat_id, function(c)
+        if message_index > #c.messages + 1 then
+            util.errorf(
+                "Tried to insert a message into chat %s at message index %d but there are only %d messages (provided index was more than that + 1).",
+                chat_id,
+                message_index,
+                #c.messages
+            )
+        end
+
+        if not c.messages[message_index] then
+            c.messages[message_index] = {
+                alternates = {},
+            }
+        end
+
+        local message = c.messages[message_index]
+
+        if alternate_index > #message.alternates + 1 then
+            util.errorf(
+                "Tried to insert a message into chat %s at message index %d alternate index %d but there are only %d alternates (provided index was more than that + 1).",
+                chat_id,
+                message_index,
+                alternate_index,
+                #message.alternates
+            )
+        end
+
+        local new_message = new_message --[[@as Message]]
+        local now_string = time.now_utc_rfc3339()
+
+        new_message.created = now_string
+        new_message.modified = now_string
+
+        message.alternates[alternate_index] = new_message
+
+        return c
+    end)
+end
 
 --- Set the content of an existing message alternate.
---- @param chat_id any
---- @param message_index any
---- @param alternate_index any
-function chat.set_message(chat_id, message_index, alternate_index) end
+--- @param chat_id ChatId
+--- @param message_index integer
+--- @param alternate_index integer
+--- @param content? MessageContent[] # If specified, overwrites the current content with this, otherwise it is left unchanged.
+--- @param note? string # If specified, overwrites the current note with this, otherwise it is left unchanged.
+function chat.set_message_content(chat_id, message_index, alternate_index, content, note)
+    chat._update(chat_id, function(c)
+        if message_index > #c.messages then
+            util.errorf(
+                "Tried to set content for a message in chat %s at message index %d but there are only %d messages.",
+                chat_id,
+                message_index,
+                #c.messages
+            )
+        end
+
+        if not c.messages[message_index] then
+            c.messages[message_index] = {
+                alternates = {},
+            }
+        end
+
+        local message = c.messages[message_index]
+
+        if alternate_index > #message.alternates then
+            util.errorf(
+                "Tried to set content for a message in chat %s at message index %d alternate index %d but there are only %d alternates.",
+                chat_id,
+                alternate_index,
+                #message.alternates
+            )
+        end
+
+        local alternate = message.alternates[alternate_index]
+
+        local now_string = time.now_utc_rfc3339()
+
+        alternate.modified = now_string
+        if content then
+            alternate.content = content
+        end
+        if note then
+            alternate.note = note
+        end
+
+        return c
+    end)
+end
+
+function chat.generate(chat_id)
+    chat._update(chat_id, function(c)
+        return c
+    end)
+end
+
+function chat.cancel_generate(chat_id) end
 
 --- Get the Chat object for a chat.
 --- @param chat_id ChatId
@@ -111,7 +206,7 @@ end
 
 --- Modify/update the Chat object for a chat.
 --- @param chat_id ChatId
---- @param update_function fun(chat: Chat)
+--- @param update_function fun(chat: Chat): Chat
 --- @private
 function chat._update(chat_id, update_function)
     if not util.table.find(chat.list_all(), chat_id) then
@@ -128,16 +223,6 @@ end
 --- @private
 function chat._get_state_object(chat_id)
     return state.get(string.format("chat:%s", chat_id))
-end
-
-function Chat:append_message(role, text)
-    assert(role == "user" or role == "assistant", string.format('role: expected "user" or "assistant", got %s', role))
-    assert(type(text) == "string", string.format("text: expected string, got %s", type(text)))
-
-    self.state_object:update(function(value)
-        table.insert(value.messages, { role = role, text = text })
-        return value
-    end)
 end
 
 function Chat:generate()

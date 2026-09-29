@@ -24,7 +24,7 @@ mod llm_module;
 mod log_module;
 mod state_module;
 
-const SCRIPT_STATUS_HISTORY_OBJECT_NAME_PREFIX: &str = "script-status";
+const SCRIPT_STATUS_HISTORY_OBJECT_NAME_PREFIX: &str = "script-status:";
 
 lazy_static! {
     static ref SERIALIZE_OPTIONS: mlua::SerializeOptions = mlua::SerializeOptions::new()
@@ -105,7 +105,7 @@ impl ScriptStatusHistory {
             self.state_object = Some(
                 self.state_store
                     .get_or_create(&format!(
-                        "{SCRIPT_STATUS_HISTORY_OBJECT_NAME_PREFIX}:{}",
+                        "{SCRIPT_STATUS_HISTORY_OBJECT_NAME_PREFIX}{}",
                         self.context_name
                     ))
                     .await
@@ -397,11 +397,13 @@ impl Context {
         })
     }
 
+    /// Returns the index into this context's script status history
+    /// corresponding to this script execution.
     pub async fn run_script<P: AsRef<Path>>(
         &self,
         script_path: P,
         input: serde_json::Value,
-    ) -> Result<(), Error> {
+    ) -> Result<usize, Error> {
         log::info!(
             "Queuing script {} on context {}",
             script_path.as_ref().display(),
@@ -434,7 +436,7 @@ impl Context {
             .await
             .map_err(|_| Error::ScriptQueueFull)?;
 
-        Ok(())
+        Ok(index)
     }
 }
 

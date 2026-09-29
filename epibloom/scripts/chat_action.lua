@@ -1,18 +1,15 @@
 package.loaded["util"] = nil
-package.loaded["Chat"] = nil
+package.loaded["chat"] = nil
 
-local Chat = require("Chat")
+local chat = require("chat")
 
 local arg = ...
 
 assert(type(arg) == "table", "expected object, got " .. type(arg))
 assert(type(arg.action) == "string", "Field 'action' missing or not a string.")
 
-if arg.action == "list" then
-    return Chat.list()
-elseif arg.action == "new_chat" then
-    local chat = Chat.get()
-    return { chat_id = chat.id }
+if arg.action == "new_chat" then
+    chat.new(arg.name)
 elseif arg.action == "append_message" then
     assert(type(arg.chat_id) == "string", "Field 'chat_id' not specified correctly.")
 

@@ -34,7 +34,7 @@ impl From<script::Error> for ApiErrorResponse {
 /// requests.
 #[utoipa::path(
     responses(
-        (status = 200, description = "The result of the script execution.", content_type = "text/json"),
+        (status = 200, description = "The index of this script run status object in the context's script status history object (`script-status:<context name>`).", content_type = "text/json"),
     ),
     params(
         ("context_name" = String, description = "Name of the script context to run the script on."),
@@ -52,11 +52,11 @@ pub async fn run_script(
     script_path: PathBuf,
     mut script_input: Json<serde_json::Value>,
     script_context_store: &State<script::ContextStore>,
-) -> Result<(), ApiErrorResponse> {
+) -> Result<Json<usize>, ApiErrorResponse> {
     let context = script_context_store.get_context(context_name).await?;
-    context
+    let index = context
         .run_script(&script_path, script_input.take())
         .await?;
 
-    Ok(())
+    Ok(Json(index))
 }
