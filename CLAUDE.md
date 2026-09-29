@@ -33,7 +33,7 @@ Scripts interact with state objects via `require("epibloom.state")`:
 
 The UI subscribes via `GET /api/state?objects=name1,name2,...`, receiving each object's current value first, then live patches as they change.
 
-State objects with names prefixed with `persist:` are automatically persisted.
+State objects with names suffixed with `:persist` are automatically persisted.
 
 #### Scripts (`epibloom/src/script[.rs]`, `epibloom/src/api/script.rs`)
 
