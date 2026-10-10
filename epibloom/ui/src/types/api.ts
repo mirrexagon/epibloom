@@ -79,3 +79,60 @@ export interface AnthropicUsage {
     service_tier?: string;
     inference_geo?: string;
 }
+
+// ---- Scripts ----------
+
+/** An entry in a `script-status:<context>` state object's array. */
+export interface ScriptStatus {
+    script_path: string;
+    request_time: string; // RFC3339 datetime
+    start_time: string | null;
+    end_time: string | null; // Set when the script has finished (successfully or not)
+    input: unknown;
+    result: unknown;
+    error: string | null;
+}
+
+// ---- Chat (see epibloom/scripts/chat.lua) ----------
+// Note: all indices are 1-based, matching the Lua side.
+
+/** Stored in the `chat:<id>:persist` state object. */
+export interface Chat {
+    id: string;
+    name: string;
+    system: string;
+    model: string;
+    max_tokens: number;
+    messages: ChatMessageSlot[];
+    created: string;
+    modified: string;
+}
+
+/** Stored in the (non-persisted) `chat:<id>` state object. May be null if not yet initialised. */
+export interface ChatStatus {
+    generating: boolean;
+    cancel_requested: boolean;
+    message_index?: number;
+    alternate_index?: number;
+    trace?: string;
+}
+
+export interface ChatMessageSlot {
+    alternates: ChatMessage[];
+    /** 1-based index into `alternates`. */
+    selected: number;
+}
+
+export type ChatRole = "user" | "assistant";
+
+export interface ChatMessage {
+    role: ChatRole;
+    /** List of text blocks, each of which is a list of chunks to be concatenated. */
+    content: string[][];
+    note: string;
+    /** Name of the trace state object for the generation that produced this message. */
+    trace?: string;
+    error?: string;
+    created: string;
+    modified: string;
+}
