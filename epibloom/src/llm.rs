@@ -140,8 +140,12 @@ impl LlmStore {
                     Err(err) => {
                         trace.error = Some(err.to_string());
 
-                        // When we fall out of the loop, we and set the end time
-                        // and save the trace.
+                        // Forward the error to the handle so the caller sees
+                        // it, then fall out of the loop, where we set the end
+                        // time and save the trace.
+                        if let Err(err) = tx.send(result).await {
+                            log::warn!("Failed to send StreamingEvent error into channel: {err:?}");
+                        }
                         break;
                     }
                 }
