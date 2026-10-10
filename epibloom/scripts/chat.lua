@@ -217,6 +217,11 @@ function chat._update(chat_id, update_function)
     state_object:update(update_function)
 end
 
+-- TODO: Have both chat:<id>:persist and chat:<id> objects. The :persist object
+-- stores most things and the non-persist one is for things like "currently
+-- generating" that should be reset if the application is closed eg. mid
+-- generation.
+
 --- Get the state object that is or would be associated with the given chat ID.
 --- @param chat_id ChatId
 --- @return StateObject
